@@ -17,7 +17,7 @@ Nobody is shipping a locker with all of:
 - **Plugins isolated in separate processes** — a crashing plugin closes its socket; the locker draws a fallback and moves on.
 - **No keyboard access for plugins** — the password buffer lives in the trusted core; plugins receive only configuration, time ticks, and (optionally) clicks within their own region. Keystrokes never leave the core.
 - **GPU-accelerated rendering** — plugins use OpenGL freely in their own EGL contexts and share results via DMA-BUF. Shader-driven wallpapers, particle effects, and complex animated UIs run at full GPU speed.
-- **Compositor-portable** — works on any compositor that supports `ext-session-lock-v1` (wlroots-based compositors, KDE, GNOME via its own pathway).
+- **Compositor-portable** — works on any compositor that supports `ext-session-lock-v1` (wlroots-based compositors, KDE, and others as adoption grows).
 
 The Linux customization community is real and active and wants this. Veiland aims to be the answer.
 
@@ -27,7 +27,7 @@ Veiland-core is a Wayland client that owns the `ext-session-lock-v1` surface, ha
 
 ## Status
 
-Early. The cross-process DMA-BUF buffer-sharing mechanism — the architecturally critical piece — has been validated end-to-end on Intel iGPU + Mesa. Real plugin protocol, `ext-session-lock-v1` integration, and PAM are next.
+Early — design phase. Nothing is implemented yet. The first milestone (M0) is a small C proof-of-concept that validates cross-process DMA-BUF buffer sharing on the target hardware before the Rust core is built on top of it.
 
 See [`CLAUDE.md`](CLAUDE.md) for detailed architecture notes and design decisions.
 
@@ -51,15 +51,9 @@ NixOS users: `nix-shell` will pull in all dependencies. See `shell.nix`.
 
 ## Compatibility
 
-Targets compositors implementing `ext-session-lock-v1`:
+Targets any compositor implementing `ext-session-lock-v1`. Tested primarily on Hyprland and Sway during development.
 
-- Hyprland
-- Sway
-- KDE Plasma (Wayland session)
-- GNOME (via its Wayland session)
-- niri, Wayfire, river, and other wlroots-based compositors
-
-Tested primarily on Hyprland and Sway during development. Compatibility patches for other compositors welcome.
+Other compositors that implement the protocol (KDE Plasma, niri, Wayfire, river, and other wlroots-based compositors) should work but are not regularly tested. GNOME's support for `ext-session-lock-v1` has historically been partial — treat it as untested. Compatibility patches welcome.
 
 ## Non-goals
 
@@ -78,7 +72,9 @@ Things that aren't planned for the foreseeable future but might make sense later
 
 ## License
 
-(TBD — likely GPL-3.0 or MPL-2.0. Decision pending.)
+GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+
+Plugins communicate with the core over a Unix socket, so plugin authors are free to license their plugins under whatever terms they like.
 
 ## Naming
 
