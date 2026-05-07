@@ -70,11 +70,15 @@ Tested primarily on Hyprland and Sway during development. Compatibility patches 
 - Networked plugins.
 - A built-in "plugin store." Plugins are programs the user installs and trusts deliberately.
 
+## Future directions (not in scope yet)
+
+Things that aren't planned for the foreseeable future but might make sense later:
+
+- **Lua plugins.** The plugin protocol is language-agnostic (it's a Unix socket and a wire format), so anything that can speak the protocol can be a plugin. A `veiland-lua-runner` host binary that runs Lua scripts as their own plugin processes — same security model as native plugins, much lower barrier to entry for plugin authors who don't want to write Rust. The realistic Lua API would be declarative 2D drawing primitives rather than raw GPU access; shader-heavy plugins stay native. Deferred until after the native plugin API has stabilized and there's real ecosystem feedback to inform the Lua API shape.
+
 ## License
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE).
-
-Plugins communicate with veiland-core over a Unix socket as separate processes, which is well-established as a license boundary — plugin authors are free to license their plugins however they want.
+(TBD — likely GPL-3.0 or MPL-2.0. Decision pending.)
 
 ## Naming
 
