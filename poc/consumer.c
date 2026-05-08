@@ -40,14 +40,54 @@ int main(void) {
 	}
 	printf("Accepted new connection on client socket fd: %d\n", client_fd);
 
-	char buf[256] = {0};
-	ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
+	// char buf[256] = {0};
+	// ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
+	// if (n == -1) {
+	// 	perror("read");
+	// 	exit(EXIT_FAILURE);
+	// }
+	// printf("Consumer: got %zd bytes: %s\n", n, buf);
+
+	char dummy;
+	struct iovec iov = { .iov_base = &dummy, .iov_len = 1 };
+
+	char cmsg_buf[CMSG_SPACE(sizeof(int))];
+	memset(cmsg_buf, 0, sizeof(cmsg_buf));
+
+
+	struct msghdr msg = {0};
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = cmsg_buf;
+	msg.msg_controllen = sizeof(cmsg_buf);
+
+	ssize_t n = recvmsg(client_fd, &msg, 0);
 	if (n == -1) {
-		perror("read");
+		perror("recvmsg");
 		exit(EXIT_FAILURE);
 	}
-	printf("Consumer: got %zd bytes: %s\n", n, buf);
 
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+	if (!cmsg || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+		fprintf(stderr, "no SCM_RIGHTS in received message\n");
+		exit(EXIT_FAILURE);
+	}
+
+	int received_fd;
+	memcpy(&received_fd, CMSG_DATA(cmsg), sizeof(int));
+
+	printf("consumer: received fd %d (locally numbered)\n", received_fd);
+
+	char buf[256] = {0};
+	ssize_t r = read(received_fd, buf, sizeof(buf) - 1);
+	if (r == -1) {
+		perror("read from received fd");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("consumer: file contents (%zd bytes): %s\n", r, buf);
+
+	close(received_fd);
 	close(client_fd);
 	close(sock_fd);
 

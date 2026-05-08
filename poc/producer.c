@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <string.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
 
 int main(void) {
@@ -30,13 +32,38 @@ int main(void) {
 	}
 	printf("Connected\n");
 
-	const char *msg = "Hello from producer";
-	ssize_t written = write(sock_fd, msg, strlen(msg));
-	if (written == -1) {
-		perror("write");
+	int file_fd = open("/tmp/scm-test.txt", O_RDONLY);
+	if (file_fd == -1) {
+		perror("open");
 		exit(EXIT_FAILURE);
 	}
-	printf("Producer: sent %zd bytes", written);
+
+	char dummy = 'X';
+	struct iovec iov = { .iov_base = &dummy, .iov_len = 1 };
+
+	char cmsg_buf[CMSG_SPACE(sizeof(int))];
+	memset(cmsg_buf, 0, sizeof(cmsg_buf));
+
+
+	struct msghdr msg = {0};
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = cmsg_buf;
+	msg.msg_controllen = sizeof(cmsg_buf);
+
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+
+	memcpy(CMSG_DATA(cmsg), &file_fd, sizeof(int));
+
+	if (sendmsg(sock_fd, &msg, 0) == -1) {
+		perror("sendmsg");
+		exit(EXIT_FAILURE);
+	}
+
+	close(file_fd);
 
 	return 0;
 }
