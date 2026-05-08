@@ -70,6 +70,18 @@ Things that aren't planned for the foreseeable future but might make sense later
 
 - **Lua plugins.** The plugin protocol is language-agnostic (it's a Unix socket and a wire format), so anything that can speak the protocol can be a plugin. A `veiland-lua-runner` host binary that runs Lua scripts as their own plugin processes — same security model as native plugins, much lower barrier to entry for plugin authors who don't want to write Rust. The realistic Lua API would be declarative 2D drawing primitives rather than raw GPU access; shader-heavy plugins stay native. Deferred until after the native plugin API has stabilized and there's real ecosystem feedback to inform the Lua API shape.
 
+  Concerns to validate before committing to a Lua runner:
+
+  1. **Audience mismatch.** Veiland's pitch is GPU acceleration. If the people who actually want to write plugins are shader authors (Shadertoy refugees, Hyprland/niri customizers), they want GLSL and a buffer — not a scripting layer that hides the GPU. A Lua runner serves config-tinkerers writing clocks and widgets, which may or may not be the audience that shows up.
+  2. **API surface drift.** A declarative 2D API (draw text, draw image, draw rect) is effectively a second plugin API in parallel with the native one. Two APIs means two sets of capabilities to keep in sync, two sets of docs, and decisions about whether features land in one or both.
+  3. **Marginal value over native.** If the native plugin API ends up small and well-documented, the gap Lua fills (avoiding Rust) may be narrower than expected — especially if a `veiland-plugin` C wrapper or a Python binding shows up first from the community.
+
+  How to check whether these are real, post-M7:
+
+  - Look at what plugin authors are actually building. If the first ~10 plugins are shader-heavy, Lua is a distraction. If they're mostly clocks, weather widgets, and notification displays, Lua has a real audience.
+  - Watch the issue tracker and any community channels for "how do I write a plugin without learning Rust" — count the askers, not just the asks.
+  - Before building anything, sketch the Lua API against three concrete plugins those askers say they want, and check whether the declarative-2D surface actually covers them. If two of the three need an escape hatch to raw GL, the Lua runner isn't the right shape.
+
 ## License
 
 GPL-3.0-or-later. See [`LICENSE`](LICENSE).
