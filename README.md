@@ -49,6 +49,12 @@ NixOS users: `nix-shell` will pull in all dependencies. See `shell.nix`.
 
 (Coming. Once the protocol stabilizes there will be a `veiland-plugin` library and a sample plugin showing the minimum boilerplate.)
 
+### Do plugins have to use OpenGL?
+
+No. Plugins are processes that produce buffers. *How* a plugin paints into its buffer is up to the plugin author — Cairo (with Pango for text), pure OpenGL via its own EGL context, or anything else that can fill a DMA-BUF. The core composites the result as a texture; it does not know or care how the pixels got there.
+
+Animated, shader-heavy content (live wallpapers, particle effects) is what the GPU path is built for. Static or rarely-updated content (a clock face, a date string) is often easier to draw with Cairo and copy in occasionally — both are fully supported.
+
 ## Compatibility
 
 Targets any compositor implementing `ext-session-lock-v1`. Tested primarily on Hyprland and Sway during development.
