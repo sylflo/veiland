@@ -14,6 +14,8 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
+
 
 int main(void) {
 	puts("producer: hello");
@@ -89,7 +91,86 @@ int main(void) {
 	printf("producer: vendor: %s\n", (const char *)glGetString(GL_VENDOR));
 	printf("producer: renderer: %s\n", (const char *)glGetString(GL_RENDERER));
 
+	const int BUF_W = 800, BUF_H = 600;
+	struct gbm_bo *bo = gbm_bo_create(
+		gbm,
+		BUF_W, BUF_H,
+		GBM_FORMAT_ARGB8888,
+		GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR
+	);
+	if (!bo) {
+		fprintf(stderr, "gbm_bo_create failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("producer: allocated GBM buffer %dx%d, format ARGB8888, stride=%u, modifier=0x%lx\n",
+		BUF_W, BUF_H,
+		gbm_bo_get_stride(bo),
+		(unsigned long)gbm_bo_get_modifier(bo)
+	);
+
+	PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+	PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR"); 
+	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+
+	if (!eglCreateImageKHR || !eglDestroyImageKHR || !glEGLImageTargetTexture2DOES) {
+		fprintf(stderr, "EGL extension functions unavailable\n");
+		exit(EXIT_FAILURE);
+	}
+
+	EGLImageKHR egl_img = eglCreateImageKHR(
+		egl_dpy,
+		EGL_NO_CONTEXT,
+		EGL_NATIVE_PIXMAP_KHR,
+		(EGLClientBuffer)bo,
+		NULL
+	);
+	if (egl_img == EGL_NO_IMAGE_KHR) {
+		fprintf(stderr, "eglCreateImageKHR failed: 0x%x\n", eglGetError());
+		exit(EXIT_FAILURE);
+	}
+
+	GLuint render_tex;
+	glGenTextures(1, &render_tex);
+	glBindTexture(GL_TEXTURE_2D, render_tex);
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES)egl_img);
+
+	GLuint fbo;
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, render_tex, 0);
+	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER); 
+	if (status != GL_FRAMEBUFFER_COMPLETE) { 
+		fprintf(stderr, "FBO incomplete: 0x%x\n", status);
+		exit(EXIT_FAILURE);
+	}
+	printf("producer: FBO ready, render target %dx%d\n", BUF_W, BUF_H);
+
+	glViewport(0, 0, BUF_W, BUF_H);
+
+	const int N_FRAMES = 60;
+	for (int frame = 0; frame < N_FRAMES; frame++) {
+		float t = (float)frame / N_FRAMES;
+		glClearColor(t, 0.5f, 1.0f -t, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	GLenum err = glGetError();
+	if (err != GL_NO_ERROR) {
+		fprintf(stderr, "GL error during render: 0x%x\n", err);
+	}
+	unsigned char rgba[4];
+	glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	printf("producer: pixel(0,0) = (%u, %u, %u, %u)\n", rgba[0], rgba[1], rgba[2], rgba[3]);
+
+	glFinish();
+
+	printf("Producer: rendered %d frames into the buffer\n", N_FRAMES);
+
 	// to move later when server socket will be back
+	glDeleteFramebuffers(1, &fbo);
+	glDeleteTextures(1, &render_tex);
+	eglDestroyImageKHR(egl_dpy, egl_img);
+	gbm_bo_destroy(bo);
 	eglMakeCurrent(egl_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	eglDestroyContext(egl_dpy, egl_ctx);
 	eglTerminate(egl_dpy);
