@@ -55,6 +55,35 @@ No. Plugins are processes that produce buffers. *How* a plugin paints into its b
 
 Animated, shader-heavy content (live wallpapers, particle effects) is what the GPU path is built for. Static or rarely-updated content (a clock face, a date string) is often easier to draw with Cairo and copy in occasionally — both are fully supported.
 
+## References
+
+The Linux GPU stack (GBM, EGL, dmabuf import) is sparsely documented. There's no canonical tutorial — the reference for these APIs is mostly other open-source code. Useful starting points if you're hacking on veiland-core or writing a plugin from scratch:
+
+**Code to read**
+
+- [`kmscube`](https://gitlab.freedesktop.org/mesa/kmscube) — the canonical headless GBM + EGL example. Renders a spinning cube via DRM/KMS in ~800 lines of C. Closest match to what veiland's plugin processes do.
+- [`wlroots`](https://gitlab.freedesktop.org/wlroots/wlroots) — production-quality renderer using GBM + EGL + dmabuf import. See `render/gles2/` for the GLES path and `render/allocator/gbm.c` for buffer allocation. The reference implementation when something in veiland-core misbehaves.
+- [`swaylock-plugin`](https://github.com/mstoeckl/swaylock-plugin) — closest project to veiland in spirit. Demonstrates `ext-session-lock-v1` lifecycle and delegating background rendering to another process.
+- [`shaderbg`](https://github.com/danielfvm/shaderbg) — smallest readable EGL + `wlr-layer-shell` setup. A good first read.
+
+**Specs and APIs**
+
+- [Khronos EGL Registry](https://registry.khronos.org/EGL/) — canonical specs for every `EGL_*` extension. Dense, exhaustive, the source of truth.
+- [`EGL_EXT_image_dma_buf_import`](https://registry.khronos.org/EGL/extensions/EXT/EGL_EXT_image_dma_buf_import.txt) — the load-bearing extension that lets veiland-core import a plugin's GPU buffer as a sampleable texture.
+- [`ext-session-lock-v1`](https://wayland.app/protocols/ext-session-lock-v1) — the Wayland protocol veiland-core uses to actually lock the screen.
+- [`linux-dmabuf-v1`](https://wayland.app/protocols/linux-dmabuf-v1) — Wayland's standard buffer-sharing protocol. Not used directly (veiland's internal protocol is its own), but the design echoes it.
+
+**Headers as documentation**
+
+In the Mesa/Khronos ecosystem, the headers themselves are often the best docs:
+
+- `<gbm.h>` — comments above each function. There is no separate man page or website; this is *the* documentation.
+- `<EGL/egl.h>` and `<EGL/eglext.h>` — same. Extension headers are the only docs for many features.
+
+**Search trick**
+
+When a function isn't documented anywhere readable, clone `kmscube` and `wlroots` and `git grep` for the function name. Three real call sites teach a function faster than any prose ever would.
+
 ## Compatibility
 
 Targets any compositor implementing `ext-session-lock-v1`. Tested primarily on Hyprland and Sway during development.
