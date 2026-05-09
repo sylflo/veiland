@@ -10,12 +10,18 @@ CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 LDFLAGS ?=
 
-# Per-binary deps. The consumer needs a GL context + window for step 4
-# onward; the producer is still socket-only until step 6 brings in GBM/EGL.
-# glfw3 = window + EGL context, glesv2 = the gl* functions we actually call.
+# Per-binary deps.
+#
+# Consumer (glfw3 = window + EGL context, glesv2 = the gl* functions we call).
 CONSUMER_PKGS    := glfw3 glesv2
 CONSUMER_CFLAGS  := $(shell pkg-config --cflags $(CONSUMER_PKGS))
 CONSUMER_LDFLAGS := $(shell pkg-config --libs   $(CONSUMER_PKGS))
+
+# Producer (headless: gbm allocates GPU buffers, egl makes the GL context
+# without a window, glesv2 supplies the gl* symbols).
+PRODUCER_PKGS    := gbm egl glesv2
+PRODUCER_CFLAGS  := $(shell pkg-config --cflags $(PRODUCER_PKGS))
+PRODUCER_LDFLAGS := $(shell pkg-config --libs   $(PRODUCER_PKGS))
 
 BINS = producer consumer
 
@@ -24,7 +30,7 @@ BINS = producer consumer
 all: $(BINS)
 
 producer: producer.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	$(CC) $(CFLAGS) $(PRODUCER_CFLAGS) -o $@ $< $(LDFLAGS) $(PRODUCER_LDFLAGS)
 
 consumer: consumer.c
 	$(CC) $(CFLAGS) $(CONSUMER_CFLAGS) -o $@ $< $(LDFLAGS) $(CONSUMER_LDFLAGS)
