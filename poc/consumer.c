@@ -12,17 +12,22 @@
 
 const char *vertexShaderSource = "#version 300 es\n"
 	"layout (location = 0) in vec3 aPos;\n"
+	"layout (location = 1) in vec2 aUV;\n"
+	"out vec2 vUV;\n"
 	"void main()\n"
 	"{\n"
 	"	gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+	"	vUV = aUV;\n"
 	"}\0";
 
 const char *fragmentShaderSource = "#version 300 es\n"
 	"precision mediump float;\n"
     "out vec4 FragColor;\n"
+	"in vec2 vUV;\n"
+	"uniform sampler2D uTex;\n"
     "void main()\n"
     "{\n"
-    "   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
+    "   FragColor = texture(uTex, vUV);\n"
     "}\n\0";
 
 // Print GLFW errors to stderr instead of swallowing them silently. Set
@@ -184,22 +189,62 @@ int main(void) {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+	// Pin the uTex sampler to texture unit 0. Has to happen with the program
+	// active, and only needs to be done once after linking.
+	glUseProgram(shaderProgram);
+	glUniform1i(glGetUniformLocation(shaderProgram, "uTex"), 0);
+
+	const int W = 256, H = 256;
+	unsigned char *pixels = malloc(W * H * 4);
+	for (int y = 0; y < H; y++) {
+		for (int x = 0; x < W; x++) {
+			unsigned char *p = &pixels[(y * W +x) * 4];
+			p[0] = x;
+			p[1] = y;
+			p[2] = 0;
+			p[3] = 255;
+		}
+	}
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	free(pixels);
+
 	float vertices[] = {
-		-0.5f, -0.5f, 0.0f,
-		0.5f, -0.5f, 0.0f,
-		0.0f, 0.5f, 0.0f,
+		0.5f,  0.5f, 0.0f,  1.0f, 1.0f,  // top right
+		0.5f, -0.5f, 0.0f,  1.0f, 0.0f,  // bottom right
+		-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,  // bottom left
+		-0.5f,  0.5f, 0.0f,  0.0f, 1.0f,   // top left 
+	};
+	unsigned int indices[] = {  // note that we start from 0!
+		0, 1, 3,   // first triangle
+		1, 2, 3    // second triangle
 	};
 
-	unsigned int VAO, VBO;
+	unsigned int EBO, VAO, VBO;
+
 	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &EBO);
 	glGenBuffers(1, &VBO);
 
 	glBindVertexArray(VAO);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
 	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
@@ -211,9 +256,15 @@ int main(void) {
 		glClearColor(0.2f, 0.4f, 0.8f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+		// Bind the texture to unit 0 each frame. Redundant for this single-
+		// texture POC but documents intent and is the shape step 8 needs.
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, texture);
+
 		glUseProgram(shaderProgram);
 		glBindVertexArray(VAO);
-		glDrawArrays(GL_TRIANGLES, 0, 3);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		// glDrawArrays(GL_TRIANGLES, 0, 3);
 
 		// Swap back buffer to the screen. Blocks until the next vsync by
 		// default, so the loop runs at the monitor's refresh rate.
