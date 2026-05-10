@@ -1,0 +1,10 @@
+[package]
+name = "veiland-core"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Wayland screen locker with process-isolated GPU plugins"
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
