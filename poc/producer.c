@@ -15,7 +15,16 @@
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
+#include <stdint.h>
 
+
+struct buffer_msg {
+	uint32_t width;
+	uint32_t height;
+	uint32_t format;
+	uint32_t stride;
+	uint64_t modifier;
+};
 
 int main(void) {
 	puts("producer: hello");
@@ -166,7 +175,68 @@ int main(void) {
 
 	printf("Producer: rendered %d frames into the buffer\n", N_FRAMES);
 
-	// to move later when server socket will be back
+	int dmabuf_fd = gbm_bo_get_fd(bo);
+	if (dmabuf_fd == -1) {
+		perror("gbm_bo_get_fd");
+		exit(EXIT_FAILURE);
+	}
+
+	struct buffer_msg meta = {
+		.width = BUF_W,
+		.height = BUF_H,
+		.format = GBM_FORMAT_ARGB8888,
+		.stride = gbm_bo_get_stride(bo),
+		.modifier = gbm_bo_get_modifier(bo),
+	};
+
+	// Create socket
+	struct sockaddr_un addr;
+	int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	
+    if (sock_fd == -1) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, "/tmp/veiland-poc.sock", sizeof(addr.sun_path) - 1);
+
+	if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+        perror("connect failed");
+        exit(EXIT_FAILURE);
+	}
+	printf("Connected\n");
+
+	struct iovec iov = { .iov_base = &meta, .iov_len = sizeof(meta) };
+
+	char cmsg_buf[CMSG_SPACE(sizeof(int))];
+	memset(cmsg_buf, 0, sizeof(cmsg_buf));
+
+
+	struct msghdr msg = {0};
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = cmsg_buf;
+	msg.msg_controllen = sizeof(cmsg_buf);
+
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+
+	memcpy(CMSG_DATA(cmsg), &dmabuf_fd, sizeof(int));
+
+	if (sendmsg(sock_fd, &msg, 0) == -1) {
+		perror("sendmsg");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("producer: sent fd=%d, %ux%u, format=0x%x, stride=%u, modifier=0x%lx\n",
+		dmabuf_fd, meta.width, meta.height, meta.format, meta.stride,
+		(unsigned long)meta.modifier);
+
+	sleep(60);
+
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteTextures(1, &render_tex);
 	eglDestroyImageKHR(egl_dpy, egl_img);
@@ -176,58 +246,8 @@ int main(void) {
 	eglTerminate(egl_dpy);
 	gbm_device_destroy(gbm);
 	close(drm_fd);
-
-
-	// // Create socket
-	// struct sockaddr_un addr;
-	// int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	
-    // if (sock_fd == -1) {
-    //     perror("socket failed");
-    //     exit(EXIT_FAILURE);
-    // }
-	// memset(&addr, 0, sizeof(addr));
-	// addr.sun_family = AF_UNIX;
-	// strncpy(addr.sun_path, "/tmp/veiland-poc.sock", sizeof(addr.sun_path) - 1);
-
-	// if (connect(sock_fd, (struct sockaddr *)&addr, sizeof addr) == -1) {
-    //     perror("connect failed");
-    //     exit(EXIT_FAILURE);
-	// }
-	// printf("Connected\n");
-
-	// int file_fd = open("/tmp/scm-test.txt", O_RDONLY);
-	// if (file_fd == -1) {
-	// 	perror("open");
-	// 	exit(EXIT_FAILURE);
-	// }
-
-	// char dummy = 'X';
-	// struct iovec iov = { .iov_base = &dummy, .iov_len = 1 };
-
-	// char cmsg_buf[CMSG_SPACE(sizeof(int))];
-	// memset(cmsg_buf, 0, sizeof(cmsg_buf));
-
-
-	// struct msghdr msg = {0};
-	// msg.msg_iov = &iov;
-	// msg.msg_iovlen = 1;
-	// msg.msg_control = cmsg_buf;
-	// msg.msg_controllen = sizeof(cmsg_buf);
-
-	// struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
-	// cmsg->cmsg_level = SOL_SOCKET;
-	// cmsg->cmsg_type = SCM_RIGHTS;
-	// cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-
-	// memcpy(CMSG_DATA(cmsg), &file_fd, sizeof(int));
-
-	// if (sendmsg(sock_fd, &msg, 0) == -1) {
-	// 	perror("sendmsg");
-	// 	exit(EXIT_FAILURE);
-	// }
-
-	// close(file_fd);
+	close(dmabuf_fd);
+	close(sock_fd);
 
 	return 0;
 }

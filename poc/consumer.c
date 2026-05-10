@@ -9,6 +9,18 @@
 
 #include <GLES3/gl3.h>
 #include <GLFW/glfw3.h>
+#include <stdint.h>
+#include <EGL/egl.h> 
+#include <EGL/eglext.h>
+#include <GLES2/gl2ext.h>
+
+struct buffer_msg {
+	uint32_t width;
+	uint32_t height;
+	uint32_t format;
+	uint32_t stride;
+	uint64_t modifier;
+};
 
 const char *vertexShaderSource = "#version 300 es\n"
 	"layout (location = 0) in vec3 aPos;\n"
@@ -42,7 +54,6 @@ int main(void) {
 	// --- Socket + SCM_RIGHTS code from steps 2 and 3 ---------------------
 	// Disabled for step 4 (window-only). Re-enabled at step 8 when the
 	// producer starts sending a real dmabuf fd over the socket.
-#if 0
 	// Create socket
 	struct sockaddr_un addr;
 	int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -67,6 +78,7 @@ int main(void) {
 		exit(EXIT_FAILURE);
 	}
 
+	puts("Consumer: waiting for producer...");
 	int client_fd = accept(sock_fd, NULL, NULL);
 	if (client_fd == -1) {
 		perror("accept");
@@ -74,8 +86,8 @@ int main(void) {
 	}
 	printf("Accepted new connection on client socket fd: %d\n", client_fd);
 
-	char dummy;
-	struct iovec iov = { .iov_base = &dummy, .iov_len = 1 };
+	struct buffer_msg meta;
+	struct iovec iov = { .iov_base = &meta, .iov_len = sizeof(meta) };
 
 	char cmsg_buf[CMSG_SPACE(sizeof(int))];
 	memset(cmsg_buf, 0, sizeof(cmsg_buf));
@@ -98,24 +110,12 @@ int main(void) {
 		exit(EXIT_FAILURE);
 	}
 
-	int received_fd;
-	memcpy(&received_fd, CMSG_DATA(cmsg), sizeof(int));
+	int dmabuf_fd;
+	memcpy(&dmabuf_fd, CMSG_DATA(cmsg), sizeof(int));
 
-	printf("consumer: received fd %d (locally numbered)\n", received_fd);
-
-	char buf[256] = {0};
-	ssize_t r = read(received_fd, buf, sizeof(buf) - 1);
-	if (r == -1) {
-		perror("read from received fd");
-		exit(EXIT_FAILURE);
-	}
-
-	printf("consumer: file contents (%zd bytes): %s\n", r, buf);
-
-	close(received_fd);
-	close(client_fd);
-	close(sock_fd);
-#endif
+	printf("consumer: got fd=%d, %ux%u, format=0x%x, stride=%u, modifier=0x%lx\n", 
+		dmabuf_fd, meta.width, meta.height, meta.format, meta.stride,
+		 (unsigned long)meta.modifier);
 
 	// --- Step 4: open a GLFW window and clear it to a solid color --------
 	// First GPU step. No producer involved yet — just proving that EGL +
@@ -147,6 +147,10 @@ int main(void) {
 	// Bind the window's GL context to this thread. Required before any
 	// gl* call, including glClear below.
 	glfwMakeContextCurrent(window);
+
+
+	close(client_fd);
+	close(sock_fd);
 
 
 	// VertexShader
@@ -194,28 +198,53 @@ int main(void) {
 	glUseProgram(shaderProgram);
 	glUniform1i(glGetUniformLocation(shaderProgram, "uTex"), 0);
 
-	const int W = 256, H = 256;
-	unsigned char *pixels = malloc(W * H * 4);
-	for (int y = 0; y < H; y++) {
-		for (int x = 0; x < W; x++) {
-			unsigned char *p = &pixels[(y * W +x) * 4];
-			p[0] = x;
-			p[1] = y;
-			p[2] = 0;
-			p[3] = 255;
-		}
+
+	PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+	PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR"); 
+	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	if (!eglCreateImageKHR || !eglDestroyImageKHR || !glEGLImageTargetTexture2DOES) {
+		fprintf(stderr, "EGL extension functions unavailable\n");
+		exit(EXIT_FAILURE);
 	}
+
+	EGLint img_attribs[] = {
+		EGL_WIDTH,                          (EGLint)meta.width,
+		EGL_HEIGHT,                         (EGLint)meta.height,
+		EGL_LINUX_DRM_FOURCC_EXT,           (EGLint)meta.format,
+		EGL_DMA_BUF_PLANE0_FD_EXT,          dmabuf_fd,
+		EGL_DMA_BUF_PLANE0_OFFSET_EXT,      0,
+		EGL_DMA_BUF_PLANE0_PITCH_EXT,       (EGLint)meta.stride,
+		EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, (EGLint)(meta.modifier & 0xffffffff),
+		EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, (EGLint)(meta.modifier >> 32),
+		EGL_NONE,
+	};
+	EGLDisplay egl_dpy = eglGetCurrentDisplay();
+	EGLImageKHR egl_img = eglCreateImageKHR(
+		egl_dpy,
+		EGL_NO_CONTEXT,
+		EGL_LINUX_DMA_BUF_EXT,
+		(EGLClientBuffer)NULL,
+		img_attribs
+	);
+	if (egl_img == EGL_NO_IMAGE_KHR) {
+		fprintf(stderr, "consumer: eglCreateImageKHR failed: 0x%x\n", eglGetError());
+		exit(EXIT_FAILURE);
+	}
+
 	unsigned int texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
+	glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES)egl_img);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); 
+	
 
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-	free(pixels);
+	puts("Consumer: imported dmabuf as GL Texture");
+
+	close(dmabuf_fd);
 
 	float vertices[] = {
 		0.5f,  0.5f, 0.0f,  1.0f, 1.0f,  // top right

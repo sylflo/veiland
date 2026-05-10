@@ -12,8 +12,9 @@ LDFLAGS ?=
 
 # Per-binary deps.
 #
-# Consumer (glfw3 = window + EGL context, glesv2 = the gl* functions we call).
-CONSUMER_PKGS    := glfw3 glesv2
+# Consumer (glfw3 = window + EGL context, glesv2 = the gl* functions we call,
+# egl = direct EGL calls for the dmabuf import in step 8).
+CONSUMER_PKGS    := glfw3 glesv2 egl
 CONSUMER_CFLAGS  := $(shell pkg-config --cflags $(CONSUMER_PKGS))
 CONSUMER_LDFLAGS := $(shell pkg-config --libs   $(CONSUMER_PKGS))
 
