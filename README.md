@@ -27,7 +27,7 @@ Veiland-core is a Wayland client that owns the `ext-session-lock-v1` surface, ha
 
 ## Status
 
-Early — design phase. Nothing is implemented yet. The first milestone (M0) is a small C proof-of-concept that validates cross-process DMA-BUF buffer sharing on the target hardware before the Rust core is built on top of it.
+M0 (C POC validating cross-process DMA-BUF) is complete and archived in `poc/`. M1 is in progress: `veiland-core` now connects to Wayland, creates `ext-session-lock-v1` surfaces on all outputs, and paints a solid-color SHM buffer — tested on dual-monitor Hyprland. Keyboard input (Escape-to-unlock) is the next step.
 
 See [`CLAUDE.md`](CLAUDE.md) for detailed architecture notes and design decisions.
 

@@ -8,6 +8,7 @@ repository = "https://github.com/sylflo/veiland"
 publish = false
 
 [dependencies]
+rustix = { version = "1.1.4", features = ["fs", "mm"] }
 smithay-client-toolkit = "0.20.0"
 wayland-client = "0.31.14"
 wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }
