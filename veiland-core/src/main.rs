@@ -14,17 +14,15 @@ use smithay_client_toolkit::{
         SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface,
         SessionLockSurfaceConfigure,
     },
-    shm::{Shm, ShmHandler, raw::RawPool},
 };
 use std::time::Duration;
 
+use khronos_egl as egl;
 use wayland_client::{
-    Connection, QueueHandle,
+    Connection, Proxy, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_buffer, wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface},
+    protocol::{wl_buffer, wl_keyboard, wl_output, wl_seat, wl_surface},
 };
-
-const BG_COLOR: u32 = 0xFF20_2020;
 
 #[derive(Default, PartialEq)]
 enum RunState {
@@ -34,6 +32,12 @@ enum RunState {
     Refused,
 }
 
+struct LockSurface {
+    lock_surface: SessionLockSurface,
+    egl_window: Option<wayland_egl::WlEglSurface>,
+    egl_surface: Option<egl::Surface>,
+}
+
 struct AppData {
     conn: Connection,
     compositor_state: CompositorState,
@@ -41,11 +45,14 @@ struct AppData {
     registry_state: RegistryState,
     seat_state: SeatState,
     keyboard: Option<wl_keyboard::WlKeyboard>,
-    shm: Shm,
     session_lock_state: SessionLockState,
     session_lock: Option<SessionLock>,
-    lock_surfaces: Vec<SessionLockSurface>,
+    lock_surfaces: Vec<LockSurface>,
     run: RunState,
+    egl: egl::Instance<egl::Static>,
+    egl_display: egl::Display,
+    egl_config: egl::Config,
+    egl_context: egl::Context,
 }
 
 fn main() {
@@ -57,6 +64,44 @@ fn main() {
     let qh = event_queue.handle();
     let mut event_loop: EventLoop<AppData> = EventLoop::try_new().expect("calloop event loop");
 
+    let egl = egl::Instance::new(egl::Static);
+    let display_ptr = conn.backend().display_ptr();
+    // SAFETY: display_ptr came from a live wayland_client::Connection.
+    let egl_display =
+        unsafe { egl.get_display(display_ptr as *mut std::ffi::c_void) }.expect("get EGL display");
+    egl.initialize(egl_display)
+        .expect("egl failed to initialize");
+    egl.bind_api(egl::OPENGL_ES_API)
+        .expect("Failed to bind OPENGL_ES_API");
+    gl::load_with(|name| {
+        egl.get_proc_address(name)
+            .map(|p| p as *const _)
+            .unwrap_or(std::ptr::null())
+    });
+    let config_attribs = [
+        egl::SURFACE_TYPE,
+        egl::WINDOW_BIT,
+        egl::RENDERABLE_TYPE,
+        egl::OPENGL_ES2_BIT,
+        egl::RED_SIZE,
+        8,
+        egl::GREEN_SIZE,
+        8,
+        egl::BLUE_SIZE,
+        8,
+        egl::ALPHA_SIZE,
+        8,
+        egl::NONE,
+    ];
+    let egl_config = egl
+        .choose_first_config(egl_display, &config_attribs)
+        .expect("choose EGL config")
+        .expect("no matching EGL config");
+    let context_attribs = [egl::CONTEXT_CLIENT_VERSION, 2, egl::NONE];
+    let egl_context = egl
+        .create_context(egl_display, egl_config, None, &context_attribs)
+        .expect("create EGL context");
+
     let mut state = AppData {
         conn: conn.clone(),
         compositor_state: CompositorState::bind(&globals, &qh)
@@ -65,11 +110,14 @@ fn main() {
         registry_state: RegistryState::new(&globals),
         seat_state: SeatState::new(&globals, &qh),
         keyboard: None,
-        shm: Shm::bind(&globals, &qh).expect("wl_shm not advertised"),
         session_lock_state: SessionLockState::new(&globals, &qh),
         session_lock: None,
         lock_surfaces: Vec::new(),
         run: RunState::Running,
+        egl,
+        egl_display,
+        egl_config,
+        egl_context,
     };
 
     let session_lock = state
@@ -79,7 +127,11 @@ fn main() {
 
     for output in state.output_state.outputs() {
         let surface = state.compositor_state.create_surface(&qh);
-        let lock_surface = session_lock.create_lock_surface(surface, &output, &qh);
+        let lock_surface = LockSurface {
+            lock_surface: session_lock.create_lock_surface(surface, &output, &qh),
+            egl_window: None,
+            egl_surface: None,
+        };
         state.lock_surfaces.push(lock_surface);
     }
     state.session_lock = Some(session_lock);
@@ -118,38 +170,63 @@ impl SessionLockHandler for AppData {
     fn configure(
         &mut self,
         _conn: &Connection,
-        qh: &QueueHandle<Self>,
+        _qh: &QueueHandle<Self>,
         session_lock_surface: SessionLockSurface,
         configure: SessionLockSurfaceConfigure,
         _serial: u32,
     ) {
         let (width, height) = configure.new_size;
-        let stride = width as i32 * 4;
-        let size = (stride * height as i32) as usize;
 
-        let mut pool = RawPool::new(size, &self.shm).expect("RawPool allocation failed");
-        let canvas = pool.mmap();
-        canvas
-            .chunks_exact_mut(4)
-            .for_each(|c| c.copy_from_slice(&BG_COLOR.to_le_bytes()));
+        let target = session_lock_surface.wl_surface();
+        let entry = self
+            .lock_surfaces
+            .iter_mut()
+            .find(|ls| ls.lock_surface.wl_surface() == target)
+            .expect("Configure for unknown lock surface");
+        if entry.egl_window.is_none() {
+            let egl_window =
+                wayland_egl::WlEglSurface::new(target.id(), width as i32, height as i32)
+                    .expect("WlEglSurface::new");
 
-        let buffer = pool.create_buffer(
-            0,
-            width as i32,
-            height as i32,
-            stride,
-            wl_shm::Format::Argb8888,
-            (),
-            qh,
-        );
+            let egl_surface = unsafe {
+                self.egl.create_window_surface(
+                    self.egl_display,
+                    self.egl_config,
+                    egl_window.ptr() as egl::NativeWindowType,
+                    None,
+                )
+            }
+            .expect("create_window_surface");
+            entry.egl_window = Some(egl_window);
+            entry.egl_surface = Some(egl_surface);
+            println!(" -> created EGL surface ({}x{})", width, height);
+        } else {
+            entry
+                .egl_window
+                .as_ref()
+                .unwrap()
+                .resize(width as i32, height as i32, 0, 0);
+            println!(" -> resized EGL surface ({}x{})", width, height);
+        }
 
-        session_lock_surface
-            .wl_surface()
-            .attach(Some(&buffer), 0, 0);
-        session_lock_surface.wl_surface().commit();
-        buffer.destroy();
+        let egl_surface = entry.egl_surface.as_ref().unwrap();
+        self.egl
+            .make_current(
+                self.egl_display,
+                Some(*egl_surface),
+                Some(*egl_surface),
+                Some(self.egl_context),
+            )
+            .expect("eglMakeCurrent");
 
-        println!(" -> lock surface configured ({}x{})", width, height);
+        unsafe {
+            gl::ClearColor(0.125, 0.125, 0.125, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+        }
+
+        self.egl
+            .swap_buffers(self.egl_display, *egl_surface)
+            .expect("eglSwapBuffers");
     }
 }
 
@@ -235,12 +312,6 @@ impl ProvidesRegistryState for AppData {
         &mut self.registry_state
     }
     registry_handlers![OutputState, SeatState];
-}
-
-impl ShmHandler for AppData {
-    fn shm_state(&mut self) -> &mut Shm {
-        &mut self.shm
-    }
 }
 
 impl SeatHandler for AppData {
@@ -359,7 +430,6 @@ impl KeyboardHandler for AppData {
 // SCTK delegate macros — must come after the *Handler impls they delegate to.
 smithay_client_toolkit::delegate_compositor!(AppData);
 smithay_client_toolkit::delegate_output!(AppData);
-smithay_client_toolkit::delegate_shm!(AppData);
 smithay_client_toolkit::delegate_seat!(AppData);
 smithay_client_toolkit::delegate_keyboard!(AppData);
 smithay_client_toolkit::delegate_registry!(AppData);
