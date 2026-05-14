@@ -3,15 +3,13 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     output::{OutputHandler, OutputState},
-    reexports::{
-        calloop::{
-            EventLoop, LoopHandle,
-            timer::{TimeoutAction, Timer},
-        },
-        calloop_wayland_source::WaylandSource,
-    },
+    reexports::{calloop::EventLoop, calloop_wayland_source::WaylandSource},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{
+        Capability, SeatHandler, SeatState,
+        keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers},
+    },
     session_lock::{
         SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface,
         SessionLockSurfaceConfigure,
@@ -23,7 +21,7 @@ use std::time::Duration;
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_buffer, wl_output, wl_shm, wl_surface},
+    protocol::{wl_buffer, wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface},
 };
 
 const BG_COLOR: u32 = 0xFF20_2020;
@@ -38,10 +36,11 @@ enum RunState {
 
 struct AppData {
     conn: Connection,
-    loop_handle: LoopHandle<'static, Self>,
     compositor_state: CompositorState,
     output_state: OutputState,
     registry_state: RegistryState,
+    seat_state: SeatState,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
     shm: Shm,
     session_lock_state: SessionLockState,
     session_lock: Option<SessionLock>,
@@ -60,11 +59,12 @@ fn main() {
 
     let mut state = AppData {
         conn: conn.clone(),
-        loop_handle: event_loop.handle(),
         compositor_state: CompositorState::bind(&globals, &qh)
             .expect("wl_compositor not advertised"),
         output_state: OutputState::new(&globals, &qh),
         registry_state: RegistryState::new(&globals),
+        seat_state: SeatState::new(&globals, &qh),
+        keyboard: None,
         shm: Shm::bind(&globals, &qh).expect("wl_shm not advertised"),
         session_lock_state: SessionLockState::new(&globals, &qh),
         session_lock: None,
@@ -102,20 +102,7 @@ fn main() {
 
 impl SessionLockHandler for AppData {
     fn locked(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _session_lock: SessionLock) {
-        println!("locked. Sleeping 3s, then unlocking.");
-        self.loop_handle
-            .insert_source(
-                Timer::from_duration(Duration::from_secs(3)),
-                |_, _, state| {
-                    if let Some(lock) = state.session_lock.take() {
-                        lock.unlock();
-                        state.conn.roundtrip().expect("flush unlock");
-                    }
-                    state.run = RunState::UnlockedCleanly;
-                    TimeoutAction::Drop
-                },
-            )
-            .expect("insert timer");
+        println!("locked. Press Escape to unlock.");
     }
 
     fn finished(
@@ -247,7 +234,7 @@ impl ProvidesRegistryState for AppData {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState,];
+    registry_handlers![OutputState, SeatState];
 }
 
 impl ShmHandler for AppData {
@@ -256,10 +243,125 @@ impl ShmHandler for AppData {
     }
 }
 
+impl SeatHandler for AppData {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+
+    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+
+    fn new_capability(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Keyboard && self.keyboard.is_none() {
+            println!("Set keyboard capability");
+            let keyboard = self
+                .seat_state
+                .get_keyboard(qh, &seat, None)
+                .expect("Failed to create keyboard");
+            self.keyboard = Some(keyboard);
+        }
+    }
+
+    fn remove_capability(
+        &mut self,
+        _conn: &Connection,
+        _: &QueueHandle<Self>,
+        _: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Keyboard && self.keyboard.is_some() {
+            println!("Unset keyboard capability");
+            self.keyboard.take().unwrap().release();
+        }
+    }
+
+    fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl KeyboardHandler for AppData {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+    }
+
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+    }
+
+    fn press_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        if event.keysym == Keysym::Escape {
+            if let Some(lock) = self.session_lock.take() {
+                lock.unlock();
+                self.conn.roundtrip().expect("flush unlock");
+            }
+            self.run = RunState::UnlockedCleanly;
+        }
+    }
+
+    fn repeat_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
+
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: Modifiers,
+        _: RawModifiers,
+        _: u32,
+    ) {
+    }
+}
+
 // SCTK delegate macros — must come after the *Handler impls they delegate to.
 smithay_client_toolkit::delegate_compositor!(AppData);
 smithay_client_toolkit::delegate_output!(AppData);
 smithay_client_toolkit::delegate_shm!(AppData);
+smithay_client_toolkit::delegate_seat!(AppData);
+smithay_client_toolkit::delegate_keyboard!(AppData);
 smithay_client_toolkit::delegate_registry!(AppData);
 smithay_client_toolkit::delegate_session_lock!(AppData);
 wayland_client::delegate_noop!(AppData: ignore wl_buffer::WlBuffer);
