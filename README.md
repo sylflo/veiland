@@ -27,7 +27,7 @@ Veiland-core is a Wayland client that owns the `ext-session-lock-v1` surface, ha
 
 ## Status
 
-M0 (C POC validating cross-process DMA-BUF) is complete and archived in `poc/`. M1 is in progress: `veiland-core` now connects to Wayland, creates `ext-session-lock-v1` surfaces on all outputs, and paints a solid-color SHM buffer — tested on dual-monitor Hyprland. Keyboard input (Escape-to-unlock) is the next step.
+M0 (C POC validating cross-process DMA-BUF) is complete and archived in `poc/`. M1 is nearly done: `veiland-core` connects to Wayland, creates `ext-session-lock-v1` surfaces on all outputs, paints each surface via OpenGL ES through EGL (one shared `EGLContext`, per-surface `WlEglSurface`), and unlocks on Escape via `wl_keyboard`. Tested on dual-monitor Hyprland; Sway validation still pending. M2 (spawning a hardcoded plugin process and compositing its dmabuf onto the lock surface) is next.
 
 See [`CLAUDE.md`](CLAUDE.md) for detailed architecture notes and design decisions.
 
