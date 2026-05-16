@@ -39,6 +39,26 @@ Both point to the same conclusion: one plugin = one process. Process isolation i
 
 When in doubt about where functionality goes: if it touches auth, it's in the core; if it's UI, it's in a plugin.
 
+## Threat model
+
+A useful frame for what veiland's architecture protects and what it doesn't. Use it to evaluate any change that touches IPC, input routing, or the unlock path.
+
+**What a malicious or compromised plugin *cannot* do**, by construction:
+
+- **Trigger an unlock.** The unlock decision is `keyboard event → password buffer → PAM call → state change`. Plugins receive no keyboard events at all (the protocol forbids it; the core never forwards keyboard data). They have no IPC message that maps to "unlock." There is no API surface for this attack; it isn't sandboxed, it's *absent*.
+- **Read the password buffer.** It lives in `mlock`'d memory in the core process. Plugins are separate processes with no shared address space. The kernel's process boundary enforces this for free.
+- **Read another plugin's buffer.** Each plugin owns its dmabufs; the core composites but doesn't redistribute. Cross-plugin reads would require kernel-level cooperation that doesn't exist.
+- **Execute code in the core's address space.** The dmabuf path is `data → GPU sampler → pixel output`. The bytes inside a dmabuf become pixel values via a fragment shader the core controls. They are never interpreted as instructions. The closest a malicious plugin can get to "code execution" is making the screen show garish patterns.
+
+**What a malicious plugin *can* try**, and how we defend:
+
+- **Denial of service via malformed IPC.** Send a buffer header claiming `width = 0xFFFFFFFF`, an fd that isn't a dmabuf, a modifier that doesn't exist, etc. → core panics on the import → locker dies → bad. Defense: **validate every field of every message before passing it to EGL, GBM, or any kernel call.** Reject implausible values; close the plugin's socket and draw a fallback for that region rather than crashing the locker. Never `.expect()` on plugin input.
+- **Resource exhaustion.** Send a million buffer headers; allocate a 16GB texture; connect and stall forever. Defense: bound the number of in-flight buffers per plugin, bound the dimensions, time-out silent plugins. (Comes in alongside the M5 buffer pool — single-buffer M2/M3 already bounds the first one.)
+- **Driver-level GPU exploit via pathological-but-accepted parameters.** Even if EGL accepts our values, the driver might integer-overflow. Defense: refuse values that obviously shouldn't make sense (sizes > 8192², stride < width × bpp, unknown modifiers). Belt-and-braces against driver bugs we can't fix.
+- **UI deception.** Plugin draws a convincing "Login successful, click to continue" screen to make the user think they're unlocked when they're still locked. This is real, and process isolation doesn't help — the plugin is *supposed* to draw pixels. Defense: reserve a small core-painted "still locked" region of the screen that plugins cannot reach (a small lock icon at a fixed position, or a user-chosen color border around the screen). If it's there, you're locked. CLAUDE.md does not yet specify the trusted-region pattern; that's an M6+ concern when multiple plugins exist.
+
+**Bottom line.** Process isolation alone protects against the dramatic attacks (code execution, password read, unlock trigger). The undramatic attacks (DoS, resource exhaustion, UI deception) are real, and most of the defensive work in M3+ is for them. "Plugins are untrusted input" applies to every byte they send, every fd they pass, every dimension they declare. That phrase from the coding conventions section is the single most important rule in the core.
+
 ## How plugin rendering works (conceptually)
 
 OpenGL contexts are per-process. You cannot share a live GL context across processes. The naive workaround — `glReadPixels` into shared memory — forces a GPU→CPU readback every frame and defeats the point of GPU acceleration.
@@ -71,13 +91,29 @@ Do not try to build everything at once. Each milestone produces something runnab
 1. **M0 — POC: cross-process DMA-BUF:** two standalone processes, each with its own EGL/OpenGL context. Producer allocates a GBM buffer, renders an animated gradient into it, sends the dmabuf fd to the consumer via `SCM_RIGHTS` over a Unix socket. Consumer imports the fd as an `EGLImage`, binds it as a GL texture, displays it in a normal window (GLFW or similar — not a lock surface yet). Validates that the architecturally critical mechanism works on the target hardware before veiland proper is built. Discard or archive the POC code after M0; do not build M1 on top of it.
 2. **M1 — Lock surface:** veiland-core only. Creates an `ext-session-lock-v1` surface, draws a solid color via OpenGL. Pressing Escape calls `unlock_and_destroy`. No plugins, no PAM, no password handling. Validates the lock lifecycle works on Hyprland and Sway.
 3. **M2 — Lock + DMA-BUF plugin:** add one hardcoded plugin process the core spawns. Plugin renders an animated gradient into a dmabuf via GBM/EGL. Core imports it, composites it onto the lock surface. Still escape-to-unlock. Validates the full GPU chain inside a real lock surface.
-4. **M3 — Real protocol:** define the wire format (`HELLO`, `CONFIGURE`, `BUFFER`, etc.). Plugin discovery via a config file or directory. The hardcoded plugin from M2 becomes a real plugin using the real protocol.
+4. **M3 — Real protocol:** define the wire format (`HELLO`, `CONFIGURE`, `BUFFER`, etc.). Plugin discovery via a config file or directory. The hardcoded plugin from M2 becomes a real plugin using the real protocol. The protocol crate (`veiland-protocol`) and a thin plugin-side helper crate (`veiland-plugin`) land here; see "Future direction: login manager" below for the five structural choices that should be baked into M3 so a future login-manager mode stays cheap.
 5. **M4 — PAM:** add real password input handling and PAM authentication. Replace escape-to-unlock with proper auth. Password buffer in `mlock`'d memory.
 6. **M5 — Buffer pool + sync fences:** replace single-buffer + `glFinish()` with 2–3 buffer pool, release messages, and explicit sync fences (`EGL_KHR_fence_sync` fd via `SCM_RIGHTS`). Production-quality rendering pipeline.
 7. **M6 — Multiple plugins, z-order, region clipping:** the real plugin system. Multiple plugins compositing together with z-indexing.
 8. **M7 — Reference plugins:** clock, simple wallpaper, shader background. Three plugins to validate the API and seed the ecosystem.
 
 Don't skip ahead. M0 → M1 → M2 → ... in order. The motivation for each step is concrete; the order is chosen so each step validates something specific before building on it.
+
+## Future direction: login manager
+
+Veiland-the-locker and veiland-the-login-manager share ~70-80% of their architecture: both take over the display, gate keyboard input, run PAM, decide who gets access to a session, composite process-isolated GPU plugins. The login-manager port is a plausible long-term direction — the ecosystem hole is real (SDDM/GDM/LightDM/ly have no real plugin system), the audience overlaps with the locker's, and the structural decisions for the locker carry over cleanly. It is, however, **strictly post-1.0**. Login managers have an order of magnitude more system-integration complexity (`systemd-logind`/`elogind` interaction, seat management, VT allocation, session creation rather than session gating) and run as root, which makes mistakes much more expensive. Ship the locker first. Don't advertise the login-manager direction until the locker has real users.
+
+Security risk is higher (root daemon, pre-auth surface) but bounded by the same design that protects the locker: plugins as unprivileged child processes, no `.so` loading, keyboard path never leaves the trusted core, small auditable auth core. The structural choices made for the locker become *more* valuable in the login-manager context, not less.
+
+**M3 should bake in five structural enablers** so the eventual port stays cheap. None of these speculatively add login-manager features; they only avoid one-way doors that would close off the port.
+
+1. **Tagged enum for messages, not flat structs with a type byte.** Easier to add variants without rewriting the parser. The `Message` type in `veiland-protocol` should be `enum`-shaped from day one.
+2. **Tagged enum for `INPUT_EVENT` contents.** A login plugin's input events (e.g. "user selected `alice`") are meaningless to a locker; keeping the variant set open lets a future login mode add them without breaking the locker's parser. Cheap now, one-way door later.
+3. **Spawn plugins via `socketpair` + `exec`-inherited fd, not via a filesystem socket path.** A login manager spawns plugins *before* any user session exists — `XDG_RUNTIME_DIR` may be unset, the plugin user may have no home, render-node permissions may differ. The `socketpair` form avoids the filesystem entirely and is the standard pattern (`swaylock-plugin` uses it). For the locker it's also simpler — no stale-file unlink, no path negotiation. M2 used the filesystem form because the plugin is started manually; M3 should switch.
+4. **`criticality` field on `HELLO`.** Most plugins are decorative — death gets a fallback. Some plugins are essential (the password field in login-manager mode, but also conceivably in locker mode) — death must fail closed. One byte in HELLO, costs nothing now, removes a real problem later.
+5. **Structured theme/config data, not free-form strings.** `CONFIGURE`'s theme info should be a typed struct (colors, accent, font), not a string blob. A login manager needs to switch themes mid-flow (system-default before user selection, user-specific after); a typed struct makes that forward-compatible.
+
+**Deliberately *not* in M3:** session/account selection fields, multi-session context, privilege-drop hooks. Those are genuinely login-manager-specific and YAGNI applies — add them when the port actually starts. The five above are different: they're shape decisions, not feature decisions, and reversing them later would be expensive.
 
 ## Project structure (intended)
 
