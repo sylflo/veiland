@@ -1,0 +1,10 @@
+[package]
+name = "veiland-protocol"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Wire-format types and codec for the veiland host/plugin protocol. See docs/protocol.md."
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
