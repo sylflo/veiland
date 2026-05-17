@@ -74,13 +74,13 @@ impl GbmEgl {
         egl.bind_api(egl::OPENGL_ES_API)
             .map_err(|_| PluginError::Render("eglBindAPI(GLES) failed"))?;
 
-        // 6. Pick a config. PBUFFER_BIT is the placeholder surface type
-        //    (we never create a pbuffer; we render into an FBO instead).
+        // 6. Pick a config. No SURFACE_TYPE: we never bind a surface
+        //    (eglMakeCurrent gets NO_SURFACE and we render into an FBO),
+        //    and on Mesa's GBM platform no config advertises PBUFFER_BIT,
+        //    so asking for one returns zero matches on Intel/Mesa.
         //    OPENGL_ES2_BIT picks a config compatible with a GLES2 context.
         //    RGB8, no alpha — alpha is decided when the host samples.
         let config_attribs = [
-            egl::SURFACE_TYPE,
-            egl::PBUFFER_BIT,
             egl::RENDERABLE_TYPE,
             egl::OPENGL_ES2_BIT,
             egl::RED_SIZE,

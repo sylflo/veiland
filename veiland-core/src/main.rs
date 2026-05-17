@@ -364,6 +364,7 @@ fn main() {
                         // compositor and kill the session. Real frame-loop
                         // wiring (wl_surface::frame callbacks) is M5.
                         if is_buffer {
+                            state.repaint_lock_surfaces();
                             if let Err(e) = state.plugin.connection.send_frame_done() {
                                 eprintln!("send_frame_done failed: {}", e);
                                 return Ok(PostAction::Remove);
@@ -536,6 +537,48 @@ impl SessionLockHandler for AppData {
         self.egl
             .swap_buffers(self.egl_display, *egl_surface)
             .expect("eglSwapBuffers");
+    }
+}
+
+impl AppData {
+    /// Repaint every lock surface that already has an EGL window.
+    /// Called when a new plugin Buffer arrives — without this, the
+    /// first paint (in `configure`) happens before the plugin's
+    /// first Buffer and the screen stays at the clear-color.
+    /// Real frame-callback wiring is M5.
+    fn repaint_lock_surfaces(&mut self) {
+        for entry in &self.lock_surfaces {
+            let Some(egl_surface) = entry.egl_surface.as_ref() else {
+                continue;
+            };
+            let Some(egl_window) = entry.egl_window.as_ref() else {
+                continue;
+            };
+            let (w, h) = egl_window.get_size();
+
+            self.egl
+                .make_current(
+                    self.egl_display,
+                    Some(*egl_surface),
+                    Some(*egl_surface),
+                    Some(self.egl_context),
+                )
+                .expect("eglMakeCurrent (repaint)");
+
+            unsafe {
+                gl::Viewport(0, 0, w, h);
+                gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+                gl::Clear(gl::COLOR_BUFFER_BIT);
+            }
+            self.plugin.composite(
+                self.compositor_program,
+                self.compositor_vbo,
+                self.compositor_sampler_loc,
+            );
+            self.egl
+                .swap_buffers(self.egl_display, *egl_surface)
+                .expect("eglSwapBuffers (repaint)");
+        }
     }
 }
 
