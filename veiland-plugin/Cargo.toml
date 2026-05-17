@@ -1,0 +1,14 @@
+[package]
+name = "veiland-plugin"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Helper library for writing veiland plugins: hides the socket dance, the EGL/GBM setup, and protocol dispatch."
+publish = false
+
+[dependencies]
+nix = { version = "0.31", features = ["socket", "fs", "uio"] }
+gbm = "0.18"
+khronos-egl = { version = "6", features = ["static"] }
+gl = "0.14"
+veiland-protocol = { path = "../veiland-protocol" }

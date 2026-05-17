@@ -256,3 +256,43 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
   introduce a new variant with a new tag, or bump the protocol version. This
   is the rule for evolving the protocol at any version, not just v1.
 - The version handshake (§5) is the escape hatch for incompatible changes.
+
+## 11. Open questions (resolve before the relevant milestone)
+
+- **§6.2 — explicit fd count.** v1 has `Buffer` as the only fd-carrying
+  message, so "exactly one fd attached" can be hardcoded in the host's
+  validation. M5 introduces sync-fence fds (also via `SCM_RIGHTS`), at
+  which point at least two message types carry fds and "pair the cmsg fd
+  with the message by arrival order" becomes ambiguous per-message. Before
+  M5 ships, decide: add a `u8 fd_count` to every fd-carrying payload and
+  require the cmsg fd count to match it, *or* commit to "one fd per
+  message, ever, and new fd-carrying message types each get their own
+  tag." The first is more flexible; the second is simpler if it holds.
+  Either way, the rule needs to be written down before a second
+  fd-carrying message exists. (Decide at M5 design time, not now — v1
+  works fine with the implicit rule.)
+- **§6.2 — `Modifier::INVALID` rationale.** The v1 allowlist accepts
+  `Modifier(u64::MAX)` (the DRM "unknown modifier" sentinel) alongside
+  `Modifier(0)` (LINEAR). The reason — plugins that use `gbm_bo_create`
+  without explicit modifier negotiation get `INVALID` back from Mesa,
+  and we want those plugins to work — should be noted inline in §6.2 the
+  next time that section is edited. Pure doc nit.
+- **§6.2 — modifier validation lives in the wrong layer (blocking).**
+  The codec rejects any modifier outside `{LINEAR, INVALID}`. NVIDIA's
+  proprietary userspace driver returns vendor-private tiling modifiers
+  (e.g. `0x0300000000e08014`) from `gbm_bo_create` that are valid for
+  EGL import on the same machine but fall outside this allowlist —
+  i.e. the codec rejects buffers the host's GL stack would happily
+  accept. The set of acceptable modifiers depends on host GL + plugin
+  hardware and cannot be known at the codec layer. **Resolve as part
+  of the M3 host-conversion work**, atomically: drop the codec check,
+  add a "validate by attempting `eglCreateImage`, fail closed if EGL
+  rejects" check in the host's import path, update §6.2 to match.
+  Do not split this across commits; the codec check exists today
+  precisely because no host-side validation exists yet.
+- **§6.2 — `format` has the same shape as `modifier`.** The codec
+  hardcodes `Fourcc::ARGB8888` as the only acceptable format. The set
+  of importable formats also depends on host GL. Same fix-pattern as
+  the modifier issue, but lower priority because every modern driver
+  accepts ARGB8888 and v1 explicitly scopes to it. Re-evaluate when
+  v2 adds a second format (post-M5).

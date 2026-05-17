@@ -526,6 +526,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "veiland-plugin"
+version = "0.1.0"
+dependencies = [
+ "gbm",
+ "gl",
+ "khronos-egl",
+ "nix",
+ "veiland-protocol",
+]
+
+[[package]]
 name = "veiland-protocol"
 version = "0.1.0"
 

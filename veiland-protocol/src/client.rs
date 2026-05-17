@@ -7,7 +7,7 @@ use crate::error::ProtocolError;
 use crate::types::{Fourcc, Modifier};
 
 /// Plugin → host handshake message. See `docs/protocol.md` §6.1.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hello {
     pub plugin_name: String,
     pub plugin_version: String,
@@ -19,7 +19,7 @@ pub struct Hello {
 /// has no I/O and never sees the fd.
 ///
 /// See `docs/protocol.md` §6.2.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Buffer {
     pub id: u32,
     pub width: u32,
@@ -32,13 +32,13 @@ pub struct Buffer {
 
 /// Plugin tells the host it will no longer reuse this buffer id.
 /// See `docs/protocol.md` §6.3.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BufferDestroy {
     pub id: u32,
 }
 
 /// Any plugin-to-host message. See `docs/protocol.md` §6.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientMessage {
     Hello(Hello),
     Buffer(Buffer),

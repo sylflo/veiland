@@ -42,6 +42,18 @@ impl Modifier {
     }
 }
 
+impl From<Modifier> for u64 {
+    fn from(m: Modifier) -> u64 {
+        m.0
+    }
+}
+
+impl From<Fourcc> for u32 {
+    fn from(f: Fourcc) -> u32 {
+        f.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
