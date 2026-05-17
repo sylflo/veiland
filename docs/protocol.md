@@ -116,9 +116,9 @@ Carries one dmabuf fd via `SCM_RIGHTS`.
 u32   id            (plugin-assigned; referenced in later BufferReleased and BufferDestroy)
 u32   width         (1..=8192)
 u32   height        (1..=8192)
-u32   format        (DRM FourCC, e.g. 0x34325241 for ARGB8888)
-u64   modifier      (DRM modifier; LINEAR or INVALID for v1)
-u32   stride        (must be >= width * bytes_per_pixel(format))
+u32   format        (DRM FourCC; accepted iff host's GL can import it)
+u64   modifier      (DRM modifier; accepted iff host's GL can import it)
+u32   stride        (must be >= width)
 u32   offset        (typically 0; nonzero for sub-allocation)
 ```
 
@@ -136,14 +136,30 @@ or small sequential ids for a buffer pool. The host does not require
 sequential, dense, or stable ids — only that the plugin uses the same id for
 the same buffer when re-sending it.
 
-**Validation, host side.** Before the fd is passed to EGL/GBM:
-- `width` and `height` in `[1, 8192]`.
-- `format` is in the host's allowlist (v1: `ARGB8888`).
-- `modifier` is in the host's allowlist (v1: `LINEAR` or `INVALID`).
-- `stride >= width * bpp(format)`.
-- Exactly one fd was attached.
+**Validation, host side.** Validation happens in two layers:
 
-Any failure: log, close the plugin's socket, treat as plugin death.
+- **Codec layer** (in `veiland-protocol`, no I/O):
+  - `width` and `height` in `[1, 8192]`.
+  - `stride >= width`. Loose lower bound — the codec doesn't know bytes-per-pixel
+    for an arbitrary format. Pathological strides fail in the EGL layer below.
+  - Exactly one fd was attached (enforced at the socket layer, not the codec).
+- **EGL import layer** (in `veiland-core`, has hardware context):
+  - `format` and `modifier` are acceptable iff `eglCreateImage` with the dmabuf
+    fd succeeds. The set of accepted formats and modifiers depends on the host's
+    GL stack and the plugin's allocator — for example NVIDIA's proprietary
+    userspace driver produces vendor-private tiling modifiers like
+    `0x0300000000e08014` that Mesa-only setups will not see. The codec cannot
+    know what the GL stack will accept; only the GL stack itself can.
+  - `stride` and `offset` consistency with the fd's underlying buffer size is
+    checked implicitly by EGL.
+
+Any failure at either layer: log, close the plugin's socket, treat as plugin
+death. The lock surface falls back to its clear color in the affected region.
+
+> **Modifier `INVALID` (`u64::MAX`)** is a special DRM sentinel meaning
+> "unknown / unspecified" — what `gbm_bo_create` returns when called without
+> explicit modifier negotiation. It's a legitimate value plugins may send;
+> whether the host can import it is again EGL's decision.
 
 ### 6.3 `BufferDestroy` — tag `0x0003`
 
@@ -271,28 +287,15 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
   Either way, the rule needs to be written down before a second
   fd-carrying message exists. (Decide at M5 design time, not now — v1
   works fine with the implicit rule.)
-- **§6.2 — `Modifier::INVALID` rationale.** The v1 allowlist accepts
-  `Modifier(u64::MAX)` (the DRM "unknown modifier" sentinel) alongside
-  `Modifier(0)` (LINEAR). The reason — plugins that use `gbm_bo_create`
-  without explicit modifier negotiation get `INVALID` back from Mesa,
-  and we want those plugins to work — should be noted inline in §6.2 the
-  next time that section is edited. Pure doc nit.
-- **§6.2 — modifier validation lives in the wrong layer (blocking).**
-  The codec rejects any modifier outside `{LINEAR, INVALID}`. NVIDIA's
-  proprietary userspace driver returns vendor-private tiling modifiers
-  (e.g. `0x0300000000e08014`) from `gbm_bo_create` that are valid for
-  EGL import on the same machine but fall outside this allowlist —
-  i.e. the codec rejects buffers the host's GL stack would happily
-  accept. The set of acceptable modifiers depends on host GL + plugin
-  hardware and cannot be known at the codec layer. **Resolve as part
-  of the M3 host-conversion work**, atomically: drop the codec check,
-  add a "validate by attempting `eglCreateImage`, fail closed if EGL
-  rejects" check in the host's import path, update §6.2 to match.
-  Do not split this across commits; the codec check exists today
-  precisely because no host-side validation exists yet.
-- **§6.2 — `format` has the same shape as `modifier`.** The codec
-  hardcodes `Fourcc::ARGB8888` as the only acceptable format. The set
-  of importable formats also depends on host GL. Same fix-pattern as
-  the modifier issue, but lower priority because every modern driver
-  accepts ARGB8888 and v1 explicitly scopes to it. Re-evaluate when
-  v2 adds a second format (post-M5).
+- **§6.2 — format and modifier validation (resolved in M3).** Originally the
+  codec rejected anything outside `format ∈ {ARGB8888}` and
+  `modifier ∈ {LINEAR, INVALID}`. NVIDIA's proprietary driver returns
+  vendor-private tiling modifiers (e.g. `0x0300000000e08014`) and the gradient
+  plugin uses `XRGB8888` (`Fourcc(0x34325258)`) — both round-trip cleanly
+  through EGL on the same machine but tripped the allowlists. Resolution:
+  both checks moved out of the codec into the host's `eglCreateImage` import
+  path. Codec now accepts any `Fourcc` and any `Modifier` value; the EGL call
+  is the validation. `INVALID` is documented inline in §6.2 as a legitimate
+  sentinel (`gbm_bo_create` without explicit modifier negotiation returns
+  it). Landed atomically across `veiland-protocol`, `veiland-core`, and this
+  doc as part of the M3 commit.

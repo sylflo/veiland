@@ -511,6 +511,7 @@ dependencies = [
  "khronos-egl",
  "nix",
  "smithay-client-toolkit",
+ "veiland-protocol",
  "wayland-client",
  "wayland-egl",
 ]
@@ -519,10 +520,9 @@ dependencies = [
 name = "veiland-gradient"
 version = "0.1.0"
 dependencies = [
- "gbm",
  "gl",
- "khronos-egl",
- "nix",
+ "veiland-plugin",
+ "veiland-protocol",
 ]
 
 [[package]]

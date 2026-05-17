@@ -1,22 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+
 use std::{
-    env, fs,
-    io::{IoSliceMut, Read, Write},
-    os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd},
-        unix::net::{UnixListener, UnixStream},
-    },
     path::PathBuf,
     time::Duration,
 };
 
-use nix::sys::socket::{ControlMessageOwned, MsgFlags, recvmsg};
-
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     output::{OutputHandler, OutputState},
-    reexports::{calloop::EventLoop, calloop_wayland_source::WaylandSource},
+    reexports::{
+        calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic},
+        calloop_wayland_source::WaylandSource,
+    },
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
@@ -35,6 +31,12 @@ use wayland_client::{
     globals::registry_queue_init,
     protocol::{wl_buffer, wl_keyboard, wl_output, wl_seat, wl_surface},
 };
+
+use veiland_protocol::{ClientMessage, Configure};
+
+mod plugin;
+use plugin::{HostConnection, PluginState, spawn_plugin};
+
 
 #[derive(Default, PartialEq)]
 enum RunState {
@@ -65,55 +67,53 @@ struct AppData {
     egl_display: egl::Display,
     egl_config: egl::Config,
     egl_context: egl::Context,
-    received_dmabuf: Option<OwnedFd>,
-    buffer_width: u32,
-    buffer_height: u32,
-    buffer_format: u32,
-    buffer_stride: u32,
-    buffer_modifier: u64,
-    plugin_image: egl::Image,
-    plugin_texture: gl::types::GLuint,
+    plugin: PluginState,
+    plugin_pid: nix::unistd::Pid,
     compositor_program: gl::types::GLuint,
     compositor_vbo: gl::types::GLuint,
     compositor_sampler_loc: gl::types::GLint,
 }
 
 unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
-    let shader = gl::CreateShader(kind);
-    let src_ptr = src.as_ptr() as *const _;
-    gl::ShaderSource(shader, 1, &src_ptr, std::ptr::null());
-    gl::CompileShader(shader);
-    let mut ok: gl::types::GLint = 0;
-    gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut ok);
-    if ok == 0 {
-        let mut log = [0u8; 1024];
-        let mut len: gl::types::GLsizei = 0;
-        gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
-        panic!(
-            "shader compile failed: {}",
-            std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-        );
+    unsafe {
+        let shader = gl::CreateShader(kind);
+        let src_ptr = src.as_ptr() as *const _;
+        gl::ShaderSource(shader, 1, &src_ptr, std::ptr::null());
+        gl::CompileShader(shader);
+        let mut ok: gl::types::GLint = 0;
+        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut ok);
+        if ok == 0 {
+            let mut log = [0u8; 1024];
+            let mut len: gl::types::GLsizei = 0;
+            gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            panic!(
+                "shader compile failed: {}",
+                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
+            );
+        }
+        shader
     }
-    shader
 }
 
 unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::types::GLuint {
-    let program = gl::CreateProgram();
-    gl::AttachShader(program, vs);
-    gl::AttachShader(program, fs);
-    gl::LinkProgram(program);
-    let mut ok: gl::types::GLint = 0;
-    gl::GetProgramiv(program, gl::LINK_STATUS, &mut ok);
-    if ok == 0 {
-        let mut log = [0u8; 1024];
-        let mut len: gl::types::GLsizei = 0;
-        gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
-        panic!(
-            "program link failed: {}",
-            std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-        );
+    unsafe {
+        let program = gl::CreateProgram();
+        gl::AttachShader(program, vs);
+        gl::AttachShader(program, fs);
+        gl::LinkProgram(program);
+        let mut ok: gl::types::GLint = 0;
+        gl::GetProgramiv(program, gl::LINK_STATUS, &mut ok);
+        if ok == 0 {
+            let mut log = [0u8; 1024];
+            let mut len: gl::types::GLsizei = 0;
+            gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            panic!(
+                "program link failed: {}",
+                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
+            );
+        }
+        program
     }
-    program
 }
 
 unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, gl::types::GLint) {
@@ -135,94 +135,56 @@ unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, g
             gl_FragColor = texture2D(u_tex, v_uv);\n\
         }\n\0";
 
-    let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-    let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-    let program = link_program(vs, fs);
+    unsafe {
+        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
+        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
+        let program = link_program(vs, fs);
 
-    let quad: [f32; 12] = [
-        -1.0, -1.0,
-         1.0, -1.0,
-        -1.0,  1.0,
-        -1.0,  1.0,
-         1.0, -1.0,
-         1.0,  1.0,
-    ];
+        let quad: [f32; 12] = [
+            -1.0, -1.0,
+             1.0, -1.0,
+            -1.0,  1.0,
+            -1.0,  1.0,
+             1.0, -1.0,
+             1.0,  1.0,
+        ];
 
-    let mut vbo: gl::types::GLuint = 0;
-    gl::GenBuffers(1, &mut vbo);
-    gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-    gl::BufferData(
-        gl::ARRAY_BUFFER,
-        std::mem::size_of_val(&quad) as isize,
-        quad.as_ptr() as *const _,
-        gl::STATIC_DRAW,
-    );
+        let mut vbo: gl::types::GLuint = 0;
+        gl::GenBuffers(1, &mut vbo);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            std::mem::size_of_val(&quad) as isize,
+            quad.as_ptr() as *const _,
+            gl::STATIC_DRAW,
+        );
 
-    let sampler_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
+        let sampler_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
 
-    (program, vbo, sampler_loc)
+        (program, vbo, sampler_loc)
+    }
 }
 
 fn main() {
     println!("veiland-core");
 
-    let xdg_runtime_dir = env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR is not set");
-    let socket_path = PathBuf::from(&xdg_runtime_dir).join("veiland.sock");
+    // --- 1. Spawn the plugin -------------------------------------------------
+    // Hardcoded path; plugin discovery is M6. The plugin inherits its
+    // socket end as fd 3 (see plugin/spawn.rs); the host keeps the other end.
+    let plugin_binary = PathBuf::from("./target/debug/veiland-gradient");
+    let process = spawn_plugin(&plugin_binary, "gradient")
+        .expect("failed to spawn gradient plugin");
+    let plugin_pid = process.child_pid;
+    eprintln!("spawned gradient plugin pid={}", plugin_pid);
 
-    let _ = fs::remove_file(&socket_path);
-    eprintln!("waiting for plugin on {}", socket_path.display());
-    let listener = UnixListener::bind(&socket_path).expect("Could not bind to socket");
-
-    let mut socket = match listener.accept() {
-        Ok((s, addr)) => {
-            eprintln!("Plugin connected: {addr:?}");
-            s
-        }
-        Err(e) => {
-            eprintln!("accept function failed: {e:?}");
-            return;
-        }
-    };
-
-    let mut payload = [0u8; 24];
-    let mut iov = [IoSliceMut::new(&mut payload)];
-    let mut cmsg_buf = nix::cmsg_space!([std::os::fd::RawFd; 1]);
-
-    let msg = recvmsg::<()>(
-        socket.as_raw_fd(),
-        &mut iov,
-        Some(&mut cmsg_buf),
-        MsgFlags::empty(),
-    )
-    .expect("recvmsg");
-
-    let mut received_fd: Option<OwnedFd> = None;
-    for cmsg in msg.cmsgs().expect("cmsgs iter") {
-        if let ControlMessageOwned::ScmRights(fds) = cmsg {
-            for raw in fds {
-                received_fd = Some(unsafe { OwnedFd::from_raw_fd(raw) });
-            }
-        }
-    }
-    let width    = u32::from_le_bytes(payload[ 0.. 4].try_into().unwrap());
-    let height   = u32::from_le_bytes(payload[ 4.. 8].try_into().unwrap());
-    let format   = u32::from_le_bytes(payload[ 8..12].try_into().unwrap());
-    let stride   = u32::from_le_bytes(payload[12..16].try_into().unwrap());
-    let modifier = u64::from_le_bytes(payload[16..24].try_into().unwrap());
-    eprintln!(
-        "recv header: {}x{} format=0x{:08x} stride={} modifier=0x{:016x}",
-        width, height, format, stride, modifier,
-    );
-
-    let fd = received_fd.expect("plugin did not send an fd");
-    eprintln!("got dmabuf fd (now fd {} in core); holding for 5g", fd.as_raw_fd());
-
+    // --- 2. Wayland connection + event loop ---------------------------------
     let conn = Connection::connect_to_env()
         .expect("failed to connect to Wayland display (is WAYLAND_DISPLAY set?)");
     let (globals, event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
     let mut event_loop: EventLoop<AppData> = EventLoop::try_new().expect("calloop event loop");
 
+    // --- 3. EGL setup (host's GL context, shared across plugin imports) -----
     let egl = egl::Instance::new(egl::Static);
     let display_ptr = conn.backend().display_ptr();
     // SAFETY: display_ptr came from a live wayland_client::Connection.
@@ -238,18 +200,12 @@ fn main() {
             .unwrap_or(std::ptr::null())
     });
     let config_attribs = [
-        egl::SURFACE_TYPE,
-        egl::WINDOW_BIT,
-        egl::RENDERABLE_TYPE,
-        egl::OPENGL_ES2_BIT,
-        egl::RED_SIZE,
-        8,
-        egl::GREEN_SIZE,
-        8,
-        egl::BLUE_SIZE,
-        8,
-        egl::ALPHA_SIZE,
-        8,
+        egl::SURFACE_TYPE,    egl::WINDOW_BIT,
+        egl::RENDERABLE_TYPE, egl::OPENGL_ES2_BIT,
+        egl::RED_SIZE,        8,
+        egl::GREEN_SIZE,      8,
+        egl::BLUE_SIZE,       8,
+        egl::ALPHA_SIZE,      8,
         egl::NONE,
     ];
     let egl_config = egl
@@ -260,63 +216,77 @@ fn main() {
     let egl_context = egl
         .create_context(egl_display, egl_config, None, &context_attribs)
         .expect("create EGL context");
-    // Make the context current surfacelessly so we can import the dmabuf
-    // into a GL texture before any lock-surface configure runs. 
-    egl.make_current(
-        egl_display, None, None, Some(egl_context)
-    ).expect("eglMakeCurrent (surfaceless)");
-    // EGL attribs — same constants as the plugin. We rebuild image_attribs
-    // because we need the fd from `fd` (the OwnedFd) here.
-    const EGL_LINUX_DMA_BUF_EXT: egl::Int = 0x3270;
-    const EGL_LINUX_DRM_FOURCC_EXT: egl::Int = 0x3271;
-    const EGL_DMA_BUF_PLANE0_FD_EXT: egl::Int = 0x3272;
-    const EGL_DMA_BUF_PLANE0_OFFSET_EXT: egl::Int = 0x3273;
-    const EGL_DMA_BUF_PLANE0_PITCH_EXT: egl::Int = 0x3274;
-    const EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT: egl::Int = 0x3443;
-    const EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT: egl::Int = 0x3444;
-    let image_attribs: [egl::Attrib; 17] = [
-        egl::WIDTH as egl::Attrib,                            width as egl::Attrib,
-        egl::HEIGHT as egl::Attrib,                           height as egl::Attrib,
-        EGL_LINUX_DRM_FOURCC_EXT as egl::Attrib,              format as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_FD_EXT as egl::Attrib,             fd.as_raw_fd() as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_OFFSET_EXT as egl::Attrib,         0,
-        EGL_DMA_BUF_PLANE0_PITCH_EXT as egl::Attrib,          stride as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT as egl::Attrib,    (modifier & 0xFFFF_FFFF) as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT as egl::Attrib,    (modifier >> 32) as egl::Attrib,
-        egl::ATTRIB_NONE,
-    ];
-    let plugin_image = egl
-        .create_image(
-            egl_display,
-            unsafe { egl::Context::from_ptr(std::ptr::null_mut()) }, // EGL_NO_CONTEXT
-            EGL_LINUX_DMA_BUF_EXT as std::ffi::c_uint,
-            unsafe { egl::ClientBuffer::from_ptr(std::ptr::null_mut()) }, // EGL_NO_CLIENT_BUFFER
-            &image_attribs,
-        )
-        .expect("eglCreateImage (import dmabuf from plugin)");
-    eprintln!("imported plugin dmabuf as EGLImage");
-
-    let mut plugin_texture: gl::types::GLuint = 0;
-    unsafe {
-        gl::GenTextures(1, &mut plugin_texture);
-        gl::BindTexture(gl::TEXTURE_2D, plugin_texture);
-        let target_fn: extern "system" fn(gl::types::GLenum, *const std::ffi::c_void) =
-            std::mem::transmute(
-                egl.get_proc_address("glEGLImageTargetTexture2DOES")
-                    .expect("glEGLImageTargetTexture2DOES not available"),
-            );
-        target_fn(gl::TEXTURE_2D, plugin_image.as_ptr() as *const _);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32); 
-    }
-    eprintln!("bound EGLImage as GL texture id={}", plugin_texture);
+    // Surfaceless current — we need the context current before the first
+    // dmabuf import (which happens before any lock-surface configure).
+    egl.make_current(egl_display, None, None, Some(egl_context))
+        .expect("eglMakeCurrent (surfaceless)");
 
     let (compositor_program, compositor_vbo, compositor_sampler_loc) =
         unsafe { build_compositor_program() };
     eprintln!("built compositor program id={}", compositor_program);
 
+    // --- 4. Protocol bootstrap: handshake + Hello + Configure + FrameDone ---
+    let mut connection = HostConnection::from_fd(process.socket);
+    connection.handshake().expect("plugin handshake");
+    eprintln!("handshake ok");
+
+    // recv_message has already enforced "Hello carries no fd" at the wire
+    // layer (any fd on a non-Buffer message is ProtocolViolation there).
+    // We just need to reject a misbehaving plugin that sent the wrong
+    // variant as its first message — and even then, exit cleanly rather
+    // than panic, because plugin input must never crash the locker.
+    let (plugin_name, plugin_version) = match connection.recv_message() {
+        Ok((ClientMessage::Hello(h), _)) => (h.plugin_name, h.plugin_version),
+        Ok((other, _)) => {
+            eprintln!(
+                "plugin sent {:?} before Hello; refusing to start lock",
+                other
+            );
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("plugin handshake failed: {}; refusing to start lock", e);
+            std::process::exit(1);
+        }
+    };
+    eprintln!("plugin says hello: {} v{}", plugin_name, plugin_version);
+
+    // Build PluginState and feed the Hello through handle_message so the
+    // state machine records name/version through the canonical path.
+    let mut plugin = PluginState::new(connection);
+    plugin
+        .handle_message(
+            ClientMessage::Hello(veiland_protocol::Hello {
+                plugin_name: plugin_name.clone(),
+                plugin_version: plugin_version.clone(),
+            }),
+            None,
+            &egl,
+            egl_display,
+        )
+        .expect("record Hello in PluginState");
+
+    // Send the initial Configure. Region = full screen at 1920x1080
+    // (placeholder until lock-surface configure tells us the real size;
+    // we'll re-send when that arrives). Time fields are zeroed for M3.
+    plugin
+        .connection
+        .send_configure(Configure {
+            region_x: 0,
+            region_y: 0,
+            region_w: 1920,
+            region_h: 1080,
+            scale: 1,
+            time_unix_seconds: 0,
+            time_tz_offset_seconds: 0,
+        })
+        .expect("send initial Configure");
+    plugin
+        .connection
+        .send_frame_done()
+        .expect("send initial FrameDone");
+
+    // --- 5. AppData and lock surface ----------------------------------------
     let mut state = AppData {
         conn: conn.clone(),
         compositor_state: CompositorState::bind(&globals, &qh)
@@ -333,14 +303,8 @@ fn main() {
         egl_display,
         egl_config,
         egl_context,
-        received_dmabuf: Some(fd),
-        buffer_width: width,
-        buffer_height: height,
-        buffer_format: format,
-        buffer_stride: stride,
-        buffer_modifier: modifier,
-        plugin_image,
-        plugin_texture,
+        plugin,
+        plugin_pid,
         compositor_program,
         compositor_vbo,
         compositor_sampler_loc,
@@ -366,16 +330,128 @@ fn main() {
         .insert(event_loop.handle())
         .unwrap();
 
+    // --- 6. Register the plugin's socket as a calloop event source ----------
+    // calloop owns the fd via Generic; on readability, our closure runs
+    // recv_message and dispatches to PluginState. On any error we treat
+    // the plugin as dead, log, and remove the source (the lock keeps
+    // running with the fallback black screen).
+    let plugin_fd = state.plugin.connection.as_fd().try_clone_to_owned()
+        .expect("dup plugin socket for calloop");
+    event_loop
+        .handle()
+        .insert_source(
+            Generic::new(plugin_fd, Interest::READ, Mode::Level),
+            |_event, _meta, state: &mut AppData| {
+                match state.plugin.connection.recv_message() {
+                    Ok((msg, fd)) => {
+                        let is_buffer = matches!(msg, ClientMessage::Buffer(_));
+                        if let Err(e) = state.plugin.handle_message(
+                            msg,
+                            fd,
+                            &state.egl,
+                            state.egl_display,
+                        ) {
+                            eprintln!("plugin protocol error: {} — treating as dead", e);
+                            // Drop the texture so subsequent frames go fallback.
+                            state.plugin.texture = None;
+                            return Ok(PostAction::Remove);
+                        }
+                        // After we accept a Buffer, cue the next frame.
+                        // We do *not* commit the lock surfaces here — they
+                        // attach buffers via swap_buffers in the configure
+                        // handler. Committing a buffer-less surface here
+                        // would trigger "Null buffer attached" from the
+                        // compositor and kill the session. Real frame-loop
+                        // wiring (wl_surface::frame callbacks) is M5.
+                        if is_buffer {
+                            if let Err(e) = state.plugin.connection.send_frame_done() {
+                                eprintln!("send_frame_done failed: {}", e);
+                                return Ok(PostAction::Remove);
+                            }
+                        }
+                        Ok(PostAction::Continue)
+                    }
+                    Err(e) => {
+                        eprintln!("plugin disconnected or violated protocol: {}", e);
+                        state.plugin.texture = None;
+                        Ok(PostAction::Remove)
+                    }
+                }
+            },
+        )
+        .expect("register plugin fd with calloop");
+
+    // --- 7. Main loop --------------------------------------------------------
     while matches!(state.run, RunState::Running) {
         event_loop
             .dispatch(Duration::from_millis(16), &mut state)
             .expect("event loop dispatch");
     }
+
+    // --- 8. Plugin teardown -------------------------------------------------
+    // Polite shutdown sequence: ask, wait, SIGTERM, wait, SIGKILL.
+    // Don't let the plugin outlive us; don't leave a zombie either.
+    teardown_plugin(&mut state.plugin.connection, state.plugin_pid);
+
     match state.run {
         RunState::Running => unreachable!(),
         RunState::UnlockedCleanly => println!("unlocked, exiting"),
         RunState::Refused => std::process::exit(1),
     }
+}
+
+/// Wind down the plugin: send Shutdown, give it ~250ms to exit on its own,
+/// then SIGTERM, then SIGKILL. Reaps the zombie. Best-effort — if any step
+/// fails we log and continue, because at this point the host is exiting
+/// anyway and refusing to exit would be worse than a leaked plugin.
+fn teardown_plugin(connection: &mut HostConnection, pid: nix::unistd::Pid) {
+    use nix::sys::signal::{Signal, kill};
+    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+
+    // 1. Polite ask. Plugin's recv_event sees Shutdown, returns Ok(()).
+    if let Err(e) = connection.send_shutdown() {
+        eprintln!("teardown: send_shutdown failed: {} (continuing)", e);
+    }
+
+    // 2. Grace period. The spec says "implementation-defined"; 250ms is
+    //    enough for a well-behaved plugin to exit and short enough that
+    //    a session-unlock doesn't feel laggy.
+    let grace = Duration::from_millis(250);
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => {
+                if std::time::Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(_) => {
+                eprintln!("teardown: plugin exited cleanly");
+                return;
+            }
+            Err(e) => {
+                eprintln!("teardown: waitpid failed: {} (continuing)", e);
+                return;
+            }
+        }
+    }
+
+    // 3. SIGTERM, brief wait.
+    eprintln!("teardown: plugin did not exit in {}ms, sending SIGTERM", grace.as_millis());
+    let _ = kill(pid, Signal::SIGTERM);
+    std::thread::sleep(Duration::from_millis(100));
+    if let Ok(status) = waitpid(pid, Some(WaitPidFlag::WNOHANG))
+        && !matches!(status, WaitStatus::StillAlive)
+    {
+        eprintln!("teardown: plugin reaped after SIGTERM");
+        return;
+    }
+
+    // 4. SIGKILL, reap, done.
+    eprintln!("teardown: plugin still alive, sending SIGKILL");
+    let _ = kill(pid, Signal::SIGKILL);
+    let _ = waitpid(pid, None);
 }
 
 impl SessionLockHandler for AppData {
@@ -449,21 +525,13 @@ impl SessionLockHandler for AppData {
             gl::Viewport(0, 0, width as i32, height as i32);
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-
-            gl::UseProgram(self.compositor_program);
-
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, self.plugin_texture);
-            gl::Uniform1i(self.compositor_sampler_loc, 0);
-
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.compositor_vbo);
-            let a_pos =
-                gl::GetAttribLocation(self.compositor_program, b"a_pos\0".as_ptr() as *const _);
-            gl::EnableVertexAttribArray(a_pos as u32);
-            gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
-
-            gl::DrawArrays(gl::TRIANGLES, 0, 6);
         }
+
+        self.plugin.composite(
+            self.compositor_program,
+            self.compositor_vbo,
+            self.compositor_sampler_loc,
+        );
 
         self.egl
             .swap_buffers(self.egl_display, *egl_surface)

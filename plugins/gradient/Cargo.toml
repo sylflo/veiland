@@ -3,12 +3,11 @@ name = "veiland-gradient"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "Animated gradient plugin for veiland (M2 throwaway)"
+description = "Animated gradient plugin for veiland — reference plugin built on veiland-plugin"
 repository = "https://github.com/sylflo/veiland"
 publish = false
 
 [dependencies]
-nix = { version = "0.31", features = ["socket", "fs", "uio"] }
-gbm = "0.18"
-khronos-egl = { version = "6", features = ["static"] }
 gl = "0.14"
+veiland-plugin = { path = "../../veiland-plugin" }
+veiland-protocol = { path = "../../veiland-protocol" }

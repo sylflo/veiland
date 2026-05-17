@@ -141,19 +141,19 @@ impl Buffer {
             return Err(ProtocolError::OutOfRange);
         }
 
+        // Format and modifier acceptability are host-stack concerns
+        // (depend on EGL/Mesa/NVIDIA support), so the codec accepts any
+        // value here and the host's import path validates by attempting
+        // `eglCreateImage`. See `docs/protocol.md` §11.
         let (format, buf) = Fourcc::decode(buf)?;
-        if format != Fourcc::ARGB8888 {
-            return Err(ProtocolError::OutOfRange);
-        }
-
         let (modifier, buf) = Modifier::decode(buf)?;
-        if modifier != Modifier(0) && modifier != Modifier(u64::MAX) {
-            return Err(ProtocolError::OutOfRange);
-        }
 
         let (stride, buf) = read_u32_le(buf)?;
-        // bpp(ARGB8888) = 4
-        if stride < width.saturating_mul(4) {
+        // Lower-bound sanity check: the codec doesn't know bytes-per-pixel
+        // for arbitrary formats, but stride < width is impossible for any
+        // packed RGB format we'd plausibly see. Pathological strides hit
+        // EGL import next and fail there.
+        if stride < width {
             return Err(ProtocolError::OutOfRange);
         }
 
@@ -357,30 +357,13 @@ mod tests {
     }
 
     #[test]
-    fn buffer_unknown_format_rejected() {
+    fn buffer_any_format_accepted() {
+        // Format acceptability now lives in the host's import path,
+        // not the codec. Vendor-specific or unknown fourcc codes must
+        // round-trip cleanly here.
         let mut b = valid_buffer();
         b.format = Fourcc(0xdeadbeef);
-        let msg = ClientMessage::Buffer(b);
-        let mut out = Vec::new();
-        msg.encode(&mut out).unwrap();
-        assert_eq!(ClientMessage::decode(&out), Err(ProtocolError::OutOfRange));
-    }
-
-    #[test]
-    fn buffer_unknown_modifier_rejected() {
-        let mut b = valid_buffer();
-        b.modifier = Modifier(42);
-        let msg = ClientMessage::Buffer(b);
-        let mut out = Vec::new();
-        msg.encode(&mut out).unwrap();
-        assert_eq!(ClientMessage::decode(&out), Err(ProtocolError::OutOfRange));
-    }
-
-    #[test]
-    fn buffer_modifier_invalid_sentinel_accepted() {
-        // u64::MAX (INVALID) is in the v1 allowlist alongside LINEAR.
-        let mut b = valid_buffer();
-        b.modifier = Modifier(u64::MAX);
+        b.stride = 64; // keep stride >= width so the sanity check passes
         let msg = ClientMessage::Buffer(b);
         let mut out = Vec::new();
         msg.encode(&mut out).unwrap();
@@ -388,9 +371,26 @@ mod tests {
     }
 
     #[test]
-    fn buffer_stride_too_small_rejected() {
+    fn buffer_any_modifier_accepted() {
+        // Modifier acceptability is a host-stack concern (e.g. NVIDIA
+        // vendor-private tiling modifiers); the codec passes all
+        // values through.
         let mut b = valid_buffer();
-        b.stride = 100; // less than 64 * 4 = 256
+        b.modifier = Modifier(0x0300000000e08014);
+        let msg = ClientMessage::Buffer(b);
+        let mut out = Vec::new();
+        msg.encode(&mut out).unwrap();
+        assert_eq!(ClientMessage::decode(&out).unwrap(), msg);
+    }
+
+    #[test]
+    fn buffer_stride_below_width_rejected() {
+        // Stride must be at least `width` — the codec doesn't know bpp
+        // for arbitrary formats but anything below width is wrong
+        // for every packed format.
+        let mut b = valid_buffer();
+        b.width = 64;
+        b.stride = 32; // less than width
         let msg = ClientMessage::Buffer(b);
         let mut out = Vec::new();
         msg.encode(&mut out).unwrap();

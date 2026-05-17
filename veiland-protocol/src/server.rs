@@ -10,7 +10,7 @@ use crate::error::ProtocolError;
 
 /// Host configures the plugin's render region, scale, and time tick.
 /// See `docs/protocol.md` §7.1.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Configure {
     pub region_x: i32,
     pub region_y: i32,
@@ -23,7 +23,7 @@ pub struct Configure {
 
 /// Host is done sampling the buffer with this id; plugin may reuse it.
 /// See `docs/protocol.md` §7.3.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BufferReleased {
     pub id: u32,
 }
