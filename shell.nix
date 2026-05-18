@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Development environment for veiland.
-#
-# Scope: M0 only — the C proof-of-concept that validates cross-process
-# DMA-BUF buffer sharing. M1+ will add the Rust toolchain and Wayland
-# client crates; this file will grow at that point.
 
 { pkgs ? import <nixpkgs> {} }:
 
@@ -31,10 +27,13 @@ pkgs.mkShell {
     wayland
     wayland-protocols
     libxkbcommon
+
+    # PAM for veiland-core's auth path. pam-sys2's build script finds the
+    # headers via pkg-config; the linker needs -lpam / -lpam_misc.
+    linux-pam
   ];
 
   shellHook = ''
-    echo "veiland dev shell — M0 (C POC for cross-process DMA-BUF)"
-    echo "  EGL (Mesa) + GBM (libgbm), GLFW for the consumer window"
+    echo "veiland dev shell"
   '';
 }

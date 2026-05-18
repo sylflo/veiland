@@ -14,5 +14,6 @@ wayland-egl = "0.32"
 khronos-egl = { version = "6", features = ["static"] }
 gl = "0.14"
 nix = { version = "0.31", features = ["fs", "process", "mman", "signal", "socket", "uio", "user"] }
+pam-client2 = "0.5"
 veiland-protocol = { path = "../veiland-protocol" }
 zeroize = "1.8.2"

@@ -754,7 +754,7 @@ impl AppData {
                         return;
                     }
                 };
-                match self.auth.authenticate("system-auth", &user) {
+                match self.auth.authenticate("veiland", &user) {
                     Ok(()) => {
                         if let Some(lock) = self.session_lock.take() {
                             lock.unlock();

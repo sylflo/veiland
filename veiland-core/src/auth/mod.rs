@@ -7,9 +7,12 @@
 //! as a method on Session so PAM is fed the buffer without anyone else
 //! ever holding a reference to it.
 
-use std::ffi::c_void;
-use std::ptr::NonNull;
+use std::{
+    ffi::{CStr, CString, c_void},
+    ptr::NonNull,
+};
 use zeroize::Zeroize;
+use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 
 const CAPACITY: usize = 512;
 
@@ -36,6 +39,25 @@ impl std::fmt::Display for AuthError {
 }
 impl std::error::Error for AuthError {}
 
+
+struct PasswordConv {
+    password: CString,
+}
+
+impl ConversationHandler for PasswordConv {
+    fn prompt_echo_off(&mut self, _prompt: &CStr) -> Result<CString, ErrorCode> {
+        Ok(self.password.clone())
+    }
+
+    fn prompt_echo_on(&mut self, _prompt: &CStr) -> Result<CString, ErrorCode> {
+        Err(ErrorCode::CONV_ERR)
+    }
+
+    fn text_info(&mut self, _msg: &CStr) {}
+
+    fn error_msg(&mut self, _msg: &CStr) {}
+}
+
 impl Session {
     pub fn new() -> Result<Self, AuthError> {
         let buf = Box::new([0u8; CAPACITY]);
@@ -48,9 +70,29 @@ impl Session {
         Ok(Session { buf, len: 0 })
     }
 
-    pub fn authenticate(&mut self, _service: &str, _user: &str) -> Result<(), AuthError> {
+    pub fn authenticate(&mut self, service: &str, user: &str) -> Result<(), AuthError> {
+        let result = self.try_authenticate(service, user);
         self.clear();
-        Err(AuthError::PamFailed)
+        if result.is_err() {
+            eprintln!("auth: authentication failed");
+        }
+        result
+    }
+
+    fn try_authenticate(&self, service: &str, user: &str) -> Result<(), AuthError> {
+        let password = CString::new(&self.buf[..self.len])
+            .map_err(|_| AuthError::PamFailed)?;
+        
+            let conv = PasswordConv { password };
+            let mut ctx = Context::new(service, Some(user), conv)
+                .map_err(|_| AuthError::PamFailed)?;
+            
+            ctx.authenticate(Flag::NONE)
+                .map_err(|_| AuthError::PamFailed)?;
+            ctx.acct_mgmt(Flag::NONE)
+                .map_err(|_| AuthError::PamFailed)?;
+            
+            Ok(())
     }
 
     pub fn push_utf8(&mut self, s: &str) {
