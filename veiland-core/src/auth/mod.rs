@@ -21,6 +21,7 @@ pub struct Session {
 #[derive(Debug)]
 pub enum AuthError {
     MlockFailed(nix::errno::Errno),
+    PamFailed,
 }
 
 impl std::fmt::Display for AuthError {
@@ -29,6 +30,7 @@ impl std::fmt::Display for AuthError {
             AuthError::MlockFailed(errno) => {
                 write!(f, "mlock failed: {}", errno)
             }
+            AuthError::PamFailed => write!(f, "authentication failed"),
         }
     }
 }
@@ -44,6 +46,11 @@ impl Session {
             nix::sys::mman::mlock(ptr, CAPACITY).map_err(AuthError::MlockFailed)?;
         }
         Ok(Session { buf, len: 0 })
+    }
+
+    pub fn authenticate(&mut self, _service: &str, _user: &str) -> Result<(), AuthError> {
+        self.clear();
+        Err(AuthError::PamFailed)
     }
 
     pub fn push_utf8(&mut self, s: &str) {

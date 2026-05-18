@@ -31,6 +31,8 @@ use wayland_client::{
     protocol::{wl_buffer, wl_keyboard, wl_output, wl_seat, wl_surface},
 };
 
+use nix::unistd::{User, getuid};
+
 use veiland_protocol::{ClientMessage, Configure};
 
 use plugin::{HostConnection, PluginState, spawn_plugin};
@@ -69,6 +71,8 @@ struct AppData {
     compositor_program: gl::types::GLuint,
     compositor_vbo: gl::types::GLuint,
     compositor_sampler_loc: gl::types::GLint,
+    auth: auth::Session,
+    modifiers: Modifiers,
 }
 
 unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
@@ -294,6 +298,15 @@ fn main() -> ExitCode {
         .send_frame_done()
         .expect("send initial FrameDone");
 
+    let auth = match auth::Session::new() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("veiland-core: failed to allocate password buffer: {}", e);
+            eprintln!("veiland-core: check RLIMIT_MEMLOCK (ulimit -l)");
+            return ExitCode::FAILURE;
+        }
+    };
+
     // --- 5. AppData and lock surface ----------------------------------------
     let mut state = AppData {
         conn: conn.clone(),
@@ -316,6 +329,8 @@ fn main() -> ExitCode {
         compositor_program,
         compositor_vbo,
         compositor_sampler_loc,
+        auth,
+        modifiers: Modifiers::default(),
     };
 
     let session_lock = state
@@ -723,6 +738,58 @@ impl SeatHandler for AppData {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
+impl AppData {
+    fn handle_key(&mut self, event: &KeyEvent) {
+        // Reject modified keys. Plain Shift is fine (for capitals); Ctrl/Alt/Super are not.
+        if self.modifiers.ctrl || self.modifiers.alt || self.modifiers.logo {
+            return;
+        }
+
+        match event.keysym {
+            Keysym::Return | Keysym::KP_Enter => {
+                let user = match User::from_uid(getuid()) {
+                    Ok(Some(u)) => u.name,
+                    _ => {
+                        eprintln!("auth: cannot resolve current user, refusing auth");
+                        return;
+                    }
+                };
+                match self.auth.authenticate("system-auth", &user) {
+                    Ok(()) => {
+                        if let Some(lock) = self.session_lock.take() {
+                            lock.unlock();
+                            self.conn.roundtrip().expect("flush unlock");
+                        }
+                        self.run = RunState::UnlockedCleanly;
+                    }
+                    Err(_) => {
+                        // Buffer already cleared by authenticate(). User retypes.
+                    }
+                }
+            }
+            Keysym::BackSpace => {
+                self.auth.pop_char();
+            }
+            Keysym::Escape => {
+                // Stays as escape-to-unlock for now; feature-gated in step 4.
+                self.auth.clear();
+                if let Some(lock) = self.session_lock.take() {
+                    lock.unlock();
+                    self.conn.roundtrip().expect("flush unlock");
+                }
+                self.run = RunState::UnlockedCleanly;
+            }
+            _ => {
+                if let Some(s) = event.utf8.as_deref()
+                    && !s.chars().any(|c| c.is_control())
+                {
+                    self.auth.push_utf8(s);
+                }
+            }
+        }
+    }
+}
+
 impl KeyboardHandler for AppData {
     fn enter(
         &mut self,
@@ -754,13 +821,7 @@ impl KeyboardHandler for AppData {
         _: u32,
         event: KeyEvent,
     ) {
-        if event.keysym == Keysym::Escape {
-            if let Some(lock) = self.session_lock.take() {
-                lock.unlock();
-                self.conn.roundtrip().expect("flush unlock");
-            }
-            self.run = RunState::UnlockedCleanly;
-        }
+        self.handle_key(&event);
     }
 
     fn repeat_key(
@@ -769,8 +830,9 @@ impl KeyboardHandler for AppData {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: KeyEvent,
+        event: KeyEvent,
     ) {
+        self.handle_key(&event);
     }
 
     fn release_key(
@@ -789,10 +851,11 @@ impl KeyboardHandler for AppData {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: Modifiers,
+        modifiers: Modifiers,
         _: RawModifiers,
         _: u32,
     ) {
+        self.modifiers = modifiers;
     }
 }
 

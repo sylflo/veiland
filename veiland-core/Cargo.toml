@@ -13,6 +13,6 @@ wayland-client = "0.31.14"
 wayland-egl = "0.32"
 khronos-egl = { version = "6", features = ["static"] }
 gl = "0.14"
-nix = { version = "0.31", features = ["fs", "process", "mman", "signal", "socket", "uio"] }
+nix = { version = "0.31", features = ["fs", "process", "mman", "signal", "socket", "uio", "user"] }
 veiland-protocol = { path = "../veiland-protocol" }
 zeroize = "1.8.2"
