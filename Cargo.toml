@@ -1,3 +1,13 @@
 [workspace]
 resolver = "3"
 members = ["plugins/gradient","veiland-core", "veiland-plugin", "veiland-protocol"]
+
+# Password buffer hygiene depends on Drop running on panic. Setting
+# panic = "abort" anywhere would skip Session::zeroize on the way to
+# _exit. Pin explicitly — the Rust default is already unwind, but a
+# future maintainer should see this is a load-bearing choice.
+[profile.release]
+panic = "unwind"
+
+[profile.dev]
+panic = "unwind"
