@@ -1,20 +1,19 @@
 use std::{
     io::{IoSlice, IoSliceMut},
-    os::{  
+    os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
-        unix::net::UnixStream
+        unix::net::UnixStream,
     },
 };
 
 use nix::sys::socket::{ControlMessageOwned, MsgFlags, recvmsg, sendmsg};
 
 use veiland_protocol::{
-    BufferReleased, ClientMessage, Configure, PROTOCOL_VERSION, ServerMessage,
-    read_version, write_version,
+    BufferReleased, ClientMessage, Configure, PROTOCOL_VERSION, ServerMessage, read_version,
+    write_version,
 };
 
 use super::HostError;
-
 
 pub struct HostConnection {
     socket: UnixStream,
@@ -22,26 +21,25 @@ pub struct HostConnection {
 
 impl HostConnection {
     pub fn from_fd(fd: OwnedFd) -> Self {
-        Self { socket: UnixStream::from(fd) }
+        Self {
+            socket: UnixStream::from(fd),
+        }
     }
 
     pub fn handshake(&mut self) -> Result<(), HostError> {
         // 1. Read plugin's version first (server side reads, then writes).
         let mut version_in = [0u8; 4];
         let mut iov = [IoSliceMut::new(&mut version_in)];
-        let msg = recvmsg::<()>(
-            self.socket.as_raw_fd(),
-            &mut iov,
-            None,
-            MsgFlags::empty(),
-        )?;
+        let msg = recvmsg::<()>(self.socket.as_raw_fd(), &mut iov, None, MsgFlags::empty())?;
 
         match msg.bytes {
             0 => return Err(HostError::PluginDisconnected),
             4 => {}
-            _ => return Err(HostError::ProtocolViolation(
-                "handshake request was not 4 bytes",
-            )),
+            _ => {
+                return Err(HostError::ProtocolViolation(
+                    "handshake request was not 4 bytes",
+                ));
+            }
         }
 
         let plugin_version = read_version(&version_in)?;
@@ -160,9 +158,9 @@ impl HostConnection {
             (ClientMessage::Buffer(_), 0) => {
                 Err(HostError::ProtocolViolation("Buffer message without fd"))
             }
-            (ClientMessage::Buffer(_), _) => {
-                Err(HostError::ProtocolViolation("Buffer message with extra fds"))
-            }
+            (ClientMessage::Buffer(_), _) => Err(HostError::ProtocolViolation(
+                "Buffer message with extra fds",
+            )),
             (_, 0) => Ok((message, None)),
             (_, _) => Err(HostError::ProtocolViolation(
                 "fd attached to fd-less message",
@@ -173,7 +171,6 @@ impl HostConnection {
     pub fn as_fd(&self) -> BorrowedFd<'_> {
         self.socket.as_fd()
     }
-
 }
 
 #[cfg(test)]
@@ -192,9 +189,7 @@ mod tests {
     use super::*;
     use std::thread;
 
-    use nix::sys::socket::{
-        AddressFamily, ControlMessage, SockFlag, SockType, socketpair,
-    };
+    use nix::sys::socket::{AddressFamily, ControlMessage, SockFlag, SockType, socketpair};
 
     use veiland_protocol::{Buffer, Fourcc, Hello, Modifier};
 
@@ -204,14 +199,8 @@ mod tests {
     /// a deliberately-wrong version for the mismatch test.
     fn plugin_send_version(fd: RawFd, version: u32) {
         let bytes = version.to_le_bytes();
-        sendmsg::<()>(
-            fd,
-            &[IoSlice::new(&bytes)],
-            &[],
-            MsgFlags::empty(),
-            None,
-        )
-        .expect("plugin sendmsg version");
+        sendmsg::<()>(fd, &[IoSlice::new(&bytes)], &[], MsgFlags::empty(), None)
+            .expect("plugin sendmsg version");
     }
 
     /// Read four LE bytes — host's handshake reply. Returns None if
@@ -219,8 +208,8 @@ mod tests {
     fn plugin_recv_version(fd: RawFd) -> Option<u32> {
         let mut buf = [0u8; 4];
         let mut iov = [IoSliceMut::new(&mut buf)];
-        let msg = recvmsg::<()>(fd, &mut iov, None, MsgFlags::empty())
-            .expect("plugin recvmsg version");
+        let msg =
+            recvmsg::<()>(fd, &mut iov, None, MsgFlags::empty()).expect("plugin recvmsg version");
         if msg.bytes == 0 {
             None
         } else {
@@ -276,8 +265,8 @@ mod tests {
 
         let plugin_raw = plugin_fd.as_raw_fd();
         plugin_send_version(plugin_raw, PROTOCOL_VERSION);
-        let host_version = plugin_recv_version(plugin_raw)
-            .expect("host should reply on version match");
+        let host_version =
+            plugin_recv_version(plugin_raw).expect("host should reply on version match");
         assert_eq!(host_version, PROTOCOL_VERSION);
 
         host.join().expect("host thread");

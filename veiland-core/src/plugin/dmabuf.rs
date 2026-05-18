@@ -63,14 +63,22 @@ pub fn import_dmabuf(
     let modifier_hi = (buffer.modifier.0 >> 32) as egl::Attrib;
 
     let image_attribs: [egl::Attrib; 17] = [
-        egl::WIDTH as egl::Attrib,                         buffer.width as egl::Attrib,
-        egl::HEIGHT as egl::Attrib,                        buffer.height as egl::Attrib,
-        EGL_LINUX_DRM_FOURCC_EXT as egl::Attrib,           buffer.format.0 as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_FD_EXT as egl::Attrib,          fd.as_raw_fd() as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_OFFSET_EXT as egl::Attrib,      buffer.offset as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_PITCH_EXT as egl::Attrib,       buffer.stride as egl::Attrib,
-        EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT as egl::Attrib, modifier_lo,
-        EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT as egl::Attrib, modifier_hi,
+        egl::WIDTH as egl::Attrib,
+        buffer.width as egl::Attrib,
+        egl::HEIGHT as egl::Attrib,
+        buffer.height as egl::Attrib,
+        EGL_LINUX_DRM_FOURCC_EXT as egl::Attrib,
+        buffer.format.0 as egl::Attrib,
+        EGL_DMA_BUF_PLANE0_FD_EXT as egl::Attrib,
+        fd.as_raw_fd() as egl::Attrib,
+        EGL_DMA_BUF_PLANE0_OFFSET_EXT as egl::Attrib,
+        buffer.offset as egl::Attrib,
+        EGL_DMA_BUF_PLANE0_PITCH_EXT as egl::Attrib,
+        buffer.stride as egl::Attrib,
+        EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT as egl::Attrib,
+        modifier_lo,
+        EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT as egl::Attrib,
+        modifier_hi,
         egl::ATTRIB_NONE,
     ];
 
@@ -99,12 +107,9 @@ pub fn import_dmabuf(
         gl::BindTexture(gl::TEXTURE_2D, name);
 
         let target_fn: extern "system" fn(gl::types::GLenum, *const std::ffi::c_void) =
-            std::mem::transmute(
-                egl.get_proc_address("glEGLImageTargetTexture2DOES")
-                    .ok_or(HostError::Render(
-                        "glEGLImageTargetTexture2DOES not available",
-                    ))?,
-            );
+            std::mem::transmute(egl.get_proc_address("glEGLImageTargetTexture2DOES").ok_or(
+                HostError::Render("glEGLImageTargetTexture2DOES not available"),
+            )?);
         target_fn(gl::TEXTURE_2D, image.as_ptr() as *const _);
 
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);

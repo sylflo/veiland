@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod auth;
+mod plugin;
 
-use std::{
-    path::PathBuf,
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -34,9 +33,7 @@ use wayland_client::{
 
 use veiland_protocol::{ClientMessage, Configure};
 
-mod plugin;
 use plugin::{HostConnection, PluginState, spawn_plugin};
-
 
 #[derive(Default, PartialEq)]
 enum RunState {
@@ -85,7 +82,12 @@ unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLui
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetShaderInfoLog(
+                shader,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             panic!(
                 "shader compile failed: {}",
                 std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
@@ -106,7 +108,12 @@ unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::type
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetProgramInfoLog(
+                program,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             panic!(
                 "program link failed: {}",
                 std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
@@ -141,12 +148,7 @@ unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, g
         let program = link_program(vs, fs);
 
         let quad: [f32; 12] = [
-            -1.0, -1.0,
-             1.0, -1.0,
-            -1.0,  1.0,
-            -1.0,  1.0,
-             1.0, -1.0,
-             1.0,  1.0,
+            -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
         ];
 
         let mut vbo: gl::types::GLuint = 0;
@@ -172,8 +174,8 @@ fn main() {
     // Hardcoded path; plugin discovery is M6. The plugin inherits its
     // socket end as fd 3 (see plugin/spawn.rs); the host keeps the other end.
     let plugin_binary = PathBuf::from("./target/debug/veiland-gradient");
-    let process = spawn_plugin(&plugin_binary, "gradient")
-        .expect("failed to spawn gradient plugin");
+    let process =
+        spawn_plugin(&plugin_binary, "gradient").expect("failed to spawn gradient plugin");
     let plugin_pid = process.child_pid;
     eprintln!("spawned gradient plugin pid={}", plugin_pid);
 
@@ -200,12 +202,18 @@ fn main() {
             .unwrap_or(std::ptr::null())
     });
     let config_attribs = [
-        egl::SURFACE_TYPE,    egl::WINDOW_BIT,
-        egl::RENDERABLE_TYPE, egl::OPENGL_ES2_BIT,
-        egl::RED_SIZE,        8,
-        egl::GREEN_SIZE,      8,
-        egl::BLUE_SIZE,       8,
-        egl::ALPHA_SIZE,      8,
+        egl::SURFACE_TYPE,
+        egl::WINDOW_BIT,
+        egl::RENDERABLE_TYPE,
+        egl::OPENGL_ES2_BIT,
+        egl::RED_SIZE,
+        8,
+        egl::GREEN_SIZE,
+        8,
+        egl::BLUE_SIZE,
+        8,
+        egl::ALPHA_SIZE,
+        8,
         egl::NONE,
     ];
     let egl_config = egl
@@ -335,7 +343,11 @@ fn main() {
     // recv_message and dispatches to PluginState. On any error we treat
     // the plugin as dead, log, and remove the source (the lock keeps
     // running with the fallback black screen).
-    let plugin_fd = state.plugin.connection.as_fd().try_clone_to_owned()
+    let plugin_fd = state
+        .plugin
+        .connection
+        .as_fd()
+        .try_clone_to_owned()
         .expect("dup plugin socket for calloop");
     event_loop
         .handle()
@@ -345,12 +357,11 @@ fn main() {
                 match state.plugin.connection.recv_message() {
                     Ok((msg, fd)) => {
                         let is_buffer = matches!(msg, ClientMessage::Buffer(_));
-                        if let Err(e) = state.plugin.handle_message(
-                            msg,
-                            fd,
-                            &state.egl,
-                            state.egl_display,
-                        ) {
+                        if let Err(e) =
+                            state
+                                .plugin
+                                .handle_message(msg, fd, &state.egl, state.egl_display)
+                        {
                             eprintln!("plugin protocol error: {} — treating as dead", e);
                             // Drop the texture so subsequent frames go fallback.
                             state.plugin.texture = None;
@@ -439,7 +450,10 @@ fn teardown_plugin(connection: &mut HostConnection, pid: nix::unistd::Pid) {
     }
 
     // 3. SIGTERM, brief wait.
-    eprintln!("teardown: plugin did not exit in {}ms, sending SIGTERM", grace.as_millis());
+    eprintln!(
+        "teardown: plugin did not exit in {}ms, sending SIGTERM",
+        grace.as_millis()
+    );
     let _ = kill(pid, Signal::SIGTERM);
     std::thread::sleep(Duration::from_millis(100));
     if let Ok(status) = waitpid(pid, Some(WaitPidFlag::WNOHANG))

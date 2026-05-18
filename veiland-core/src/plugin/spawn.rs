@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
+    ffi::CString,
     os::{
         fd::{AsRawFd, OwnedFd},
         unix::ffi::OsStrExt,
     },
     path::Path,
-    ffi::CString
 };
 
 use nix::{
-    sys::socket::{socketpair, AddressFamily, SockFlag, SockType},
-    unistd::{fork, ForkResult, Pid, execv}
+    sys::socket::{AddressFamily, SockFlag, SockType, socketpair},
+    unistd::{ForkResult, Pid, execv, fork},
 };
 
 use super::HostError;
@@ -32,7 +32,7 @@ pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, 
     // SAFETY: post-fork the child runs only async-signal-safe
     // operations before exec. The host is single-threaded at this
     // point in startup; revisit if threads are introduced earlier.
-    let fork_result = unsafe { fork () }?;
+    let fork_result = unsafe { fork() }?;
     match fork_result {
         ForkResult::Parent { child } => {
             drop(plugin_fd);
@@ -74,7 +74,7 @@ pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, 
             unsafe {
                 std::env::set_var("VEILAND_PLUGIN_SOCKET", "3");
             }
-    
+
             // execv replaces this process with the plugin binary.
             // Returns only on failure.
             let _ = execv(&path_cstring, &[argv0_cstring]);
@@ -86,7 +86,7 @@ pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nix::sys::wait::{waitpid, WaitStatus};
+    use nix::sys::wait::{WaitStatus, waitpid};
 
     /// Locate `true` across distros. NixOS has empty /bin and /usr/bin
     /// (except /bin/sh); the system profile under /run/current-system
@@ -110,11 +110,10 @@ mod tests {
     /// by the gradient plugin end-to-end at step 6.
     #[test]
     fn spawn_true_exits_zero() {
-        let process = spawn_plugin(find_true(), "true")
-            .expect("spawning `true` should succeed");
+        let process = spawn_plugin(find_true(), "true").expect("spawning `true` should succeed");
 
-        let status = waitpid(process.child_pid, None)
-            .expect("waitpid should succeed on a known child");
+        let status =
+            waitpid(process.child_pid, None).expect("waitpid should succeed on a known child");
 
         match status {
             WaitStatus::Exited(_, 0) => {}
@@ -127,14 +126,10 @@ mod tests {
     /// fork return then a child that exited 127.
     #[test]
     fn spawn_nonexistent_exits_127() {
-        let process = spawn_plugin(
-            Path::new("/nonexistent/veiland-test-binary"),
-            "nonexistent",
-        )
-        .expect("fork itself should succeed even if exec target is missing");
+        let process = spawn_plugin(Path::new("/nonexistent/veiland-test-binary"), "nonexistent")
+            .expect("fork itself should succeed even if exec target is missing");
 
-        let status = waitpid(process.child_pid, None)
-            .expect("waitpid should succeed");
+        let status = waitpid(process.child_pid, None).expect("waitpid should succeed");
 
         match status {
             WaitStatus::Exited(_, 127) => {}
