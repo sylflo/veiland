@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["plugins/gradient","veiland-core", "veiland-plugin", "veiland-protocol"]
+members = ["plugins/gradient", "plugins/stress", "veiland-core", "veiland-plugin", "veiland-protocol"]
 
 # Password buffer hygiene depends on Drop running on panic. Setting
 # panic = "abort" anywhere would skip Session::zeroize on the way to

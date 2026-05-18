@@ -1,0 +1,13 @@
+[package]
+name = "veiland-stress"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Stress plugin for veiland — deliberately heavy GPU workload for benchmarking the sync model"
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
+gl = "0.14"
+veiland-plugin = { path = "../../veiland-plugin" }
+veiland-protocol = { path = "../../veiland-protocol" }
