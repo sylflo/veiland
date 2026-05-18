@@ -3,7 +3,7 @@
 mod auth;
 mod plugin;
 
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -167,7 +167,7 @@ unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, g
     }
 }
 
-fn main() {
+fn main() -> ExitCode {
     println!("veiland-core");
 
     // --- 1. Spawn the plugin -------------------------------------------------
@@ -250,11 +250,11 @@ fn main() {
                 "plugin sent {:?} before Hello; refusing to start lock",
                 other
             );
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
         Err(e) => {
             eprintln!("plugin handshake failed: {}; refusing to start lock", e);
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
     };
     eprintln!("plugin says hello: {} v{}", plugin_name, plugin_version);
@@ -407,8 +407,11 @@ fn main() {
 
     match state.run {
         RunState::Running => unreachable!(),
-        RunState::UnlockedCleanly => println!("unlocked, exiting"),
-        RunState::Refused => std::process::exit(1),
+        RunState::UnlockedCleanly => {
+            println!("unlocked, exiting");
+            ExitCode::SUCCESS
+        }
+        RunState::Refused => ExitCode::FAILURE,
     }
 }
 
