@@ -178,13 +178,24 @@ fn main() -> ExitCode {
     eprintln!("veiland-core: WARNING: debug-unlock feature enabled — Escape unlocks without auth");
 
     // --- 1. Spawn the plugin -------------------------------------------------
-    // Hardcoded path; plugin discovery is M6. The plugin inherits its
-    // socket end as fd 3 (see plugin/spawn.rs); the host keeps the other end.
-    let plugin_binary = PathBuf::from("./target/debug/veiland-gradient");
-    let process =
-        spawn_plugin(&plugin_binary, "gradient").expect("failed to spawn gradient plugin");
+    // Plugin discovery is M6. For now we accept VEILAND_PLUGIN (path to the
+    // binary) and VEILAND_PLUGIN_NAME (label used only in logs) so we can
+    // swap between gradient and stress without recompiling the host. The
+    // plugin inherits its socket end as fd 3 (see plugin/spawn.rs); the
+    // host keeps the other end.
+    let plugin_binary = PathBuf::from(
+        std::env::var("VEILAND_PLUGIN")
+            .unwrap_or_else(|_| "./target/debug/veiland-gradient".to_string()),
+    );
+    let plugin_name =
+        std::env::var("VEILAND_PLUGIN_NAME").unwrap_or_else(|_| "gradient".to_string());
+    let process = spawn_plugin(&plugin_binary, &plugin_name)
+        .unwrap_or_else(|e| panic!("failed to spawn plugin {:?}: {}", plugin_binary, e));
     let plugin_pid = process.child_pid;
-    eprintln!("spawned gradient plugin pid={}", plugin_pid);
+    eprintln!(
+        "spawned plugin {:?} as {:?} pid={}",
+        plugin_binary, plugin_name, plugin_pid
+    );
 
     // --- 2. Wayland connection + event loop ---------------------------------
     let conn = Connection::connect_to_env()
