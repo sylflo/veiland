@@ -175,9 +175,7 @@ fn main() -> ExitCode {
     println!("veiland-core");
 
     #[cfg(feature = "debug-unlock")]
-    eprintln!(
-        "veiland-core: WARNING: debug-unlock feature enabled — Escape unlocks without auth"
-    );
+    eprintln!("veiland-core: WARNING: debug-unlock feature enabled — Escape unlocks without auth");
 
     // --- 1. Spawn the plugin -------------------------------------------------
     // Hardcoded path; plugin discovery is M6. The plugin inherits its

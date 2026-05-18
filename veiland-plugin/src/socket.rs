@@ -155,11 +155,7 @@ impl Connection {
     /// Send a `Buffer` message with its dmabuf fd attached via `SCM_RIGHTS`.
     /// The fd is borrowed — the plugin keeps ownership of the underlying
     /// GBM bo and may re-send the same fd across frames.
-    pub fn send_buffer(
-        &mut self,
-        buffer: &Buffer,
-        fd: BorrowedFd<'_>,
-    ) -> Result<(), PluginError> {
+    pub fn send_buffer(&mut self, buffer: &Buffer, fd: BorrowedFd<'_>) -> Result<(), PluginError> {
         let mut buf = Vec::new();
         let msg = ClientMessage::Buffer(buffer.clone());
         msg.encode(&mut buf)?;
@@ -236,5 +232,3 @@ impl Connection {
         Ok(event)
     }
 }
-
-

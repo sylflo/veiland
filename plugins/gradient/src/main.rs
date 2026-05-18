@@ -24,7 +24,12 @@ unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLui
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetShaderInfoLog(
+                shader,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             panic!(
                 "shader compile failed: {}",
                 std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
@@ -45,7 +50,12 @@ unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::type
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetProgramInfoLog(
+                program,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             panic!(
                 "program link failed: {}",
                 std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
@@ -84,12 +94,7 @@ unsafe fn build_gradient_program() -> (gl::types::GLuint, gl::types::GLint) {
         gl::UseProgram(program);
 
         let quad: [f32; 12] = [
-            -1.0, -1.0,
-             1.0, -1.0,
-            -1.0,  1.0,
-            -1.0,  1.0,
-             1.0, -1.0,
-             1.0,  1.0,
+            -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
         ];
 
         let mut vbo: gl::types::GLuint = 0;

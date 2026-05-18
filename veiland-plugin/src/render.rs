@@ -53,8 +53,8 @@ impl GbmEgl {
 
         // 2. Hand the fd to gbm::Device. From here on the Device owns the
         //    close — we hold the Device in the struct for its lifetime.
-        let gbm = gbm::Device::new(drm_fd)
-            .map_err(|_| PluginError::Render("gbm::Device::new failed"))?;
+        let gbm =
+            gbm::Device::new(drm_fd).map_err(|_| PluginError::Render("gbm::Device::new failed"))?;
 
         // 3. Get the EGL display from the GBM device pointer.
         let egl = egl::Instance::new(egl::Static);

@@ -162,7 +162,8 @@ fn hello_roundtrip() {
     let plugin = thread::spawn(move || {
         let mut conn = Connection::from_fd(plugin_fd);
         conn.handshake().expect("plugin handshake");
-        conn.send_hello("gradient", "0.1").expect("plugin send_hello");
+        conn.send_hello("gradient", "0.1")
+            .expect("plugin send_hello");
     });
 
     let host_raw = host_fd.as_raw_fd();
@@ -212,7 +213,8 @@ fn buffer_with_fd_arrives_with_one_cmsg_fd() {
         // protocol layer.
         let devnull = std::fs::File::open("/dev/null").expect("open /dev/null");
         let borrowed = std::os::fd::AsFd::as_fd(&devnull);
-        conn.send_buffer(&buffer, borrowed).expect("plugin send_buffer");
+        conn.send_buffer(&buffer, borrowed)
+            .expect("plugin send_buffer");
         // Keep devnull alive until after send_buffer returns.
         drop(devnull);
     });
@@ -228,7 +230,11 @@ fn buffer_with_fd_arrives_with_one_cmsg_fd() {
     // We just assert it's >= 0 (a valid fd number); the precise value is up
     // to the kernel.
     let received_fd = fds[0].as_raw_fd();
-    assert!(received_fd >= 0, "received fd should be valid, got {}", received_fd);
+    assert!(
+        received_fd >= 0,
+        "received fd should be valid, got {}",
+        received_fd
+    );
 
     match msg {
         ClientMessage::Buffer(b) => assert_eq!(b, expected),

@@ -143,12 +143,9 @@ impl DmaBuffer {
 
             // glEGLImageTargetTexture2DOES is an extension; resolve at runtime.
             let target_fn: extern "system" fn(gl::types::GLenum, *const c_void) =
-                std::mem::transmute(
-                    egl.get_proc_address("glEGLImageTargetTexture2DOES")
-                        .ok_or(PluginError::Render(
-                            "glEGLImageTargetTexture2DOES not available",
-                        ))?,
-                );
+                std::mem::transmute(egl.get_proc_address("glEGLImageTargetTexture2DOES").ok_or(
+                    PluginError::Render("glEGLImageTargetTexture2DOES not available"),
+                )?);
             target_fn(gl::TEXTURE_2D, egl_image.as_ptr() as *const _);
 
             gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
