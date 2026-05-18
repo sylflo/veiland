@@ -174,6 +174,11 @@ unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, g
 fn main() -> ExitCode {
     println!("veiland-core");
 
+    #[cfg(feature = "debug-unlock")]
+    eprintln!(
+        "veiland-core: WARNING: debug-unlock feature enabled — Escape unlocks without auth"
+    );
+
     // --- 1. Spawn the plugin -------------------------------------------------
     // Hardcoded path; plugin discovery is M6. The plugin inherits its
     // socket end as fd 3 (see plugin/spawn.rs); the host keeps the other end.
@@ -747,6 +752,9 @@ impl AppData {
 
         match event.keysym {
             Keysym::Return | Keysym::KP_Enter => {
+                if self.auth.is_empty() {
+                    return;
+                }
                 let user = match User::from_uid(getuid()) {
                     Ok(Some(u)) => u.name,
                     _ => {
@@ -770,8 +778,8 @@ impl AppData {
             Keysym::BackSpace => {
                 self.auth.pop_char();
             }
+            #[cfg(feature = "debug-unlock")]
             Keysym::Escape => {
-                // Stays as escape-to-unlock for now; feature-gated in step 4.
                 self.auth.clear();
                 if let Some(lock) = self.session_lock.take() {
                     lock.unlock();
