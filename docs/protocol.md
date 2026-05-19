@@ -75,26 +75,56 @@ reading server messages and decodes against the `ServerMessage` tag table.
 Sending a server-direction tag in the client direction (or vice versa) is a
 protocol error.
 
-## 5. Protocol version
+## 5. Protocol version and host capabilities
 
-Before any tagged message, the two sides negotiate a protocol version in
-sequence:
+Before any tagged message, the two sides negotiate a protocol version and the
+host advertises its capabilities, in sequence:
 
 ```
 1. client → server:  u32 client_version
-2. server → client:  u32 server_version  (only if it accepts client_version)
+2. server → client:  u32 server_version       (only if it accepts client_version)
+3. server → client:  u32 host_capabilities    (immediately after server_version)
 ```
 
-For v1, both values are `1`. If the host does not recognize the client
+For v1, both version values are `1`. If the host does not recognize the client
 version, it closes the socket without replying. The plugin, having already
 sent its version, sees the socket close before reading a server version and
 infers a version mismatch. If the plugin reads a server version it does not
 recognize, it closes the socket.
 
-The handshake is *not* a `ClientMessage`/`ServerMessage` — it is four raw
-little-endian bytes on each side, sent before the tagged-message stream begins.
-This keeps version mismatch outside the variant-decoding path: a v2 codec that
-changes how tags are encoded can still negotiate cleanly with a v1 peer.
+The handshake is *not* a `ClientMessage`/`ServerMessage` — it is raw
+little-endian u32s on each side, sent before the tagged-message stream begins.
+This keeps version mismatch outside the variant-decoding path: a future codec
+that changes how tags are encoded can still negotiate cleanly with the
+existing peer.
+
+### 5.1 Host capabilities
+
+`host_capabilities` is a bitfield declaring which optional protocol features
+the host supports. The plugin reads it after `server_version` and uses it to
+decide which path to take for features whose support is host-dependent.
+
+| Bit  | Name                  | Meaning                                                                                                                         |
+| ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | `HOST_CAP_FENCE_FD`   | Host accepts a sync-fence fd attached as a second `SCM_RIGHTS` fd on `Buffer` messages, and will wait on it before sampling.    |
+| 1–31 | reserved              | MUST be zero. A plugin that sees any reserved bit set MUST treat the handshake as a protocol violation and close the socket.    |
+
+The reserved-MUST-be-zero rule is forward-compatibility hygiene: future
+capability bits are added by introducing new bit positions, never by
+redefining bits the spec currently marks reserved. A plugin built against
+this spec can therefore trust that bits it doesn't understand mean the host
+is doing something the plugin wasn't designed for, and fail closed rather
+than guess.
+
+A host MUST NOT set a capability bit it does not implement. A plugin SHOULD
+NOT use a capability without checking the corresponding bit; doing so risks
+a protocol violation if the host has it disabled (e.g. `HOST_CAP_FENCE_FD`
+off and the plugin attaches a fence fd anyway — the host will see two fds
+on `Buffer`, expect one, and close the socket).
+
+How a host decides its capability bits is host-policy and out of scope for
+this spec. For `HOST_CAP_FENCE_FD` the natural rule is "set iff the host's
+EGL display exposes `EGL_ANDROID_native_fence_sync`."
 
 ## 6. Client messages (plugin → host)
 

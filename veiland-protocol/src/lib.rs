@@ -13,7 +13,10 @@ mod server;
 mod types;
 
 pub use client::{Buffer, BufferDestroy, ClientMessage, Hello};
-pub use codec::{PROTOCOL_VERSION, read_version, write_version};
+pub use codec::{
+    HOST_CAP_FENCE_FD, HostCapabilities, PROTOCOL_VERSION, read_host_capabilities, read_version,
+    write_host_capabilities, write_version,
+};
 pub use error::ProtocolError;
 pub use server::{BufferReleased, Configure, ServerMessage};
 pub use types::{Fourcc, Modifier};

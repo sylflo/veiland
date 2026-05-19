@@ -8,6 +8,38 @@ use crate::error::ProtocolError;
 /// Current protocol version. See `docs/protocol.md` §5.
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// Host capability bitfield, sent immediately after `server_version` during
+/// the handshake. See `docs/protocol.md` §5.1.
+///
+/// One bit per optional protocol feature the host supports. Bits are
+/// additive: the host sets every bit it implements. A receiver that sees
+/// a bit it does not recognize must treat the handshake as a protocol
+/// violation (reserved-MUST-be-zero rule; see §5.1).
+pub type HostCapabilities = u32;
+
+/// Bit 0: host accepts a sync-fence fd as a second `SCM_RIGHTS` fd on
+/// `Buffer` messages, and will wait on it before sampling.
+pub const HOST_CAP_FENCE_FD: HostCapabilities = 1 << 0;
+
+/// Append the 4-byte host-capabilities word. See `docs/protocol.md` §5.1.
+pub fn write_host_capabilities(out: &mut Vec<u8>, caps: HostCapabilities) {
+    write_u32_le(out, caps);
+}
+
+/// Read the 4-byte host-capabilities word. The buffer must contain exactly
+/// four bytes; any trailing data is rejected with `TrailingBytes`.
+///
+/// Does *not* validate that reserved bits are zero — that policy lives on
+/// the consumer side (the plugin), because "which bits are known" can drift
+/// independently from "how to parse a u32 off the wire."
+pub fn read_host_capabilities(buf: &[u8]) -> Result<HostCapabilities, ProtocolError> {
+    let (v, rest) = read_u32_le(buf)?;
+    if !rest.is_empty() {
+        return Err(ProtocolError::TrailingBytes);
+    }
+    Ok(v)
+}
+
 /// Append the 4-byte version handshake. See `docs/protocol.md` §5.
 pub fn write_version(out: &mut Vec<u8>) {
     write_u32_le(out, PROTOCOL_VERSION);
@@ -322,5 +354,48 @@ mod tests {
         // Four valid bytes for the version, plus one extra.
         let buf = [0x01, 0x00, 0x00, 0x00, 0xaa];
         assert_eq!(read_version(&buf), Err(ProtocolError::TrailingBytes));
+    }
+
+    #[test]
+    fn host_capabilities_roundtrip() {
+        let mut out = Vec::new();
+        write_host_capabilities(&mut out, HOST_CAP_FENCE_FD);
+        assert_eq!(read_host_capabilities(&out), Ok(HOST_CAP_FENCE_FD));
+        // Byte-level sanity: little-endian, bit 0 set.
+        assert_eq!(out, vec![0x01, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn host_capabilities_empty_roundtrip() {
+        let mut out = Vec::new();
+        write_host_capabilities(&mut out, 0);
+        assert_eq!(read_host_capabilities(&out), Ok(0));
+        assert_eq!(out, vec![0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn host_capabilities_truncated() {
+        let buf = [0u8; 3];
+        assert_eq!(read_host_capabilities(&buf), Err(ProtocolError::Truncated));
+    }
+
+    #[test]
+    fn host_capabilities_trailing_bytes() {
+        let buf = [0x01, 0x00, 0x00, 0x00, 0xaa];
+        assert_eq!(
+            read_host_capabilities(&buf),
+            Err(ProtocolError::TrailingBytes)
+        );
+    }
+
+    #[test]
+    fn host_capabilities_accepts_unknown_bits() {
+        // The codec passes any u32 through unchanged; rejecting unknown bits
+        // is the consumer's responsibility (see §5.1 in docs/protocol.md).
+        // This test pins down that contract — a future change that adds
+        // codec-side validation will fail it and force the discussion.
+        let mut out = Vec::new();
+        write_host_capabilities(&mut out, 0xDEAD_BEEF);
+        assert_eq!(read_host_capabilities(&out), Ok(0xDEAD_BEEF));
     }
 }

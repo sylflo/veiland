@@ -23,8 +23,8 @@ use nix::sys::socket::{
 
 use veiland_plugin::{Connection, PluginError};
 use veiland_protocol::{
-    Buffer, ClientMessage, Configure, Fourcc, Hello, Modifier, PROTOCOL_VERSION, ServerMessage,
-    read_version, write_version,
+    Buffer, ClientMessage, Configure, Fourcc, HOST_CAP_FENCE_FD, Hello, HostCapabilities, Modifier,
+    PROTOCOL_VERSION, ServerMessage, read_version, write_host_capabilities, write_version,
 };
 
 // ---- Fake-host helpers ------------------------------------------------------
@@ -51,6 +51,15 @@ fn host_send_version(fd: RawFd, version: u32) {
 /// but with a chosen value.
 fn write_version_value(out: &mut Vec<u8>, v: u32) {
     out.extend_from_slice(&v.to_le_bytes());
+}
+
+/// Send the host's capability word as the second handshake packet,
+/// immediately after `host_send_version`. See protocol.md §5.1.
+fn host_send_host_capabilities(fd: RawFd, caps: HostCapabilities) {
+    let mut buf = Vec::new();
+    write_host_capabilities(&mut buf, caps);
+    sendmsg::<()>(fd, &[IoSlice::new(&buf)], &[], MsgFlags::empty(), None)
+        .expect("host sendmsg host_capabilities");
 }
 
 /// Receive one `ClientMessage` from the plugin. Returns the message and
@@ -122,12 +131,16 @@ fn handshake_roundtrip() {
     let plugin = thread::spawn(move || {
         let mut conn = Connection::from_fd(plugin_fd);
         conn.handshake().expect("plugin handshake");
+        // After handshake, the plugin should have stashed the host's caps.
+        assert_eq!(conn.host_capabilities(), HOST_CAP_FENCE_FD);
+        assert!(conn.host_supports_fence_fd());
     });
 
     let host_raw = host_fd.as_raw_fd();
     let plugin_version = host_recv_version(host_raw);
     assert_eq!(plugin_version, PROTOCOL_VERSION);
     host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
 
     plugin.join().expect("plugin thread");
 }
@@ -169,6 +182,7 @@ fn hello_roundtrip() {
     let host_raw = host_fd.as_raw_fd();
     let _ = host_recv_version(host_raw);
     host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
 
     let (msg, fds) = host_recv_client_message(host_raw);
     assert!(fds.is_empty(), "Hello must not carry fds");
@@ -222,6 +236,7 @@ fn buffer_with_fd_arrives_with_one_cmsg_fd() {
     let host_raw = host_fd.as_raw_fd();
     let _ = host_recv_version(host_raw);
     host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
 
     let (msg, fds) = host_recv_client_message(host_raw);
     assert_eq!(fds.len(), 1, "Buffer must arrive with exactly one fd");
@@ -267,6 +282,7 @@ fn recv_event_configure_roundtrip() {
     let host_raw = host_fd.as_raw_fd();
     let _ = host_recv_version(host_raw);
     host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
 
     let configure = ServerMessage::Configure(Configure {
         region_x: 100,
@@ -299,6 +315,7 @@ fn recv_event_rejects_unexpected_fd() {
     let host_raw = host_fd.as_raw_fd();
     let _ = host_recv_version(host_raw);
     host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
 
     // Send FrameDone (no fd in the spec), but attach an fd anyway. This is
     // the case that protocol §6.2 / §9 says is a protocol error.
@@ -325,6 +342,7 @@ fn recv_event_disconnect_on_clean_eof() {
     let host_raw = host_fd.as_raw_fd();
     let _ = host_recv_version(host_raw);
     host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
 
     // Drop the host end — the kernel closes it, plugin's next recv sees EOF.
     drop(host_fd);

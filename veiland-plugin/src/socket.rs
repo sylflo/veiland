@@ -14,8 +14,8 @@ use std::{
 };
 
 use veiland_protocol::{
-    Buffer, BufferDestroy, ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage, read_version,
-    write_version,
+    Buffer, BufferDestroy, ClientMessage, HOST_CAP_FENCE_FD, Hello, HostCapabilities,
+    PROTOCOL_VERSION, ServerMessage, read_host_capabilities, read_version, write_version,
 };
 
 use crate::error::PluginError;
@@ -28,6 +28,7 @@ use crate::error::PluginError;
 /// kernel, not in `UnixStream`.
 pub struct Connection {
     socket: UnixStream,
+    host_capabilities: HostCapabilities,
 }
 
 impl Connection {
@@ -39,6 +40,7 @@ impl Connection {
     pub fn from_fd(fd: OwnedFd) -> Self {
         Self {
             socket: UnixStream::from(fd),
+            host_capabilities: 0,
         }
     }
 
@@ -94,12 +96,53 @@ impl Connection {
                         host: host_version,
                     });
                 }
+                // Read host's capability word (second handshake packet). See protocol.md §5.1.
+                let mut caps_reply = [0u8; 4];
+                let mut caps_iov = [IoSliceMut::new(&mut caps_reply)];
+                let caps_msg = recvmsg::<()>(
+                    self.socket.as_raw_fd(),
+                    &mut caps_iov,
+                    None,
+                    MsgFlags::empty(),
+                )?;
+                match caps_msg.bytes {
+                    0 => return Err(PluginError::Disconnected),
+                    4 => {}
+                    _ => {
+                        return Err(PluginError::ProtocolViolation(
+                            "host_capabilities packet was not 4 bytes",
+                        ));
+                    }
+                }
+                let caps = read_host_capabilities(&caps_reply)?;
+                // Reserved bits must be zero (§5.1). Future bits arrive by being added to
+                // KNOWN_CAPS; until then, anything we don't recognise is a protocol bug
+                // on the host side.
+                const KNOWN_CAPS: HostCapabilities = HOST_CAP_FENCE_FD;
+                if caps & !KNOWN_CAPS != 0 {
+                    return Err(PluginError::ProtocolViolation(
+                        "host advertised an unknown capability bit",
+                    ));
+                }
+                self.host_capabilities = caps;
                 Ok(())
             }
             _ => Err(PluginError::ProtocolViolation(
                 "handshake reply was not 4 bytes",
             )),
         }
+    }
+
+    /// Capability bitfield advertised by the host during the handshake.
+    /// Zero before `handshake()` has succeeded.
+    pub fn host_capabilities(&self) -> HostCapabilities {
+        self.host_capabilities
+    }
+
+    /// True iff the host advertised `HOST_CAP_FENCE_FD`. Step 6 will use this
+    /// to decide whether to attach a fence fd to `Buffer` messages.
+    pub fn host_supports_fence_fd(&self) -> bool {
+        self.host_capabilities & HOST_CAP_FENCE_FD != 0
     }
 
     /// Encode and send one `ClientMessage` with no ancillary data. Shared

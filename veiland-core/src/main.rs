@@ -33,7 +33,7 @@ use wayland_client::{
 
 use nix::unistd::{User, getuid};
 
-use veiland_protocol::{ClientMessage, Configure};
+use veiland_protocol::{ClientMessage, Configure, HOST_CAP_FENCE_FD, HostCapabilities};
 
 use plugin::{HostConnection, PluginState, spawn_plugin};
 
@@ -212,6 +212,21 @@ fn main() -> ExitCode {
         unsafe { egl.get_display(display_ptr as *mut std::ffi::c_void) }.expect("get EGL display");
     egl.initialize(egl_display)
         .expect("egl failed to initialize");
+    let has_fence_fd = egl
+        .query_string(Some(egl_display), egl::EXTENSIONS)
+        .expect("query EGL extensions")
+        .to_str()
+        .expect("EGL extensions string is not UTF-8")
+        .split(' ')
+        .any(|ext| ext == "EGL_ANDROID_native_fence_sync");
+    let host_capabilities: HostCapabilities = if has_fence_fd { HOST_CAP_FENCE_FD } else { 0 };
+    if !has_fence_fd {
+        eprintln!("veiland-core: EGL_ANDROID_native_fence_sync not available — falling back");
+        eprintln!("veiland-core: to M3 sync model (one frame at a time). Locker works but");
+        eprintln!("veiland-core: animated plugins may stutter on heavy workloads. Cause:");
+        eprintln!("veiland-core: GPU driver lacks the extension (old NVIDIA, software");
+        eprintln!("veiland-core: rasterizer, etc.).");
+    }
     egl.bind_api(egl::OPENGL_ES_API)
         .expect("Failed to bind OPENGL_ES_API");
     gl::load_with(|name| {
@@ -252,7 +267,7 @@ fn main() -> ExitCode {
     eprintln!("built compositor program id={}", compositor_program);
 
     // --- 4. Protocol bootstrap: handshake + Hello + Configure + FrameDone ---
-    let mut connection = HostConnection::from_fd(process.socket);
+    let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
     connection.handshake().expect("plugin handshake");
     eprintln!("handshake ok");
 

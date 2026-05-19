@@ -9,20 +9,22 @@ use std::{
 use nix::sys::socket::{ControlMessageOwned, MsgFlags, recvmsg, sendmsg};
 
 use veiland_protocol::{
-    BufferReleased, ClientMessage, Configure, PROTOCOL_VERSION, ServerMessage, read_version,
-    write_version,
+    BufferReleased, ClientMessage, Configure, HOST_CAP_FENCE_FD, HostCapabilities,
+    PROTOCOL_VERSION, ServerMessage, read_version, write_host_capabilities, write_version,
 };
 
 use super::HostError;
 
 pub struct HostConnection {
     socket: UnixStream,
+    host_capabilities: HostCapabilities,
 }
 
 impl HostConnection {
-    pub fn from_fd(fd: OwnedFd) -> Self {
+    pub fn from_fd(fd: OwnedFd, host_capabilities: HostCapabilities) -> Self {
         Self {
             socket: UnixStream::from(fd),
+            host_capabilities,
         }
     }
 
@@ -32,6 +34,7 @@ impl HostConnection {
         let mut iov = [IoSliceMut::new(&mut version_in)];
         let msg = recvmsg::<()>(self.socket.as_raw_fd(), &mut iov, None, MsgFlags::empty())?;
 
+        // TODO magic number waht do they mean ?
         match msg.bytes {
             0 => return Err(HostError::PluginDisconnected),
             4 => {}
@@ -59,6 +62,17 @@ impl HostConnection {
         sendmsg::<()>(
             self.socket.as_raw_fd(),
             &[IoSlice::new(&version_out)],
+            &[],
+            MsgFlags::empty(),
+            None,
+        )?;
+
+        // 4. Send our capability bitfield as a second packet. See protocol.md §5.1.
+        let mut caps_out = Vec::new();
+        write_host_capabilities(&mut caps_out, self.host_capabilities);
+        sendmsg::<()>(
+            self.socket.as_raw_fd(),
+            &[IoSlice::new(&caps_out)],
             &[],
             MsgFlags::empty(),
             None,
@@ -218,6 +232,18 @@ mod tests {
         }
     }
 
+    /// Read the four LE bytes the host sends as its capability word,
+    /// immediately after `server_version`. See protocol.md §5.1.
+    fn plugin_recv_host_capabilities(fd: RawFd) -> HostCapabilities {
+        use veiland_protocol::read_host_capabilities;
+        let mut buf = [0u8; 4];
+        let mut iov = [IoSliceMut::new(&mut buf)];
+        let msg = recvmsg::<()>(fd, &mut iov, None, MsgFlags::empty())
+            .expect("plugin recvmsg host_capabilities");
+        assert_eq!(msg.bytes, 4, "plugin expected 4 host_capabilities bytes");
+        read_host_capabilities(&buf).expect("read_host_capabilities")
+    }
+
     /// Send one `ClientMessage` to the host, no fd attached.
     fn plugin_send_client_message(fd: RawFd, msg: &ClientMessage) {
         let mut buf = Vec::new();
@@ -259,7 +285,7 @@ mod tests {
         let (host_fd, plugin_fd) = pair();
 
         let host = thread::spawn(move || {
-            let mut conn = HostConnection::from_fd(host_fd);
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             conn.handshake().expect("host handshake");
         });
 
@@ -268,6 +294,8 @@ mod tests {
         let host_version =
             plugin_recv_version(plugin_raw).expect("host should reply on version match");
         assert_eq!(host_version, PROTOCOL_VERSION);
+        let caps = plugin_recv_host_capabilities(plugin_raw);
+        assert_eq!(caps, HOST_CAP_FENCE_FD);
 
         host.join().expect("host thread");
     }
@@ -277,7 +305,7 @@ mod tests {
         let (host_fd, plugin_fd) = pair();
 
         let host = thread::spawn(move || {
-            let mut conn = HostConnection::from_fd(host_fd);
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             let err = conn.handshake().expect_err("host handshake should fail");
             match err {
                 HostError::VersionMismatch { host, plugin } => {
@@ -306,7 +334,7 @@ mod tests {
         let (host_fd, plugin_fd) = pair();
 
         let host = thread::spawn(move || {
-            let mut conn = HostConnection::from_fd(host_fd);
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             conn.handshake().expect("handshake");
             let (msg, fd) = conn.recv_message().expect("recv");
             assert!(fd.is_none(), "Hello must arrive without an fd");
@@ -322,6 +350,7 @@ mod tests {
         let plugin_raw = plugin_fd.as_raw_fd();
         plugin_send_version(plugin_raw, PROTOCOL_VERSION);
         let _ = plugin_recv_version(plugin_raw).expect("host version");
+        let _ = plugin_recv_host_capabilities(plugin_raw);
         plugin_send_client_message(
             plugin_raw,
             &ClientMessage::Hello(Hello {
@@ -341,7 +370,7 @@ mod tests {
         let (host_fd, plugin_fd) = pair();
 
         let host = thread::spawn(move || {
-            let mut conn = HostConnection::from_fd(host_fd);
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             conn.handshake().expect("handshake");
             let (msg, fd) = conn.recv_message().expect("recv");
             let fd = fd.expect("Buffer must carry an fd");
@@ -360,6 +389,7 @@ mod tests {
         let plugin_raw = plugin_fd.as_raw_fd();
         plugin_send_version(plugin_raw, PROTOCOL_VERSION);
         let _ = plugin_recv_version(plugin_raw).expect("host version");
+        let _ = plugin_recv_host_capabilities(plugin_raw);
 
         // Open /dev/null as a throwaway fd to pass via SCM_RIGHTS.
         let devnull = std::fs::File::open("/dev/null").expect("open /dev/null");
@@ -388,7 +418,7 @@ mod tests {
         let (host_fd, plugin_fd) = pair();
 
         let host = thread::spawn(move || {
-            let mut conn = HostConnection::from_fd(host_fd);
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             conn.handshake().expect("handshake");
             let err = conn.recv_message().expect_err("must fail");
             match err {
@@ -400,6 +430,7 @@ mod tests {
         let plugin_raw = plugin_fd.as_raw_fd();
         plugin_send_version(plugin_raw, PROTOCOL_VERSION);
         let _ = plugin_recv_version(plugin_raw).expect("host version");
+        let _ = plugin_recv_host_capabilities(plugin_raw);
 
         let devnull = std::fs::File::open("/dev/null").expect("open /dev/null");
         plugin_send_client_message_with_fd(
