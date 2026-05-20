@@ -35,9 +35,12 @@ Rust code and this document disagree, the document wins and the code is a bug.
   environment variable `VEILAND_PLUGIN_SOCKET=3` tells the plugin which fd to
   use. No filesystem socket path is involved.
 - **File descriptors:** carried out-of-band via `SCM_RIGHTS` ancillary data on
-  `sendmsg`/`recvmsg`. Only the `Buffer` message carries an fd in v1; all
-  other messages carry zero fds. A message arriving with the wrong number of
-  fds is a protocol error.
+  `sendmsg`/`recvmsg`. Only the `Buffer` message carries fds; all other
+  messages carry zero. `Buffer` always carries a dmabuf fd, and optionally a
+  sync-fence fd as a second `SCM_RIGHTS` fd when the host has advertised
+  `HOST_CAP_FENCE_FD` (see §5.1) and the plugin opted into the fast path.
+  A message arriving with an fd count outside what the capability state and
+  message tag allow is a protocol error.
 - **Byte order:** all multi-byte integers are little-endian.
 - **Maximum message size:** 64 KiB payload. The host MUST reject larger
   messages and close the plugin's socket. Plugins SHOULD never need to send
@@ -140,7 +143,8 @@ str   plugin_version     (max 32 bytes)
 
 ### 6.2 `Buffer` — tag `0x0002`
 
-Carries one dmabuf fd via `SCM_RIGHTS`.
+Carries one dmabuf fd via `SCM_RIGHTS`, optionally followed by a sync-fence fd
+when both sides are on the fast path (see "Sync fence" below).
 
 ```
 u32   id            (plugin-assigned; referenced in later BufferReleased and BufferDestroy)
@@ -172,7 +176,9 @@ the same buffer when re-sending it.
   - `width` and `height` in `[1, 8192]`.
   - `stride >= width`. Loose lower bound — the codec doesn't know bytes-per-pixel
     for an arbitrary format. Pathological strides fail in the EGL layer below.
-  - Exactly one fd was attached (enforced at the socket layer, not the codec).
+  - Fd count was 1 (default) or 2 (if `HOST_CAP_FENCE_FD` was advertised and
+    the plugin opted in). Enforced at the socket layer, not the codec — see
+    "Sync fence" below.
 - **EGL import layer** (in `veiland-core`, has hardware context):
   - `format` and `modifier` are acceptable iff `eglCreateImage` with the dmabuf
     fd succeeds. The set of accepted formats and modifiers depends on the host's
@@ -185,6 +191,45 @@ the same buffer when re-sending it.
 
 Any failure at either layer: log, close the plugin's socket, treat as plugin
 death. The lock surface falls back to its clear color in the affected region.
+
+**Sync fence (optional second fd).** When the host advertised
+`HOST_CAP_FENCE_FD` in the handshake (§5.1), the plugin MAY attach a second
+`SCM_RIGHTS` fd to its `Buffer` messages. The two fds appear in the cmsg in
+this order, matched by arrival order:
+
+1. **Dmabuf fd** (always present) — references the GPU buffer the host imports
+   as an `EGLImage`.
+2. **Fence fd** (present iff fast-path) — a dma-fence fd, produced by the
+   plugin via `eglDupNativeFenceFDANDROID` after the render commands targeting
+   the dmabuf were flushed. The host imports it as an EGL sync object and
+   waits on it before sampling the dmabuf — without that wait, the host might
+   sample a half-rendered frame.
+
+The plugin chooses fast or slow path **once at startup**, after reading the
+handshake, based on `HOST_CAP_FENCE_FD` AND its own EGL display's support for
+`EGL_ANDROID_native_fence_sync`. Both must be true for the fast path. The
+choice is fixed for the connection's lifetime — plugins do not switch paths
+per frame.
+
+- **Fast path (M5a):** every `Buffer` carries 2 fds (dmabuf + fence). Plugin
+  flushes its GL command stream, exports a fence fd, sends both. Host waits
+  on the fence before sampling.
+- **Slow path (M3 fallback):** every `Buffer` carries 1 fd (dmabuf only).
+  Plugin calls `gl::Finish` before `send_buffer` to ensure the dmabuf is
+  GPU-complete on the wire. Host samples without waiting.
+
+The host's fd-count expectation is determined by what *it* advertised plus
+what it observes the plugin doing on the first `Buffer`:
+
+- Host advertised `HOST_CAP_FENCE_FD` AND plugin's first `Buffer` has 2 fds →
+  fast path locked in; every subsequent `Buffer` MUST also carry 2 fds.
+- Host advertised `HOST_CAP_FENCE_FD` AND plugin's first `Buffer` has 1 fd →
+  slow path locked in; every subsequent `Buffer` MUST also carry 1 fd.
+- Host did NOT advertise `HOST_CAP_FENCE_FD` AND plugin sends `Buffer` with
+  2 fds → protocol violation; socket closes.
+
+A plugin that flip-flops between 1-fd and 2-fd across messages is a protocol
+violation. The path is a connection-level decision, not a per-message one.
 
 > **Modifier `INVALID` (`u64::MAX`)** is a special DRM sentinel meaning
 > "unknown / unspecified" — what `gbm_bo_create` returns when called without
@@ -238,10 +283,22 @@ callbacks: the host throttles rendering by withholding `FrameDone`.
 u32   id
 ```
 
-Host is done sampling the buffer with this id; plugin may reuse it. In v1 with
-a single buffer and `glFinish` on the plugin side, the host MAY omit this
-message (the plugin reuses its single buffer unconditionally). Plugins MUST
-tolerate not receiving it.
+Host is done sampling the buffer with this id; plugin may reuse it.
+
+- **Fast path (host advertised `HOST_CAP_FENCE_FD` and plugin opted in):**
+  host MUST send `BufferReleased` after it finishes sampling each buffer.
+  Plugins use this to gate the next render — overwriting the dmabuf before
+  the release arrives races the host's GPU read. Step 10 of M5a specifies
+  how the host knows sampling is complete (host-side egress fence).
+- **Slow path (no `HOST_CAP_FENCE_FD`, or plugin chose `glFinish`):** host
+  MAY omit `BufferReleased`. The plugin's `glFinish` before `send_buffer`
+  makes the buffer GPU-stable on send, and the single-buffer model rewrites
+  unconditionally on the next `FrameDone`. Plugins on the slow path MUST
+  tolerate not receiving `BufferReleased`.
+
+Buffer-pool plugins (M5b+, if it lands) will track release per-id so the
+pool's free-list reflects host-side completion. M5a's single-buffer plugin
+uses `BufferReleased` purely as a wait point, not as an id-keyed structure.
 
 ### 7.4 `Shutdown` — tag `0x0004`
 
@@ -252,16 +309,18 @@ Empty payload. Plugin SHOULD exit cleanly within a short grace period
 ## 8. Handshake and lifecycle
 
 ```
-1. Host spawns plugin (socketpair + exec, fd 3, VEILAND_PLUGIN_SOCKET=3).
-2. Plugin sends u32 client_version = 1.
-3. Host sends u32 server_version = 1.
-4. Plugin sends Hello.
-5. Host sends Configure.
-6. Host sends FrameDone.
-7. Plugin renders, sends Buffer (with fd via SCM_RIGHTS).
-8. Host samples buffer, composites, eventually sends FrameDone again.
-   (Host MAY send BufferReleased; plugins MUST tolerate its absence in v1.)
-9. Repeat from 6.
+ 1. Host spawns plugin (socketpair + exec, fd 3, VEILAND_PLUGIN_SOCKET=3).
+ 2. Plugin sends u32 client_version = 1.
+ 3. Host sends u32 server_version = 1.
+ 4. Host sends u32 host_capabilities (bitfield; see §5.1).
+ 5. Plugin sends Hello.
+ 6. Host sends Configure.
+ 7. Host sends FrameDone.
+ 8. Plugin renders, sends Buffer (with dmabuf fd, plus a fence fd if
+    fast-path; see §6.2).
+ 9. Host imports dmabuf, waits on fence (if present), composites,
+    sends BufferReleased (if fast-path), eventually sends FrameDone again.
+10. Repeat from 7.
 ```
 
 The list above is the success path. If any step fails (socket close, version
@@ -305,18 +364,18 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
 
 ## 11. Open questions (resolve before the relevant milestone)
 
-- **§6.2 — explicit fd count.** v1 has `Buffer` as the only fd-carrying
-  message, so "exactly one fd attached" can be hardcoded in the host's
-  validation. M5 introduces sync-fence fds (also via `SCM_RIGHTS`), at
-  which point at least two message types carry fds and "pair the cmsg fd
-  with the message by arrival order" becomes ambiguous per-message. Before
-  M5 ships, decide: add a `u8 fd_count` to every fd-carrying payload and
-  require the cmsg fd count to match it, *or* commit to "one fd per
-  message, ever, and new fd-carrying message types each get their own
-  tag." The first is more flexible; the second is simpler if it holds.
-  Either way, the rule needs to be written down before a second
-  fd-carrying message exists. (Decide at M5 design time, not now — v1
-  works fine with the implicit rule.)
+- **§6.2 — explicit fd count (resolved in M5a).** Originally framed as
+  "fd_count byte in the payload" vs "one fd per message tag, ever." M5a
+  picked a third option that emerged from the capability handshake design:
+  **implicit per-tag, validated by the host using the negotiated capability
+  state**. No `fd_count` byte on the wire. For `Buffer` specifically, the
+  rule has two levels: the tag determines the *maximum* (1 or 2 fds), and
+  the capability advertisement plus the plugin's first-Buffer behaviour
+  determine the *required* count for the connection's lifetime. The rule is
+  spelled out in §6.2 "Sync fence" and §2 "Transport — File descriptors."
+  Other fd-carrying messages added in the future will follow the same
+  pattern: per-tag implicit rule, capability-gated where optionality is
+  needed.
 - **§6.2 — format and modifier validation (resolved in M3).** Originally the
   codec rejected anything outside `format ∈ {ARGB8888}` and
   `modifier ∈ {LINEAR, INVALID}`. NVIDIA's proprietary driver returns
