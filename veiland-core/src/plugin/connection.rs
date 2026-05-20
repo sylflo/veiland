@@ -9,9 +9,12 @@ use std::{
 use nix::sys::socket::{ControlMessageOwned, MsgFlags, recvmsg, sendmsg};
 
 use veiland_protocol::{
-    BufferReleased, ClientMessage, Configure, HOST_CAP_FENCE_FD, HostCapabilities,
-    PROTOCOL_VERSION, ServerMessage, read_version, write_host_capabilities, write_version,
+    BufferReleased, ClientMessage, Configure, HostCapabilities, PROTOCOL_VERSION, ServerMessage,
+    read_version, write_host_capabilities, write_version,
 };
+// HOST_CAP_FENCE_FD is only consumed by tests right now; main.rs computes
+// the capability bits itself and threads them in via from_fd. Pulled into
+// scope in the #[cfg(test)] module below.
 
 use super::HostError;
 
@@ -205,7 +208,7 @@ mod tests {
 
     use nix::sys::socket::{AddressFamily, ControlMessage, SockFlag, SockType, socketpair};
 
-    use veiland_protocol::{Buffer, Fourcc, Hello, Modifier};
+    use veiland_protocol::{Buffer, Fourcc, HOST_CAP_FENCE_FD, Hello, Modifier};
 
     // ---- Fake-plugin helpers --------------------------------------------------
 

@@ -23,3 +23,8 @@ nix = { version = "0.31", features = ["fs", "process", "mman", "signal", "socket
 pam-client2 = "0.5"
 veiland-protocol = { path = "../veiland-protocol" }
 zeroize = "1.8.2"
+
+[dev-dependencies]
+# For tests/sync.rs: bootstrap a self-contained EGL/GBM/GL stack so the
+# fence import/wait round-trip can be exercised without a Wayland host.
+gbm = "0.18"

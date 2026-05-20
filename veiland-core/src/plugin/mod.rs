@@ -5,6 +5,7 @@ mod dmabuf;
 mod error;
 mod spawn;
 mod state;
+mod sync;
 
 pub use connection::HostConnection;
 pub use error::HostError;

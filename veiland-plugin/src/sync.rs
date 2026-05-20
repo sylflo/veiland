@@ -30,7 +30,6 @@ const EGL_NO_NATIVE_FENCE_FD_ANDROID: i32 = -1;
 type EglDupNativeFenceFDANDROID =
     unsafe extern "system" fn(display: egl::EGLDisplay, sync: egl::EGLSync) -> i32;
 
-
 pub struct SyncFence {
     sync: egl::Sync,
     fence_fd: OwnedFd,
@@ -61,17 +60,21 @@ impl SyncFence {
         // initialized EGL display; we got it from GbmEgl which guarantees both.
         // The attrib list is the minimal well-formed form (just the terminator).
         let sync = unsafe {
-            egl.create_sync(egl_display, EGL_SYNC_NATIVE_FENCE_ANDROID, &[egl::ATTRIB_NONE])
-                .map_err(|_| PluginError::Render("eglCreateSync(NATIVE_FENCE_ANDROID) failed"))?
+            egl.create_sync(
+                egl_display,
+                EGL_SYNC_NATIVE_FENCE_ANDROID,
+                &[egl::ATTRIB_NONE],
+            )
+            .map_err(|_| PluginError::Render("eglCreateSync(NATIVE_FENCE_ANDROID) failed"))?
         };
 
         // 2. Export the dma-fence as an fd. ANDROID extension entry
         //    point, resolved at runtime — khronos_egl doesn't bind it.
-        let dup_fn_ptr = egl
-            .get_proc_address("eglDupNativeFenceFDANDROID")
-            .ok_or(PluginError::Render(
-                "eglDupNativeFenceFDANDROID not available",
-            ))?;
+        let dup_fn_ptr =
+            egl.get_proc_address("eglDupNativeFenceFDANDROID")
+                .ok_or(PluginError::Render(
+                    "eglDupNativeFenceFDANDROID not available",
+                ))?;
         // SAFETY: the EGL spec for EGL_ANDROID_native_fence_sync
         // declares the signature we're transmuting to. The extension
         // string check at host startup proves the entry point exists;
@@ -101,7 +104,6 @@ impl SyncFence {
                 "eglDupNativeFenceFDANDROID returned NO_FD",
             ));
         }
-
 
         // SAFETY: dup_fn returned a fresh fd owned by us per the EGL
         // spec; wrap so Drop closes it. The sync object continues to
