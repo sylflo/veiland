@@ -8,8 +8,10 @@ mod buffer;
 mod error;
 mod render;
 mod socket;
+mod sync;
 
 pub use buffer::DmaBuffer;
 pub use error::PluginError;
 pub use render::GbmEgl;
 pub use socket::Connection;
+pub use sync::SyncFence;
