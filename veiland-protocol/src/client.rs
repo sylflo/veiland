@@ -13,12 +13,15 @@ pub struct Hello {
     pub plugin_version: String,
 }
 
-/// `Buffer` carries one dmabuf fd via `SCM_RIGHTS`. The fd is **not** part of
-/// this struct or the encoded bytes — the socket layer pairs the fd received
-/// in the cmsg with the `Buffer` message based on arrival order. This crate
-/// has no I/O and never sees the fd.
+/// `Buffer` carries one or two fds via `SCM_RIGHTS`: a dmabuf fd always,
+/// optionally followed by a sync-fence fd on the M5a fast path. Neither fd
+/// is part of this struct or the encoded bytes — the socket layer pairs
+/// arriving cmsg fds with the `Buffer` message based on arrival order, and
+/// host-side validation uses the negotiated `HOST_CAP_FENCE_FD` state to
+/// decide how many fds are expected. This crate has no I/O and never sees
+/// either fd.
 ///
-/// See `docs/protocol.md` §6.2.
+/// See `docs/protocol.md` §6.2 (in particular "Sync fence") and §5.1.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Buffer {
     pub id: u32,

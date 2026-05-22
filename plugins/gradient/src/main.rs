@@ -187,7 +187,11 @@ fn run() -> Result<(), PluginError> {
                     gl::DrawArrays(gl::TRIANGLES, 0, 6);
                 }
                 dma.finish();
-                conn.send_buffer(&buf_msg, dma.dmabuf_fd())?;
+                // Slow-path send: dmabuf only, no fence fd. Step 8 of M5a
+                // will conditionally switch to Some(fence.as_fd()) when
+                // the host advertised HOST_CAP_FENCE_FD and the plugin's
+                // EGL can create fences.
+                conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
             }
             ServerMessage::BufferReleased(_) => {
                 // M5+: would return this buffer to our pool. M3 single

@@ -227,7 +227,7 @@ fn buffer_with_fd_arrives_with_one_cmsg_fd() {
         // protocol layer.
         let devnull = std::fs::File::open("/dev/null").expect("open /dev/null");
         let borrowed = std::os::fd::AsFd::as_fd(&devnull);
-        conn.send_buffer(&buffer, borrowed)
+        conn.send_buffer(&buffer, borrowed, None)
             .expect("plugin send_buffer");
         // Keep devnull alive until after send_buffer returns.
         drop(devnull);
@@ -250,6 +250,64 @@ fn buffer_with_fd_arrives_with_one_cmsg_fd() {
         "received fd should be valid, got {}",
         received_fd
     );
+
+    match msg {
+        ClientMessage::Buffer(b) => assert_eq!(b, expected),
+        other => panic!("expected Buffer, got {:?}", other),
+    }
+
+    plugin.join().expect("plugin thread");
+}
+
+#[test]
+fn buffer_with_fence_arrives_with_two_cmsg_fds() {
+    let (plugin_fd, host_fd) = pair();
+
+    // Same trick as the single-fd test: any two open fds suffice for the
+    // SCM_RIGHTS plumbing — the host doesn't try to interpret them as a
+    // real dmabuf or fence at this layer. Step 7's host-side change is
+    // where the host starts caring about the fd count; this test pins
+    // down that the plugin-side serialisation produces a 2-fd cmsg when
+    // asked to.
+    let buffer = Buffer {
+        id: 42,
+        width: 64,
+        height: 64,
+        format: Fourcc::ARGB8888,
+        modifier: Modifier(0),
+        stride: 256,
+        offset: 0,
+    };
+    let expected = buffer.clone();
+
+    let plugin = thread::spawn(move || {
+        let mut conn = Connection::from_fd(plugin_fd);
+        conn.handshake().expect("plugin handshake");
+        let dmabuf = std::fs::File::open("/dev/null").expect("open /dev/null (dmabuf stand-in)");
+        let fence = std::fs::File::open("/dev/null").expect("open /dev/null (fence stand-in)");
+        let dmabuf_borrowed = std::os::fd::AsFd::as_fd(&dmabuf);
+        let fence_borrowed = std::os::fd::AsFd::as_fd(&fence);
+        conn.send_buffer(&buffer, dmabuf_borrowed, Some(fence_borrowed))
+            .expect("plugin send_buffer (2 fds)");
+        drop(dmabuf);
+        drop(fence);
+    });
+
+    let host_raw = host_fd.as_raw_fd();
+    let _ = host_recv_version(host_raw);
+    host_send_version(host_raw, PROTOCOL_VERSION);
+    host_send_host_capabilities(host_raw, HOST_CAP_FENCE_FD);
+
+    let (msg, fds) = host_recv_client_message(host_raw);
+    assert_eq!(
+        fds.len(),
+        2,
+        "Buffer with Some(fence) must arrive with exactly two fds"
+    );
+    for (i, owned) in fds.iter().enumerate() {
+        let raw = owned.as_raw_fd();
+        assert!(raw >= 0, "fd {} should be valid, got {}", i, raw);
+    }
 
     match msg {
         ClientMessage::Buffer(b) => assert_eq!(b, expected),

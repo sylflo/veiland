@@ -195,16 +195,49 @@ impl Connection {
         self.send_message_no_fd(&msg)
     }
 
-    /// Send a `Buffer` message with its dmabuf fd attached via `SCM_RIGHTS`.
-    /// The fd is borrowed — the plugin keeps ownership of the underlying
-    /// GBM bo and may re-send the same fd across frames.
-    pub fn send_buffer(&mut self, buffer: &Buffer, fd: BorrowedFd<'_>) -> Result<(), PluginError> {
+    /// Send a `Buffer` message with its dmabuf fd attached via `SCM_RIGHTS`,
+    /// optionally with a sync-fence fd as a second SCM_RIGHTS fd.
+    ///
+    /// - `dmabuf_fd`: always present. The fd is borrowed — the plugin keeps
+    ///   ownership of the underlying GBM bo and may re-send the same fd
+    ///   across frames.
+    /// - `fence_fd`: `Some` on the M5a fast path, `None` on the slow path.
+    ///   When present, the host waits on this fence before sampling the
+    ///   dmabuf. The fast/slow choice is a connection-level decision the
+    ///   caller makes at startup based on `host_supports_fence_fd()` and
+    ///   the plugin's own EGL capabilities; the choice must be consistent
+    ///   for the lifetime of the connection (see protocol.md §6.2).
+    ///
+    /// Order on the wire: dmabuf first, fence second. The kernel preserves
+    /// fd order across `sendmsg` → `recvmsg`.
+    pub fn send_buffer(
+        &mut self,
+        buffer: &Buffer,
+        dmabuf_fd: BorrowedFd<'_>,
+        fence_fd: Option<BorrowedFd<'_>>,
+    ) -> Result<(), PluginError> {
         let mut buf = Vec::new();
         let msg = ClientMessage::Buffer(buffer.clone());
         msg.encode(&mut buf)?;
 
-        let fds = [fd.as_raw_fd()];
-        let cmsgs = [ControlMessage::ScmRights(&fds)];
+        // The `ControlMessage::ScmRights` slice must outlive the sendmsg
+        // call; we materialise the fd-array on the stack and pass a slice
+        // into it. Length is 1 or 2 depending on whether a fence fd was
+        // supplied — kept in a single `match` so the borrow checker can
+        // see the array's lifetime covers both branches.
+        let one_fd: [i32; 1];
+        let two_fds: [i32; 2];
+        let fds: &[i32] = match fence_fd {
+            None => {
+                one_fd = [dmabuf_fd.as_raw_fd()];
+                &one_fd
+            }
+            Some(fence) => {
+                two_fds = [dmabuf_fd.as_raw_fd(), fence.as_raw_fd()];
+                &two_fds
+            }
+        };
+        let cmsgs = [ControlMessage::ScmRights(fds)];
 
         sendmsg::<()>(
             self.socket.as_raw_fd(),

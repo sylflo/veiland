@@ -110,7 +110,7 @@ fn smoke() -> Result<(), PluginError> {
                         dma.bind_for_rendering()?;
                         // ... draw calls ...
                         dma.finish();
-                        conn.send_buffer(&buf_msg, dma.dmabuf_fd())?;
+                        conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
                     }
                     ServerMessage::BufferReleased(_) => {}
                     ServerMessage::Shutdown => return Ok(()),

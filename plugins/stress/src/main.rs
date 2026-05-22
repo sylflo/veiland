@@ -295,7 +295,9 @@ fn run() -> Result<(), PluginError> {
                 // measures the pipeline with this in place; step 12
                 // re-measures with the fence path.
                 dma.finish();
-                conn.send_buffer(&buf_msg, dma.dmabuf_fd())?;
+                // Slow path: dmabuf only. Step 8 of M5a switches to
+                // Some(fence.as_fd()) when the fast path applies.
+                conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
             }
             ServerMessage::BufferReleased(_) => {
                 // Single-buffer plugin: nothing to do. M5a's plugin-side
