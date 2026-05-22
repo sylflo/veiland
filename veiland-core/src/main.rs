@@ -420,6 +420,47 @@ fn main() -> ExitCode {
                         // wiring (wl_surface::frame callbacks) is M5.
                         if is_buffer {
                             state.repaint_lock_surfaces();
+
+                            // Egress fence: insert a sync after the
+                            // composite commands (which swap_buffers
+                            // already flushed), wait until the GPU has
+                            // finished sampling the dmabuf, then tell
+                            // the plugin its buffer is free again.
+                            //
+                            // Slow-path plugins ignore BufferReleased
+                            // per spec §7.3 — sending it unconditionally
+                            // is simpler than tracking per-plugin path
+                            // here and the extra cmsg is cheap.
+                            //
+                            // Failure is logged-and-continue: the host's
+                            // GPU is wedged, but that's not the plugin's
+                            // fault. Subsequent frames may recover; if
+                            // they don't, the user notices a frozen lock
+                            // screen, which is exactly the visible signal
+                            // for "host GPU failure."
+                            if !state.lock_surfaces.is_empty() {
+                                match plugin::create_host_fence(&state.egl, state.egl_display) {
+                                    Ok(fence) => {
+                                        let wait_result =
+                                            plugin::wait_fence(&state.egl, state.egl_display, &fence);
+                                        plugin::release_fence(&state.egl, state.egl_display, fence);
+                                        if let Err(e) = wait_result {
+                                            eprintln!("egress fence wait failed: {}", e);
+                                        } else if let Some(id) = state.plugin.current_buffer_id {
+                                            if let Err(e) =
+                                                state.plugin.connection.send_buffer_released(id)
+                                            {
+                                                eprintln!("send_buffer_released failed: {}", e);
+                                                return Ok(PostAction::Remove);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("egress fence create failed: {}", e);
+                                    }
+                                }
+                            }
+
                             if let Err(e) = state.plugin.connection.send_frame_done() {
                                 eprintln!("send_frame_done failed: {}", e);
                                 return Ok(PostAction::Remove);

@@ -129,9 +129,11 @@ impl HostConnection {
         self.send_message_no_fd(&ServerMessage::FrameDone)
     }
 
-    /// Tell the plugin we're done sampling buffer `id`. See §7.3.
-    /// M3 single-buffer code path doesn't use this; M5 buffer pool will.
-    #[allow(dead_code)]
+    /// Tell the plugin we're done sampling buffer `id`. See protocol.md §7.3.
+    /// Sent after the host's egress fence confirms the GPU has finished
+    /// sampling, so a fast-path plugin can safely overwrite the dmabuf
+    /// on its next frame. Slow-path plugins ignore it (their glFinish
+    /// already made the buffer reusable on the previous send).
     pub fn send_buffer_released(&mut self, id: u32) -> Result<(), HostError> {
         self.send_message_no_fd(&ServerMessage::BufferReleased(BufferReleased { id }))
     }

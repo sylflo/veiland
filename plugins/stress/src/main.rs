@@ -55,7 +55,7 @@ const BUFFER_HEIGHT: u32 = 1080;
 ///   up to push pixel count instead of per-pixel work.
 ///
 /// Recompile (`cargo build -p veiland-stress`) after changing.
-const ITERATIONS: u32 = 2000;
+const ITERATIONS: u32 = 300;
 
 /// How often to print rolling-average frame time. 60 frames ≈ 1 second
 /// at 60 Hz so the log feels approximately one-line-per-second.

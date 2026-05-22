@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Host-side EGL sync fence import + wait. The mirror of
-//! `veiland_plugin::SyncFence`: the plugin creates a fence and exports
-//! it as a dma-fence fd, the host re-imports the fd here and waits on
-//! the resulting sync object before sampling the plugin's dmabuf.
+//! Host-side EGL sync fence: import-from-fd (for plugin-sent fences) +
+//! create-locally (for host's own egress sync), plus the shared wait/release.
 //!
-//! Requires `EGL_ANDROID_native_fence_sync` on the host's EGL display.
-//! That capability is detected once at startup (see main.rs) and
-//! advertised to plugins via HOST_CAP_FENCE_FD; this module assumes the
-//! capability was advertised, i.e. the plugin only sent a fence fd
-//! because the host said it would accept one.
+//! Two construction paths, same post-construction shape:
+//! - `import_fence(fd)`: plugin sent a fence fd, host adopts it. Wait
+//!   gates the plugin's GPU completion before the host samples the
+//!   dmabuf. M5a steps 3 and 9.
+//! - `create_host_fence()`: host inserts a fence into its own GL stream
+//!   after sampling. Wait gates the host's GPU completion of the
+//!   composite before sending `BufferReleased` to the plugin. M5a step 10.
+//!
+//! Both require `EGL_ANDROID_native_fence_sync` on the host's EGL display;
+//! detection at startup gates `HOST_CAP_FENCE_FD` in the handshake, so
+//! this module assumes the capability is present.
 
 use std::os::fd::{AsRawFd, OwnedFd};
 
@@ -29,13 +33,14 @@ const EGL_SYNC_NATIVE_FENCE_FD_ANDROID: egl::Attrib = 0x3145;
 /// is wedged or never submitted the work it claimed.
 const FENCE_WAIT_TIMEOUT_NS: egl::Time = 1_000_000_000;
 
-/// One imported sync fence. Owns the EGL sync handle; the underlying
-/// dma-fence is kept alive by EGL's internal dup.
+/// One EGL sync fence held by the host. Either imported from a plugin-
+/// supplied fd (`import_fence`) or created on the host's own GL stream
+/// (`create_host_fence`); same shape post-construction.
 ///
-/// No `Drop` — destruction requires the EGL context current. Caller
+/// No `Drop` — destruction requires an EGL context current. Caller
 /// must `release_fence` before letting this go out of scope. Same
 /// pattern as `GlTexture` in this module's sibling `dmabuf.rs`.
-pub struct ImportedFence {
+pub struct HostFence {
     pub sync: egl::Sync,
 }
 
@@ -50,7 +55,7 @@ pub fn import_fence(
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
     fd: OwnedFd,
-) -> Result<ImportedFence, HostError> {
+) -> Result<HostFence, HostError> {
     let attribs: [egl::Attrib; 3] = [
         EGL_SYNC_NATIVE_FENCE_FD_ANDROID,
         fd.as_raw_fd() as egl::Attrib,
@@ -73,24 +78,54 @@ pub fn import_fence(
 
     // `fd` drops here, closing the host's copy. The dma-fence object
     // is kept alive by EGL's internal dup until destroy_sync.
-    Ok(ImportedFence { sync })
+    Ok(HostFence { sync })
+}
+
+/// Create a fence on the host's own GL stream, with no fd export.
+/// Used for the egress sync after `repaint_lock_surfaces`: the host
+/// inserts a sync point, waits on it, then sends `BufferReleased` to
+/// the plugin once the GPU has finished sampling the dmabuf.
+///
+/// Caller must have an active EGL context current on this thread and
+/// must have `gl::Flush`-ed (or used `swap_buffers`, which flushes
+/// implicitly) before calling this — otherwise the fence may signal
+/// before the commands it's meant to gate reach the GPU.
+///
+/// On failure: returns `Render` (the host's EGL is misbehaving; this
+/// is a host-side issue, not a plugin-protocol one).
+pub fn create_host_fence(
+    egl: &egl::Instance<egl::Static>,
+    display: egl::Display,
+) -> Result<HostFence, HostError> {
+    // SAFETY: see import_fence — same invariants. The minimal attrib
+    // list is just the terminator (no fd to import; we're creating a
+    // fresh fence on the local stream).
+    let sync = unsafe {
+        egl.create_sync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, &[egl::ATTRIB_NONE])
+            .map_err(|_| {
+                HostError::Render("eglCreateSync(NATIVE_FENCE_ANDROID, fresh) failed")
+            })?
+    };
+    Ok(HostFence { sync })
 }
 
 /// Block the calling thread until the fence signals, or until
-/// `FENCE_WAIT_TIMEOUT_NS` elapses. Timeout is treated as a protocol
-/// violation: the plugin claimed GPU work that never completed.
+/// `FENCE_WAIT_TIMEOUT_NS` elapses. Returns `Render` for timeout or
+/// any other wait failure; the caller decides what that means in
+/// context (plugin-fence timeout → plugin death; host-fence timeout
+/// → host GPU is wedged).
 ///
 /// Caller must have an active EGL context current on this thread.
 pub fn wait_fence(
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
-    fence: &ImportedFence,
+    fence: &HostFence,
 ) -> Result<(), HostError> {
     // SAFETY: client_wait_sync is unsafe because both display and sync
     // must be valid. `display` is the host's process-wide display; the
-    // sync was created by import_fence above against the same display.
-    // No flags: caller is expected to have flushed before issuing the
-    // sync, so SYNC_FLUSH_COMMANDS_BIT isn't needed.
+    // sync was created by import_fence or create_host_fence against
+    // the same display. No flags: caller is expected to have flushed
+    // before issuing the sync, so SYNC_FLUSH_COMMANDS_BIT isn't needed.
     let status = unsafe {
         egl.client_wait_sync(display, fence.sync, 0, FENCE_WAIT_TIMEOUT_NS)
             .map_err(|_| HostError::Render("eglClientWaitSync failed"))?
@@ -99,28 +134,28 @@ pub fn wait_fence(
     if status == egl::CONDITION_SATISFIED {
         Ok(())
     } else if status == egl::TIMEOUT_EXPIRED {
-        Err(HostError::ProtocolViolation(
-            "fence wait timed out; plugin GPU work did not complete",
+        Err(HostError::Render(
+            "eglClientWaitSync timed out (fence never signalled)",
         ))
     } else {
         // Other return values aren't documented for this entry point;
-        // treat as a violation.
-        Err(HostError::ProtocolViolation(
+        // treat as a failure.
+        Err(HostError::Render(
             "eglClientWaitSync returned unexpected status",
         ))
     }
 }
 
-/// Tear down an imported fence. Caller must have an active EGL context
+/// Tear down a host fence. Caller must have an active EGL context
 /// current. Failure is logged-and-ignored: we're done with this fence
 /// either way and the worst case is a leaked EGL handle.
 pub fn release_fence(
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
-    fence: ImportedFence,
+    fence: HostFence,
 ) {
     // SAFETY: same invariants as the create call — display and sync
-    // must be valid; both were produced by this module's import_fence
+    // must be valid; both were produced by this module's constructors
     // and have not been destroyed.
     unsafe {
         let _ = egl.destroy_sync(display, fence.sync);

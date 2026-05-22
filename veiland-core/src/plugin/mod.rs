@@ -11,3 +11,4 @@ pub use connection::{HostConnection, ReceivedFds};
 pub use error::HostError;
 pub use spawn::spawn_plugin;
 pub use state::PluginState;
+pub use sync::{create_host_fence, release_fence, wait_fence};
