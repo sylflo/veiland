@@ -5,14 +5,12 @@
 //! recently imported texture, and the plugin's identifying info
 //! from `Hello` (used for logs).
 
-use std::os::fd::OwnedFd;
-
 use khronos_egl as egl;
 
 use veiland_protocol::ClientMessage;
 
 use super::dmabuf::{self, GlTexture};
-use super::{HostConnection, HostError};
+use super::{HostConnection, HostError, ReceivedFds};
 
 pub struct PluginState {
     pub texture: Option<GlTexture>,
@@ -36,26 +34,32 @@ impl PluginState {
         }
     }
 
-    /// Dispatch one `(ClientMessage, fd?)` pair from `recv_message`.
+    /// Dispatch one `(ClientMessage, ReceivedFds)` pair from `recv_message`.
     /// Enforces the protocol state machine: Hello must come first,
     /// then Buffer / BufferDestroy in any order. Violations close
     /// the plugin (caller's responsibility on error).
     ///
+    /// The fd-shape invariant (Buffer has a dmabuf, others have none) is
+    /// already enforced inside `recv_message`; the matches here are
+    /// exhaustive on the variant and any cross-pair fallthrough is a
+    /// protocol violation rather than a panic (per the "never panic on
+    /// plugin input" rule).
+    ///
     /// Requires the caller's EGL context to be current on the calling
     /// thread — `import_dmabuf` and `release_texture` both make GL
-    /// calls. Calloop handler in step 6 makes this so by running on
-    /// the main thread where the lock-surface context was set current.
+    /// calls. The calloop handler in main.rs makes this so by running
+    /// on the main thread where the lock-surface context was set current.
     pub fn handle_message(
         &mut self,
         msg: ClientMessage,
-        fd: Option<OwnedFd>,
+        fds: ReceivedFds,
         egl: &egl::Instance<egl::Static>,
         display: egl::Display,
     ) -> Result<(), HostError> {
         let has_hello = !self.name.is_empty();
 
-        match msg {
-            ClientMessage::Hello(h) => {
+        match (msg, fds) {
+            (ClientMessage::Hello(h), ReceivedFds::None) => {
                 if has_hello {
                     return Err(HostError::ProtocolViolation("double Hello"));
                 }
@@ -64,16 +68,22 @@ impl PluginState {
                 Ok(())
             }
 
-            ClientMessage::Buffer(b) => {
+            (ClientMessage::Buffer(b), ReceivedFds::Buffer { dmabuf, fence }) => {
                 if !has_hello {
                     return Err(HostError::ProtocolViolation("Buffer before Hello"));
                 }
-                let fd = fd.ok_or(HostError::ProtocolViolation("Buffer without fd"))?;
+
+                // M5a fence wait will hook in at step 9. For now the
+                // fence (if any) is just closed by Drop — the plugin
+                // is still on the slow path (its glFinish before
+                // send_buffer guarantees the dmabuf is GPU-stable),
+                // so sampling without waiting is safe today.
+                drop(fence);
 
                 // Import the new buffer first; only release the old
                 // texture if the import succeeded, so a failing import
                 // doesn't leave us with no texture at all.
-                let new_texture = dmabuf::import_dmabuf(egl, display, &b, &fd)?;
+                let new_texture = dmabuf::import_dmabuf(egl, display, &b, &dmabuf)?;
 
                 if let Some(old) = self.texture.take() {
                     dmabuf::release_texture(egl, display, old);
@@ -81,12 +91,12 @@ impl PluginState {
                 self.texture = Some(new_texture);
                 self.current_buffer_id = Some(b.id);
 
-                // The fd is dropped here; EGL has its own reference.
-                drop(fd);
+                // The dmabuf fd is dropped here; EGL has its own reference.
+                drop(dmabuf);
                 Ok(())
             }
 
-            ClientMessage::BufferDestroy(d) => {
+            (ClientMessage::BufferDestroy(d), ReceivedFds::None) => {
                 if !has_hello {
                     return Err(HostError::ProtocolViolation("BufferDestroy before Hello"));
                 }
@@ -101,6 +111,15 @@ impl PluginState {
                 // released. Log and move on.
                 Ok(())
             }
+
+            // Variant ↔ fd-shape mismatch. recv_message should have
+            // rejected this at the wire layer; if we see it here,
+            // recv_message has a bug. Treat as violation rather than
+            // panic per the "never panic on plugin input" rule —
+            // belt-and-braces if a future refactor breaks the invariant.
+            (_, _) => Err(HostError::ProtocolViolation(
+                "variant/fd shape mismatch (recv_message bug?)",
+            )),
         }
     }
 

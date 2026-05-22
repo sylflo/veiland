@@ -18,6 +18,25 @@ use veiland_protocol::{
 
 use super::HostError;
 
+/// SCM_RIGHTS fds extracted from a single `ClientMessage`. The variant
+/// matches what the protocol says the message tag can carry; mismatches
+/// (a `Buffer` with no dmabuf, a `Hello` with an fd, etc.) are caught
+/// in `HostConnection::recv_message` and returned as protocol violations.
+///
+/// Fds are wrapped in `OwnedFd` so they close on drop — `handle_message`
+/// can drop the variant after use and we never leak.
+#[derive(Debug)]
+pub enum ReceivedFds {
+    /// No SCM_RIGHTS fds attached. `Hello`, `BufferDestroy`.
+    None,
+    /// `Buffer` message. Dmabuf is always present; fence is `Some` on the
+    /// M5a fast path, `None` on the slow path. See `docs/protocol.md` §6.2.
+    Buffer {
+        dmabuf: OwnedFd,
+        fence: Option<OwnedFd>,
+    },
+}
+
 pub struct HostConnection {
     socket: UnixStream,
     host_capabilities: HostCapabilities,
@@ -125,26 +144,61 @@ impl HostConnection {
     }
 
     /// Block until one `ClientMessage` arrives, or the plugin disconnects.
-    /// `Buffer` messages carry exactly one fd via `SCM_RIGHTS`; all other
-    /// variants carry none. Any deviation is a `ProtocolViolation` and the
-    /// caller should treat the plugin as dead.
-    pub fn recv_message(&mut self) -> Result<(ClientMessage, Option<OwnedFd>), HostError> {
+    /// `Buffer` carries 1 fd (slow path) or 2 fds (fast path: dmabuf + fence);
+    /// `Hello` and `BufferDestroy` carry no fds. Any other combination is a
+    /// `ProtocolViolation` and the caller should treat the plugin as dead.
+    pub fn recv_message(&mut self) -> Result<(ClientMessage, ReceivedFds), HostError> {
         let mut buf = [0u8; 64 * 1024];
-        let mut cmsg_buf = nix::cmsg_space!(RawFd);
+        // Reserve cmsg space for an ScmRights with up to 2 fds (dmabuf +
+        // optional fence). `cmsg_space!` uses the payload type's size to
+        // pick the reservation; `[RawFd; 2]` is the "two raw fds" payload.
+        let mut cmsg_buf = nix::cmsg_space!([RawFd; 2]);
 
         // Pull bytes + fds out, then drop iov/msg so we can re-read buf
         // for decoding without a borrow conflict. Wrap fds in OwnedFd
         // immediately so they can't leak — even the unexpected ones.
         let (bytes, received_fds): (usize, Vec<OwnedFd>) = {
             let mut iov = [IoSliceMut::new(&mut buf)];
-            let msg = recvmsg::<()>(
+            // ENOBUFS here means "sender attached more cmsg data than our
+            // fixed-size cmsg_buf can hold." For our protocol that maps
+            // 1:1 to "plugin attached more than 2 fds to a single message,"
+            // which the spec forbids. Translate to ProtocolViolation so
+            // the caller treats it the same as any other fd-count violation
+            // (plugin death) rather than as an opaque Nix error.
+            let msg = match recvmsg::<()>(
                 self.socket.as_raw_fd(),
                 &mut iov,
                 Some(&mut cmsg_buf),
                 MsgFlags::empty(),
-            )?;
+            ) {
+                Ok(m) => m,
+                Err(nix::errno::Errno::ENOBUFS) => {
+                    return Err(HostError::ProtocolViolation(
+                        "message attached more fds than the protocol allows (max 2 on Buffer, 0 elsewhere)",
+                    ));
+                }
+                Err(e) => return Err(e.into()),
+            };
+            // `cmsgs()` returns ENOBUFS when the kernel set MSG_CTRUNC,
+            // i.e. the sender attached more cmsg data than our buffer
+            // could hold. Same protocol cause as ENOBUFS from recvmsg
+            // itself (Linux can surface the truncation at either site);
+            // same translation. Note that the kernel may have *partially*
+            // delivered fds before truncating — the cmsg iterator becomes
+            // unsafe to use after MSG_CTRUNC, so we drop the message
+            // without trying to recover any of them. The kernel closes
+            // the rest server-side.
+            let cmsgs_iter = match msg.cmsgs() {
+                Ok(it) => it,
+                Err(nix::errno::Errno::ENOBUFS) => {
+                    return Err(HostError::ProtocolViolation(
+                        "message attached more fds than the protocol allows (max 2 on Buffer, 0 elsewhere)",
+                    ));
+                }
+                Err(e) => return Err(e.into()),
+            };
             let mut fds = Vec::new();
-            for cmsg in msg.cmsgs()? {
+            for cmsg in cmsgs_iter {
                 if let ControlMessageOwned::ScmRights(scm_fds) = cmsg {
                     for raw in scm_fds {
                         // SAFETY: the kernel handed us this fd via SCM_RIGHTS;
@@ -163,26 +217,46 @@ impl HostConnection {
         }
         let message = ClientMessage::decode(&buf[..bytes])?;
 
-        // Variant ↔ fd-count invariant. Buffer carries one fd; nothing
-        // else carries any. Any deviation is a wire-level violation the
-        // codec couldn't catch.
-        match (&message, received_fds.len()) {
+        // Variant ↔ fd-count invariant. Buffer carries 1 or 2 fds (dmabuf,
+        // optional fence); everything else carries none. Any deviation is a
+        // wire-level violation the codec couldn't catch. Order in the cmsg
+        // is dmabuf first, fence second (protocol.md §6.2). All fds are
+        // already wrapped in OwnedFd above, so the violation arms drop
+        // them automatically — no manual close needed.
+        let fds = match (&message, received_fds.len()) {
             (ClientMessage::Buffer(_), 1) => {
-                let mut fds = received_fds;
-                let fd = fds.pop().expect("len == 1 just checked");
-                Ok((message, Some(fd)))
+                let mut v = received_fds;
+                let dmabuf = v.pop().expect("len == 1 just checked");
+                ReceivedFds::Buffer {
+                    dmabuf,
+                    fence: None,
+                }
+            }
+            (ClientMessage::Buffer(_), 2) => {
+                let mut v = received_fds.into_iter();
+                let dmabuf = v.next().expect("len == 2 just checked");
+                let fence = v.next().expect("len == 2 just checked");
+                ReceivedFds::Buffer {
+                    dmabuf,
+                    fence: Some(fence),
+                }
             }
             (ClientMessage::Buffer(_), 0) => {
-                Err(HostError::ProtocolViolation("Buffer message without fd"))
+                return Err(HostError::ProtocolViolation("Buffer message without fd"));
             }
-            (ClientMessage::Buffer(_), _) => Err(HostError::ProtocolViolation(
-                "Buffer message with extra fds",
-            )),
-            (_, 0) => Ok((message, None)),
-            (_, _) => Err(HostError::ProtocolViolation(
-                "fd attached to fd-less message",
-            )),
-        }
+            (ClientMessage::Buffer(_), _) => {
+                return Err(HostError::ProtocolViolation(
+                    "Buffer message with too many fds (expected 1 or 2)",
+                ));
+            }
+            (_, 0) => ReceivedFds::None,
+            (_, _) => {
+                return Err(HostError::ProtocolViolation(
+                    "fd attached to fd-less message",
+                ));
+            }
+        };
+        Ok((message, fds))
     }
 
     pub fn as_fd(&self) -> BorrowedFd<'_> {
@@ -256,15 +330,21 @@ mod tests {
     }
 
     /// Send one `ClientMessage` to the host with one fd via SCM_RIGHTS.
-    /// Used for the Buffer test and the "fd attached to fd-less message"
-    /// violation test.
+    /// Used for the slow-path Buffer test and the "fd attached to
+    /// fd-less message" violation test.
     fn plugin_send_client_message_with_fd(fd: RawFd, msg: &ClientMessage, attached: RawFd) {
+        plugin_send_client_message_with_fds(fd, msg, &[attached]);
+    }
+
+    /// Send one `ClientMessage` to the host with N fds via SCM_RIGHTS.
+    /// Used for the fast-path Buffer test (2 fds) and the too-many-fds
+    /// violation test (3 fds).
+    fn plugin_send_client_message_with_fds(fd: RawFd, msg: &ClientMessage, attached: &[RawFd]) {
         let mut buf = Vec::new();
         msg.encode(&mut buf).expect("encode ClientMessage");
-        let fds = [attached];
-        let cmsgs = [ControlMessage::ScmRights(&fds)];
+        let cmsgs = [ControlMessage::ScmRights(attached)];
         sendmsg::<()>(fd, &[IoSlice::new(&buf)], &cmsgs, MsgFlags::empty(), None)
-            .expect("plugin sendmsg client-with-fd");
+            .expect("plugin sendmsg client-with-fds");
     }
 
     // ---- Fixture --------------------------------------------------------------
@@ -339,8 +419,11 @@ mod tests {
         let host = thread::spawn(move || {
             let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             conn.handshake().expect("handshake");
-            let (msg, fd) = conn.recv_message().expect("recv");
-            assert!(fd.is_none(), "Hello must arrive without an fd");
+            let (msg, fds) = conn.recv_message().expect("recv");
+            assert!(
+                matches!(fds, ReceivedFds::None),
+                "Hello must arrive without fds"
+            );
             match msg {
                 ClientMessage::Hello(h) => {
                     assert_eq!(h.plugin_name, "test");
@@ -365,9 +448,8 @@ mod tests {
         host.join().expect("host thread");
     }
 
-    /// Send a Buffer with an fd attached; host should see both metadata
-    /// and the fd. Use /dev/null as a stand-in fd — any open fd suffices
-    /// for testing the SCM_RIGHTS plumbing.
+    /// Slow path: Buffer with 1 fd (dmabuf only). Host should see the
+    /// dmabuf in `ReceivedFds::Buffer` and `fence` = None.
     #[test]
     fn recv_buffer_with_fd() {
         let (host_fd, plugin_fd) = pair();
@@ -375,8 +457,12 @@ mod tests {
         let host = thread::spawn(move || {
             let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
             conn.handshake().expect("handshake");
-            let (msg, fd) = conn.recv_message().expect("recv");
-            let fd = fd.expect("Buffer must carry an fd");
+            let (msg, fds) = conn.recv_message().expect("recv");
+            let (dmabuf, fence) = match fds {
+                ReceivedFds::Buffer { dmabuf, fence } => (dmabuf, fence),
+                other => panic!("expected ReceivedFds::Buffer, got {:?}", other),
+            };
+            assert!(fence.is_none(), "slow-path Buffer must not carry a fence");
             match msg {
                 ClientMessage::Buffer(b) => {
                     assert_eq!(b.id, 7);
@@ -385,8 +471,8 @@ mod tests {
                 }
                 other => panic!("expected Buffer, got {:?}", other),
             }
-            // fd drops here; OwnedFd closes the dup that the kernel made.
-            drop(fd);
+            // OwnedFd drops here, closing the dup the kernel made.
+            drop(dmabuf);
         });
 
         let plugin_raw = plugin_fd.as_raw_fd();
@@ -409,6 +495,107 @@ mod tests {
             plugin_raw,
             &ClientMessage::Buffer(buf),
             devnull.as_raw_fd(),
+        );
+
+        host.join().expect("host thread");
+    }
+
+    /// Fast path: Buffer with 2 fds (dmabuf + fence). Host should see
+    /// both in `ReceivedFds::Buffer { dmabuf, fence: Some(_) }`. Order
+    /// matters — dmabuf first, fence second.
+    #[test]
+    fn recv_buffer_with_two_fds() {
+        let (host_fd, plugin_fd) = pair();
+
+        let host = thread::spawn(move || {
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+            conn.handshake().expect("handshake");
+            let (msg, fds) = conn.recv_message().expect("recv");
+            match (msg, fds) {
+                (
+                    ClientMessage::Buffer(b),
+                    ReceivedFds::Buffer {
+                        dmabuf,
+                        fence: Some(fence),
+                    },
+                ) => {
+                    assert_eq!(b.id, 11);
+                    // Sanity: distinct fd integers on the receiving side
+                    // (kernel reallocates per cmsg fd).
+                    assert!(dmabuf.as_raw_fd() >= 0);
+                    assert!(fence.as_raw_fd() >= 0);
+                    assert_ne!(dmabuf.as_raw_fd(), fence.as_raw_fd());
+                }
+                (msg, fds) => panic!(
+                    "expected fast-path Buffer with 2 fds, got msg={:?} fds={:?}",
+                    msg, fds
+                ),
+            }
+        });
+
+        let plugin_raw = plugin_fd.as_raw_fd();
+        plugin_send_version(plugin_raw, PROTOCOL_VERSION);
+        let _ = plugin_recv_version(plugin_raw).expect("host version");
+        let _ = plugin_recv_host_capabilities(plugin_raw);
+
+        // Two throwaway fds standing in for dmabuf + fence.
+        let dmabuf_file = std::fs::File::open("/dev/null").expect("open /dev/null (dmabuf)");
+        let fence_file = std::fs::File::open("/dev/null").expect("open /dev/null (fence)");
+        let buf = Buffer {
+            id: 11,
+            width: 64,
+            height: 64,
+            format: Fourcc::ARGB8888,
+            modifier: Modifier(0),
+            stride: 256,
+            offset: 0,
+        };
+        plugin_send_client_message_with_fds(
+            plugin_raw,
+            &ClientMessage::Buffer(buf),
+            &[dmabuf_file.as_raw_fd(), fence_file.as_raw_fd()],
+        );
+
+        host.join().expect("host thread");
+    }
+
+    /// Buffer with 3 fds → protocol violation. The wire spec allows 1
+    /// (slow path) or 2 (fast path); anything else is a plugin bug.
+    #[test]
+    fn recv_buffer_with_too_many_fds_is_violation() {
+        let (host_fd, plugin_fd) = pair();
+
+        let host = thread::spawn(move || {
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+            conn.handshake().expect("handshake");
+            let err = conn.recv_message().expect_err("must fail");
+            match err {
+                HostError::ProtocolViolation(_) => {}
+                other => panic!("expected ProtocolViolation, got {:?}", other),
+            }
+        });
+
+        let plugin_raw = plugin_fd.as_raw_fd();
+        plugin_send_version(plugin_raw, PROTOCOL_VERSION);
+        let _ = plugin_recv_version(plugin_raw).expect("host version");
+        let _ = plugin_recv_host_capabilities(plugin_raw);
+
+        let f1 = std::fs::File::open("/dev/null").expect("open /dev/null");
+        let f2 = std::fs::File::open("/dev/null").expect("open /dev/null");
+        let f3 = std::fs::File::open("/dev/null").expect("open /dev/null");
+        let buf = Buffer {
+            id: 13,
+            width: 64,
+            height: 64,
+            format: Fourcc::ARGB8888,
+            modifier: Modifier(0),
+            stride: 256,
+            offset: 0,
+        };
+        plugin_send_client_message_with_fds(
+            plugin_raw,
+            &ClientMessage::Buffer(buf),
+            &[f1.as_raw_fd(), f2.as_raw_fd(), f3.as_raw_fd()],
         );
 
         host.join().expect("host thread");

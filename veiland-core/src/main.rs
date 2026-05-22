@@ -271,7 +271,7 @@ fn main() -> ExitCode {
     connection.handshake().expect("plugin handshake");
     eprintln!("handshake ok");
 
-    // recv_message has already enforced "Hello carries no fd" at the wire
+    // recv_message has already enforced "Hello carries no fds" at the wire
     // layer (any fd on a non-Buffer message is ProtocolViolation there).
     // We just need to reject a misbehaving plugin that sent the wrong
     // variant as its first message — and even then, exit cleanly rather
@@ -301,7 +301,7 @@ fn main() -> ExitCode {
                 plugin_name: plugin_name.clone(),
                 plugin_version: plugin_version.clone(),
             }),
-            None,
+            plugin::ReceivedFds::None,
             &egl,
             egl_display,
         )
@@ -399,12 +399,12 @@ fn main() -> ExitCode {
             Generic::new(plugin_fd, Interest::READ, Mode::Level),
             |_event, _meta, state: &mut AppData| {
                 match state.plugin.connection.recv_message() {
-                    Ok((msg, fd)) => {
+                    Ok((msg, fds)) => {
                         let is_buffer = matches!(msg, ClientMessage::Buffer(_));
                         if let Err(e) =
                             state
                                 .plugin
-                                .handle_message(msg, fd, &state.egl, state.egl_display)
+                                .handle_message(msg, fds, &state.egl, state.egl_display)
                         {
                             eprintln!("plugin protocol error: {} — treating as dead", e);
                             // Drop the texture so subsequent frames go fallback.
