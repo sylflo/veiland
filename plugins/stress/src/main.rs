@@ -257,6 +257,14 @@ fn run() -> Result<(), PluginError> {
     let mut frame_count: u32 = 0;
     let mut accumulated_dt: f64 = 0.0;
 
+    // Buffer-lifecycle flags (see gradient plugin for full explanation).
+    // The dmabuf is shared; don't overwrite it while the host is still
+    // sampling. With the host's current strict ordering, pending_frame
+    // never fires in practice — it documents the contract and guards
+    // against future host changes.
+    let mut buffer_released = true;
+    let mut pending_frame = false;
+
     // 5. Event loop. Same shape as the gradient plugin.
     loop {
         match conn.recv_event()? {
@@ -272,6 +280,12 @@ fn run() -> Result<(), PluginError> {
                 // Roll the frame-time average. Skip the first FrameDone
                 // (no previous timestamp to diff against); from frame 2
                 // onward, accumulate dt and print every Nth frame.
+                //
+                // We log the dt for *every* FrameDone — including the
+                // ones we defer — because that captures the round-trip
+                // wall-clock the plugin actually experiences. A deferred
+                // render makes the next dt larger, which is the correct
+                // signal.
                 if let Some(prev) = last_frame_done {
                     let dt_ms = now.duration_since(prev).as_secs_f64() * 1000.0;
                     accumulated_dt += dt_ms;
@@ -292,42 +306,39 @@ fn run() -> Result<(), PluginError> {
                 }
                 last_frame_done = Some(now);
 
-                // Render.
-                let t = start.elapsed().as_secs_f32();
-                dma.bind_for_rendering()?;
-                // SAFETY: bind_for_rendering left an FBO bound and our
-                // program current; the GL context is on this thread.
-                unsafe {
-                    gl::Viewport(0, 0, BUFFER_WIDTH as i32, BUFFER_HEIGHT as i32);
-                    gl::Uniform1f(u_time_loc, t);
-                    gl::Clear(gl::COLOR_BUFFER_BIT);
-                    gl::DrawArrays(gl::TRIANGLES, 0, 6);
+                if !buffer_released {
+                    eprintln!(
+                        "FrameDone arrived before BufferReleased; deferring render"
+                    );
+                    pending_frame = true;
+                    continue;
                 }
-
-                if fast_path {
-                    // Submit drawn commands + fence; host waits on the
-                    // fence before sampling so this thread doesn't need
-                    // to block. The whole point of the stress plugin is
-                    // measuring how much wall-clock this fence-path
-                    // change saves over the M3 glFinish baseline.
-                    //
-                    // SAFETY: gl::Flush requires a current context; same
-                    // invariant as the draw calls above.
-                    unsafe {
-                        gl::Flush();
-                    }
-                    let fence = SyncFence::create(&gbm_egl)?;
-                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
-                } else {
-                    // Slow path: drain the GPU before send. M3 baseline.
-                    dma.finish();
-                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
-                }
+                render_and_send(
+                    &dma,
+                    &gbm_egl,
+                    &mut conn,
+                    &buf_msg,
+                    u_time_loc,
+                    start.elapsed().as_secs_f32(),
+                    fast_path,
+                )?;
+                buffer_released = false;
             }
             ServerMessage::BufferReleased(_) => {
-                // Single-buffer plugin: nothing to do. M5a's plugin-side
-                // changes will track BufferReleased and gate the next
-                // render on it.
+                buffer_released = true;
+                if pending_frame {
+                    pending_frame = false;
+                    render_and_send(
+                        &dma,
+                        &gbm_egl,
+                        &mut conn,
+                        &buf_msg,
+                        u_time_loc,
+                        start.elapsed().as_secs_f32(),
+                        fast_path,
+                    )?;
+                    buffer_released = false;
+                }
             }
             ServerMessage::Shutdown => {
                 eprintln!("host requested shutdown");
@@ -335,6 +346,44 @@ fn run() -> Result<(), PluginError> {
             }
         }
     }
+}
+
+/// Render one frame into the dmabuf and ship it. Extracted to dedupe
+/// the FrameDone and "deferred FrameDone via BufferReleased" call sites.
+fn render_and_send(
+    dma: &DmaBuffer,
+    gbm_egl: &GbmEgl,
+    conn: &mut Connection,
+    buf_msg: &Buffer,
+    u_time_loc: gl::types::GLint,
+    t: f32,
+    fast_path: bool,
+) -> Result<(), PluginError> {
+    dma.bind_for_rendering()?;
+    // SAFETY: bind_for_rendering left an FBO bound and our program
+    // current; the GL context is on this thread.
+    unsafe {
+        gl::Viewport(0, 0, BUFFER_WIDTH as i32, BUFFER_HEIGHT as i32);
+        gl::Uniform1f(u_time_loc, t);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+        gl::DrawArrays(gl::TRIANGLES, 0, 6);
+    }
+
+    if fast_path {
+        // Submit drawn commands + fence; host waits on the fence
+        // before sampling so this thread doesn't need to block.
+        // SAFETY: gl::Flush requires a current context.
+        unsafe {
+            gl::Flush();
+        }
+        let fence = SyncFence::create(gbm_egl)?;
+        conn.send_buffer(buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
+    } else {
+        // Slow path: drain the GPU before send. M3 baseline.
+        dma.finish();
+        conn.send_buffer(buf_msg, dma.dmabuf_fd(), None)?;
+    }
+    Ok(())
 }
 
 fn main() {

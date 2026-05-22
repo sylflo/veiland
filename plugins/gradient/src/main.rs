@@ -172,6 +172,30 @@ fn run() -> Result<(), PluginError> {
 
     let start = Instant::now();
 
+    // Buffer-lifecycle flags. The dmabuf is shared between us and the
+    // host; we MUST NOT overwrite it while the host is still sampling.
+    //
+    // - `buffer_released`: true means the host has confirmed it's done
+    //   sampling the last frame we sent (BufferReleased arrived) or
+    //   we haven't sent anything yet. False means a send is in flight.
+    //
+    // - `pending_frame`: true means a FrameDone arrived while
+    //   buffer_released was false — defer the render until release
+    //   arrives. With the host's current strict ordering (BufferReleased
+    //   before next FrameDone) this never fires in practice, but it
+    //   documents the contract and absorbs out-of-order delivery if a
+    //   future host ever relaxes it.
+    let mut buffer_released = true;
+    let mut pending_frame = false;
+
+    // Closure-like macro: actually render + send. Used from both the
+    // FrameDone arm (when buffer_released) and the BufferReleased arm
+    // (when pending_frame was set). Inlined as a labelled block to
+    // avoid hoisting it into a function that would have to capture
+    // half the local environment.
+    //
+    // Both branches set buffer_released = false on send.
+
     // 5. Canonical event loop: receive a ServerMessage, react. We
     //    drive our own match — veiland-plugin gives us primitives,
     //    not a callback runner.
@@ -187,47 +211,45 @@ fn run() -> Result<(), PluginError> {
                 // us actually respond to region changes.
             }
             ServerMessage::FrameDone => {
-                let t = start.elapsed().as_secs_f32();
-                dma.bind_for_rendering()?;
-                // SAFETY: bind_for_rendering left an FBO and our program
-                // current; the GL context is on this thread.
-                unsafe {
-                    gl::Viewport(0, 0, BUFFER_WIDTH as i32, BUFFER_HEIGHT as i32);
-                    gl::Uniform1f(u_time_loc, t);
-                    gl::Clear(gl::COLOR_BUFFER_BIT);
-                    gl::DrawArrays(gl::TRIANGLES, 0, 6);
+                if !buffer_released {
+                    // Host cued us before releasing the previous buffer.
+                    // Defer until BufferReleased arrives. The host's
+                    // current ordering doesn't produce this, so log it
+                    // — if you see this line, the host's ordering may
+                    // have regressed.
+                    eprintln!(
+                        "FrameDone arrived before BufferReleased; deferring render"
+                    );
+                    pending_frame = true;
+                    continue;
                 }
-
-                if fast_path {
-                    // Submit the draw commands to the driver, then insert
-                    // a fence and export its fd. The host will wait on the
-                    // fence before sampling the dmabuf, so we don't have
-                    // to block on glFinish — render and send return as
-                    // soon as the submit + fence-create complete.
-                    //
-                    // SAFETY: gl::Flush requires a current context; same
-                    // invariant as the draw calls above. It does not block
-                    // on GPU completion — that's the fence's job.
-                    unsafe {
-                        gl::Flush();
-                    }
-                    let fence = SyncFence::create(&gbm_egl)?;
-                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
-                    // `fence` drops here: destroy_sync on the local handle
-                    // and close the local fd. The dma-fence kernel object
-                    // stays alive via the cmsg dup that travelled to the
-                    // host.
-                } else {
-                    // Slow path: drain the GPU before send, so the dmabuf
-                    // is fully written by the time the host receives it.
-                    // This is exactly what M3 shipped.
-                    dma.finish();
-                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
-                }
+                render_and_send(
+                    &dma,
+                    &gbm_egl,
+                    &mut conn,
+                    &buf_msg,
+                    u_time_loc,
+                    start.elapsed().as_secs_f32(),
+                    fast_path,
+                )?;
+                buffer_released = false;
             }
             ServerMessage::BufferReleased(_) => {
-                // M5+: would return this buffer to our pool. M3 single
-                // buffer: nothing to do.
+                buffer_released = true;
+                if pending_frame {
+                    // FrameDone was queued earlier; consume it now.
+                    pending_frame = false;
+                    render_and_send(
+                        &dma,
+                        &gbm_egl,
+                        &mut conn,
+                        &buf_msg,
+                        u_time_loc,
+                        start.elapsed().as_secs_f32(),
+                        fast_path,
+                    )?;
+                    buffer_released = false;
+                }
             }
             ServerMessage::Shutdown => {
                 eprintln!("host requested shutdown");
@@ -235,6 +257,48 @@ fn run() -> Result<(), PluginError> {
             }
         }
     }
+}
+
+/// Render one frame into the dmabuf and ship it. Extracted to dedupe
+/// the FrameDone and "deferred FrameDone via BufferReleased" call sites.
+fn render_and_send(
+    dma: &DmaBuffer,
+    gbm_egl: &GbmEgl,
+    conn: &mut Connection,
+    buf_msg: &Buffer,
+    u_time_loc: gl::types::GLint,
+    t: f32,
+    fast_path: bool,
+) -> Result<(), PluginError> {
+    dma.bind_for_rendering()?;
+    // SAFETY: bind_for_rendering left an FBO and our program current;
+    // the GL context is on this thread.
+    unsafe {
+        gl::Viewport(0, 0, BUFFER_WIDTH as i32, BUFFER_HEIGHT as i32);
+        gl::Uniform1f(u_time_loc, t);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+        gl::DrawArrays(gl::TRIANGLES, 0, 6);
+    }
+
+    if fast_path {
+        // Submit draw commands; insert + export a fence. The host
+        // waits on it before sampling. SAFETY: gl::Flush requires a
+        // current context; same invariant as the draw calls above.
+        unsafe {
+            gl::Flush();
+        }
+        let fence = SyncFence::create(gbm_egl)?;
+        conn.send_buffer(buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
+        // `fence` drops here: destroy_sync on the local handle and
+        // close the local fd. The dma-fence kernel object stays
+        // alive via the cmsg dup that travelled to the host.
+    } else {
+        // Slow path: drain the GPU before send, so the dmabuf is
+        // fully written by the time the host receives it.
+        dma.finish();
+        conn.send_buffer(buf_msg, dma.dmabuf_fd(), None)?;
+    }
+    Ok(())
 }
 
 fn main() {
