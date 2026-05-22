@@ -17,7 +17,7 @@
 
 use std::time::Instant;
 
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError};
+use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
 use veiland_protocol::{Buffer, ServerMessage};
 
 /// Render-target size. 1920×1080 covers the common-desktop case; the
@@ -55,7 +55,7 @@ const BUFFER_HEIGHT: u32 = 1080;
 ///   up to push pixel count instead of per-pixel work.
 ///
 /// Recompile (`cargo build -p veiland-stress`) after changing.
-const ITERATIONS: u32 = 0;
+const ITERATIONS: u32 = 2000;
 
 /// How often to print rolling-average frame time. 60 frames ≈ 1 second
 /// at 60 Hz so the log feels approximately one-line-per-second.
@@ -221,6 +221,20 @@ fn run() -> Result<(), PluginError> {
     conn.send_hello("stress", env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
+    // 3b. Decide fast/slow path once. The whole point of this plugin is
+    //     to measure M5a's pipeline overlap, so the path decision is the
+    //     measurement-relevant variable: step 0's baselines were taken
+    //     on the slow path; step 12 reruns on whichever path the boxes
+    //     end up using. Log clearly so the per-box numbers can be
+    //     attributed correctly.
+    let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
+    eprintln!(
+        "sync model: {} (host_cap={}, plugin_cap={})",
+        if fast_path { "fast (fence fd)" } else { "slow (glFinish)" },
+        conn.host_supports_fence_fd(),
+        gbm_egl.supports_fence_fd(),
+    );
+
     // 4. Buffer message: constant for the lifetime of `dma`. Same
     //    single-buffer model as gradient — id = 0, reused every frame.
     let buf_msg = Buffer {
@@ -290,14 +304,25 @@ fn run() -> Result<(), PluginError> {
                     gl::DrawArrays(gl::TRIANGLES, 0, 6);
                 }
 
-                // M3 sync model: glFinish before send_buffer. This is
-                // exactly what M5a will replace with a fence fd. Step 0
-                // measures the pipeline with this in place; step 12
-                // re-measures with the fence path.
-                dma.finish();
-                // Slow path: dmabuf only. Step 8 of M5a switches to
-                // Some(fence.as_fd()) when the fast path applies.
-                conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
+                if fast_path {
+                    // Submit drawn commands + fence; host waits on the
+                    // fence before sampling so this thread doesn't need
+                    // to block. The whole point of the stress plugin is
+                    // measuring how much wall-clock this fence-path
+                    // change saves over the M3 glFinish baseline.
+                    //
+                    // SAFETY: gl::Flush requires a current context; same
+                    // invariant as the draw calls above.
+                    unsafe {
+                        gl::Flush();
+                    }
+                    let fence = SyncFence::create(&gbm_egl)?;
+                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
+                } else {
+                    // Slow path: drain the GPU before send. M3 baseline.
+                    dma.finish();
+                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
+                }
             }
             ServerMessage::BufferReleased(_) => {
                 // Single-buffer plugin: nothing to do. M5a's plugin-side

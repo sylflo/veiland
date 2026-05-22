@@ -10,6 +10,7 @@ use khronos_egl as egl;
 use veiland_protocol::ClientMessage;
 
 use super::dmabuf::{self, GlTexture};
+use super::sync::{import_fence, release_fence, wait_fence};
 use super::{HostConnection, HostError, ReceivedFds};
 
 pub struct PluginState {
@@ -73,12 +74,23 @@ impl PluginState {
                     return Err(HostError::ProtocolViolation("Buffer before Hello"));
                 }
 
-                // M5a fence wait will hook in at step 9. For now the
-                // fence (if any) is just closed by Drop — the plugin
-                // is still on the slow path (its glFinish before
-                // send_buffer guarantees the dmabuf is GPU-stable),
-                // so sampling without waiting is safe today.
-                drop(fence);
+                // Fast path: wait on the plugin's fence before sampling
+                // the dmabuf. If the wait fails (1-second timeout or EGL
+                // error), bail without touching the previous texture —
+                // defensive ordering: any error returned here leaves
+                // self.texture in its prior, still-valid state, and the
+                // calloop handler in main.rs treats the error as plugin
+                // death. The fence is released either way.
+                //
+                // Slow path (`fence == None`): the plugin called
+                // gl::Finish before send_buffer, so the dmabuf is already
+                // GPU-stable. No wait needed.
+                if let Some(fence_fd) = fence {
+                    let imported = import_fence(egl, display, fence_fd)?;
+                    let wait_result = wait_fence(egl, display, &imported);
+                    release_fence(egl, display, imported);
+                    wait_result?;
+                }
 
                 // Import the new buffer first; only release the old
                 // texture if the import succeeded, so a failing import

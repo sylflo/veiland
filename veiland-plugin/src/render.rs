@@ -28,6 +28,10 @@ pub struct GbmEgl {
     egl: egl::Instance<egl::Static>,
     egl_display: egl::Display,
     egl_context: egl::Context,
+    /// Whether the EGL display exposes `EGL_ANDROID_native_fence_sync`.
+    /// Computed once in `new()` and cached because plugins may consult
+    /// this every frame to decide fast vs slow path.
+    supports_fence_fd: bool,
     // `gbm` must outlive `egl_display` because the display was created
     // from a pointer into this `gbm::Device`. Kept private so callers
     // can't accidentally drop it early.
@@ -69,6 +73,18 @@ impl GbmEgl {
         // 4. Initialize the display. We don't care about the version pair.
         egl.initialize(egl_display)
             .map_err(|_| PluginError::Render("eglInitialize failed"))?;
+
+        // 4b. Query whether this display supports the fence-fd extension.
+        //     Cached on the struct so the per-frame fast/slow decision
+        //     doesn't repeat the string parse. Mirror of the host-side
+        //     detection in veiland-core/src/main.rs.
+        let supports_fence_fd = egl
+            .query_string(Some(egl_display), egl::EXTENSIONS)
+            .map_err(|_| PluginError::Render("eglQueryString(EXTENSIONS) failed"))?
+            .to_str()
+            .map_err(|_| PluginError::Render("EGL extensions string is not UTF-8"))?
+            .split(' ')
+            .any(|ext| ext == "EGL_ANDROID_native_fence_sync");
 
         // 5. Bind GLES — we're an OpenGL ES 2 client.
         egl.bind_api(egl::OPENGL_ES_API)
@@ -119,8 +135,25 @@ impl GbmEgl {
             egl,
             egl_display,
             egl_context,
+            supports_fence_fd,
             gbm,
         })
+    }
+
+    /// Whether the plugin's EGL display supports
+    /// `EGL_ANDROID_native_fence_sync`, i.e. whether `SyncFence::create`
+    /// will work on this hardware. Combined with the host's
+    /// `HOST_CAP_FENCE_FD` advertisement, this gates the M5a fast path:
+    ///
+    /// ```ignore
+    /// let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
+    /// ```
+    ///
+    /// Both must be true. If either side is missing the extension, the
+    /// plugin should stay on the slow path (`gl::Finish` before
+    /// `send_buffer`, no fence fd attached).
+    pub fn supports_fence_fd(&self) -> bool {
+        self.supports_fence_fd
     }
 
     /// Re-arm the EGL context as current on the calling thread.

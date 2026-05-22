@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError};
+use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
 use veiland_protocol::{Buffer, ServerMessage};
 
 const BUFFER_WIDTH: u32 = 512;
@@ -146,6 +146,17 @@ fn run() -> Result<(), PluginError> {
     conn.send_hello("gradient", env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
+    // 3b. Decide fast/slow path once, after the handshake. Both sides must
+    //     support EGL_ANDROID_native_fence_sync for the fast path. This
+    //     choice is fixed for the connection's lifetime (protocol.md §6.2).
+    let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
+    eprintln!(
+        "sync model: {} (host_cap={}, plugin_cap={})",
+        if fast_path { "fast (fence fd)" } else { "slow (glFinish)" },
+        conn.host_supports_fence_fd(),
+        gbm_egl.supports_fence_fd(),
+    );
+
     // 4. Build the Buffer message once. Fields are constant for the
     //    lifetime of `dma`; we re-send the same struct (with id = 0)
     //    on every FrameDone. M5+ buffer pool will use real ids.
@@ -186,12 +197,33 @@ fn run() -> Result<(), PluginError> {
                     gl::Clear(gl::COLOR_BUFFER_BIT);
                     gl::DrawArrays(gl::TRIANGLES, 0, 6);
                 }
-                dma.finish();
-                // Slow-path send: dmabuf only, no fence fd. Step 8 of M5a
-                // will conditionally switch to Some(fence.as_fd()) when
-                // the host advertised HOST_CAP_FENCE_FD and the plugin's
-                // EGL can create fences.
-                conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
+
+                if fast_path {
+                    // Submit the draw commands to the driver, then insert
+                    // a fence and export its fd. The host will wait on the
+                    // fence before sampling the dmabuf, so we don't have
+                    // to block on glFinish — render and send return as
+                    // soon as the submit + fence-create complete.
+                    //
+                    // SAFETY: gl::Flush requires a current context; same
+                    // invariant as the draw calls above. It does not block
+                    // on GPU completion — that's the fence's job.
+                    unsafe {
+                        gl::Flush();
+                    }
+                    let fence = SyncFence::create(&gbm_egl)?;
+                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
+                    // `fence` drops here: destroy_sync on the local handle
+                    // and close the local fd. The dma-fence kernel object
+                    // stays alive via the cmsg dup that travelled to the
+                    // host.
+                } else {
+                    // Slow path: drain the GPU before send, so the dmabuf
+                    // is fully written by the time the host receives it.
+                    // This is exactly what M3 shipped.
+                    dma.finish();
+                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
+                }
             }
             ServerMessage::BufferReleased(_) => {
                 // M5+: would return this buffer to our pool. M3 single
