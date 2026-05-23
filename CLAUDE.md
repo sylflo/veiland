@@ -95,7 +95,8 @@ Do not try to build everything at once. Each milestone produces something runnab
 5. **M4 — PAM:** add real password input handling and PAM authentication. Replace escape-to-unlock with proper auth. Password buffer in `mlock`'d memory.
 6. **M5 — Buffer pool + sync fences:** replace single-buffer + `glFinish()` with 2–3 buffer pool, release messages, and explicit sync fences (`EGL_KHR_fence_sync` fd via `SCM_RIGHTS`). Production-quality rendering pipeline.
 7. **M6 — Multiple plugins, z-order, region clipping:** the real plugin system. Multiple plugins compositing together with z-indexing.
-8. **M7 — Reference plugins:** clock, simple wallpaper, shader background. Three plugins to validate the API and seed the ecosystem.
+8. **M7 — Multi-monitor:** per-output plugin instances, per-plugin output selection in config (`monitors = ["DP-1", "DP-2"]`), output identity carried on `Configure`, output hotplug handling. M6 ships with a "every plugin on every output" shortcut; M7 is when each monitor gets its own independent instance of each plugin that opted into it. Done before reference plugins because writing the reference plugins against M6's shortcut would bake in assumptions a later multi-monitor pass would have to undo.
+9. **M8 — Reference plugins:** clock, simple wallpaper, shader background. Three plugins to validate the API and seed the ecosystem.
 
 Don't skip ahead. M0 → M1 → M2 → ... in order. The motivation for each step is concrete; the order is chosen so each step validates something specific before building on it.
 
@@ -185,8 +186,7 @@ This is a sketch; refine as the code grows. Don't create empty directories upfro
 
 These are genuinely undecided. Don't assume an answer.
 
-- Multi-monitor: does each output get its own plugin instance, or does one plugin span all outputs? (Leaning: each output gets its own instance, plugins declare per-output preference.)
-- Plugin manifest file (declared capabilities, permissions) vs. relying on `HELLO` alone? (Manifest is more secure long-term but more bureaucracy. Likely defer to post-M7.)
+- Plugin manifest file (declared capabilities, permissions) vs. relying on `HELLO` alone? (Manifest is more secure long-term but more bureaucracy. Likely defer to post-M8.)
 - Sandbox plugins with bubblewrap/landlock by default, or leave to packagers? (Probably leave to packagers initially; document the recommendation.)
 - What does a plugin's working directory look like — chrooted? Just `cd`'d to a known location? Full filesystem access? (Decide at M3 when plugin loading is real.)
 - Which Rust Wayland crate ecosystem to use — `smithay-client-toolkit` + `wayland-client` (lower-level, more flexible) vs. higher-level abstractions? (Decide at M1. Leaning `smithay-client-toolkit` because that's what most Wayland Rust projects use.)
