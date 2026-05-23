@@ -230,7 +230,11 @@ fn run() -> Result<(), PluginError> {
     let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
     eprintln!(
         "sync model: {} (host_cap={}, plugin_cap={})",
-        if fast_path { "fast (fence fd)" } else { "slow (glFinish)" },
+        if fast_path {
+            "fast (fence fd)"
+        } else {
+            "slow (glFinish)"
+        },
         conn.host_supports_fence_fd(),
         gbm_egl.supports_fence_fd(),
     );
@@ -307,9 +311,7 @@ fn run() -> Result<(), PluginError> {
                 last_frame_done = Some(now);
 
                 if !buffer_released {
-                    eprintln!(
-                        "FrameDone arrived before BufferReleased; deferring render"
-                    );
+                    eprintln!("FrameDone arrived before BufferReleased; deferring render");
                     pending_frame = true;
                     continue;
                 }

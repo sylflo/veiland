@@ -1,0 +1,13 @@
+[package]
+name = "veiland-green-box"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "M6 throwaway test plugin — fills its region with fully-opaque green. Validates the host's compositor; not a reference plugin."
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
+gl = "0.14"
+veiland-plugin = { path = "../../veiland-plugin" }
+veiland-protocol = { path = "../../veiland-protocol" }
