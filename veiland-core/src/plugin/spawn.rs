@@ -63,7 +63,23 @@ pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, 
                 Ok(s) => s,
                 Err(_) => unsafe { nix::libc::_exit(127) },
             };
-            let argv0_cstring = match CString::new(name_for_log) {
+            // argv[0] is the binary's filename — *not* the config name.
+            // This makes `pgrep veiland` find every plugin (assuming
+            // plugin authors follow the `veiland-<name>` binary
+            // convention), regardless of what the user called the plugin
+            // in their config. `name_for_log` is still used for host
+            // log lines — that's the user's chosen name, which may
+            // diverge from the binary name.
+            //
+            // Fall back to `name_for_log` if file_name() returns None
+            // (only possible for paths like "/" or ending in "..");
+            // those will fail at execv anyway, but argv[0] being something
+            // sensible-ish makes the failure log readable.
+            let argv0_bytes = binary
+                .file_name()
+                .map(|s| s.as_bytes())
+                .unwrap_or_else(|| name_for_log.as_bytes());
+            let argv0_cstring = match CString::new(argv0_bytes) {
                 Ok(s) => s,
                 Err(_) => unsafe { nix::libc::_exit(127) },
             };

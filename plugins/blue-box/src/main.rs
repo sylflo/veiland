@@ -235,7 +235,7 @@ fn render_and_send(
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("veiland-{}: {}", PLUGIN_NAME, e);
+        eprintln!("{}: {}", env!("CARGO_PKG_NAME"), e);
         std::process::exit(1);
     }
 }
