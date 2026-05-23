@@ -339,6 +339,15 @@ fn main() -> ExitCode {
     for output_name in &output_names {
         let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(config.plugins.len());
         for entry in &config.plugins {
+            if !entry_matches_output(entry, output_name) {
+                // No instance for this (entry, output) pair. Push a None
+                // slot so the inner vec's indexing stays predictable
+                // relative to config.plugins — though nothing currently
+                // depends on it, keeping the shape symmetric makes the
+                // dead-output-still-keeps-its-index assumption explicit.
+                per_output.push(None);
+                continue;
+            }
             match try_spawn_one(
                 entry,
                 output_name,
@@ -366,6 +375,26 @@ fn main() -> ExitCode {
         // slots sort to the end via i32::MAX; they never render anything anyway.
         per_output.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
         state.plugins.push(per_output)
+    }
+
+    // Warn about monitors entries that didn't match any connected output.
+    // A typo'd name shouldn't fail the locker, but the user wants to know
+    // their config is silently doing nothing.
+    for entry in &config.plugins {
+        let Some(requested) = &entry.monitors else {
+            continue;
+        };
+        for requested_name in requested {
+            if !output_names.iter().any(|name| name == requested_name) {
+                eprintln!(
+                    "veiland-core: plugin {:?} requested output {:?} \
+                    but no connected output has that name (typo? \
+                    check `hyprctl monitors` / `swaymsg -t get_outputs`). \
+                    Spawning zero instances for this output.",
+                    entry.name, requested_name
+                );
+            }
+        }
     }
 
     let session_lock = state
@@ -463,6 +492,16 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         RunState::Refused => ExitCode::FAILURE,
+    }
+}
+
+/// Does this plugin entry's `monitors` filter (if any) admit the
+/// given output? `None` means "any output"; `Some(list)` means
+/// "exactly the names in this list" (case-sensitive, exact match).
+fn entry_matches_output(entry: &config::PluginEntry, output_name: &str) -> bool {
+    match &entry.monitors {
+        None => true,
+        Some(list) => list.iter().any(|name| name == output_name),
     }
 }
 

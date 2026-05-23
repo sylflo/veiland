@@ -37,6 +37,7 @@ name = "red-box"
 binary = "/home/sylflo/Projects/veiland/target/debug/veiland-red-box"
 z_index = 10
 region = { x = 400, y = 400, w = 800, h = 600 }
+monitors = ["HDMI-A-1"]
 
 [[plugin]]
 name = "green-box"

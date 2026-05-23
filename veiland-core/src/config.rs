@@ -40,6 +40,16 @@ pub struct PluginEntry {
     #[serde(default)]
     pub region: Option<Region>,
 
+    /// Output names (xdg_output.name strings, e.g. "DP-1") this
+    /// plugin runs on. `None` (field absent) means "every connected
+    /// output." `Some(vec)` must be non-empty; the loader rejects an
+    /// explicit empty list (ambiguous — see docs/config.md §3).
+    /// Names that don't match a connected output at spawn time log
+    /// a warning and produce zero instances; they don't fail the
+    /// locker start (a typo shouldn't lock the user out).
+    #[serde(default)]
+    pub monitors: Option<Vec<String>>,
+
     /// Optional pass-through table for plugin-specific settings.
     /// Schema-only in M6: the field is parsed so user configs with
     /// `[plugin.config]` tables don't break, but the spawn side
@@ -171,6 +181,17 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
                     (likely a typo; GL will clip it but you probably didn't mean this)",
                     p.name, r
                 );
+            }
+        }
+
+        if let Some(monitors) = &p.monitors {
+            if monitors.is_empty() {
+                return Err(ConfigError::Invalid(format!(
+                    "plugin {:?} has empty monitors list; \
+                    either omit the field (means 'all outputs') \
+                    or list at least one output name",
+                    p.name
+                )));
             }
         }
     }
@@ -394,6 +415,72 @@ mod tests {
         match parse(text) {
             Err(ConfigError::Parse(_)) => {}
             other => panic!("expected Parse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn monitors_absent_means_none() {
+        // No `monitors` field → field-absent semantics ("every connected
+        // output"). The loader represents this as `None`; the spawn
+        // matcher in main.rs maps `None` to "match everything".
+        let text = r#"
+            [[plugin]]
+            name = "everywhere"
+            binary = "/x"
+            z_index = 0
+        "#;
+        let config = parse(text).expect("absent monitors is fine");
+        assert!(config.plugins[0].monitors.is_none());
+    }
+
+    #[test]
+    fn monitors_with_names_accepted() {
+        // A non-empty list round-trips into the typed field. Order is
+        // preserved (Vec, not Set) because the spawn matcher walks it
+        // linearly and case-sensitivity is exact-match — order doesn't
+        // change behaviour but losing it would be a surprising codec.
+        let text = r#"
+            [[plugin]]
+            name = "selective"
+            binary = "/x"
+            z_index = 0
+            monitors = ["DP-1", "HDMI-A-1"]
+        "#;
+        let config = parse(text).expect("monitors list is fine");
+        let monitors = config.plugins[0]
+            .monitors
+            .as_ref()
+            .expect("monitors is Some");
+        assert_eq!(monitors, &vec!["DP-1".to_string(), "HDMI-A-1".to_string()]);
+    }
+
+    #[test]
+    fn empty_monitors_rejected() {
+        // An explicit empty list is ambiguous — did the user mean
+        // "no outputs" (then why declare it?) or "I deleted my list
+        // and forgot to remove the field"? Reject at load with a
+        // message that names the fix.
+        let text = r#"
+            [[plugin]]
+            name = "ambiguous"
+            binary = "/x"
+            z_index = 0
+            monitors = []
+        "#;
+        match parse(text) {
+            Err(ConfigError::Invalid(msg)) => {
+                assert!(
+                    msg.contains("empty monitors"),
+                    "error should mention empty monitors, got {:?}",
+                    msg
+                );
+                assert!(
+                    msg.contains("omit the field"),
+                    "error should suggest the fix, got {:?}",
+                    msg
+                );
+            }
+            other => panic!("expected Invalid, got {:?}", other),
         }
     }
 }

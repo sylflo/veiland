@@ -126,6 +126,39 @@ it across a 400×80 region (or vice versa). What the plugin
 currently the full lock surface; that mismatch is tracked work for
 a future milestone.
 
+### `monitors` (array of strings, optional)
+
+The Wayland outputs this plugin runs on, named by their
+`xdg_output.name` strings (e.g. `"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`).
+Look them up with `hyprctl monitors` (Hyprland) or
+`swaymsg -t get_outputs` (Sway).
+
+```toml
+monitors = ["DP-1", "HDMI-A-1"]
+```
+
+If the field is **absent**, the plugin runs on every connected output
+— one independent plugin process per output. If the field is
+**present**, only the outputs whose names appear in the list spawn
+an instance.
+
+Rules:
+
+- **Case-sensitive, exact match.** `"DP-1"` is not the same as
+  `"dp-1"`. The compositor's exact spelling wins.
+- **Empty list is rejected at config load** with an error message.
+  An empty list is ambiguous (did you mean "no outputs"? then why
+  declare it?); omit the field instead if you want all-outputs
+  behaviour.
+- **Unknown names log a warning at spawn time and produce zero
+  instances of that plugin** — they do not fail the locker start.
+  A typo in `monitors` shouldn't lock you out of your machine.
+- **Output identity comes from the plugin protocol's `Configure`
+  message** (see `docs/protocol.md` §7.1). A plugin's per-output
+  instance learns which output it's serving via `Configure.output_name`
+  and can vary its rendering accordingly (different wallpaper per
+  screen, different timezone clock per screen, etc.).
+
 ### `[plugin.config]` (table, optional, schema-only in M6)
 
 A pass-through table for plugin-specific settings. Veiland-core
@@ -203,29 +236,51 @@ blending end-to-end.
 
 ## 5. Multi-monitor
 
-In the current implementation, **every plugin runs on every
-output**. A `[[plugin]]` entry produces one plugin process whose
-single texture is composited onto every lock surface (one per
-output). Regions are in lock-surface pixel coordinates, not
-output-aware coordinates.
+Each `[[plugin]]` entry produces **one independent plugin process
+per matching output**. A plugin with `monitors = ["DP-1"]` runs only
+on DP-1. A plugin that omits the `monitors` field runs on every
+connected output, with each output getting its own process — the
+processes are independent and don't share state. This is the right
+shape for wallpapers that should differ per screen, clocks that
+should show different timezones per screen, and so on.
 
-This has two consequences worth flagging:
+The plugin learns which output it's serving via the `output_name`
+field on `Configure` (see `docs/protocol.md` §7.1). Plugins that
+need to vary their rendering per monitor key off that string.
 
-- On a multi-monitor setup with different resolutions, a region of
-  `(100, 100, 300, 80)` lands at the same absolute pixel position
-  on each output — which looks small on a 4K monitor and normal on
-  a 1080p one.
-- A wallpaper plugin can't differ per output.
+### Regions are per-output, in surface pixel coordinates
 
-These are known limitations. A future milestone will add per-output
-plugin instances with output-aware regions. When that lands, configs
-will gain an optional `monitors = ["DP-1", "DP-2"]` field per
-plugin entry, naming Wayland outputs.
+A region of `(100, 100, 300, 80)` lands at the same absolute pixel
+position — top-left at `(100, 100)` — on each output the plugin runs
+on. On a 4K monitor that looks small; on a 1080p monitor it looks
+normal. The host does not currently translate regions to
+output-aware coordinates ("anchor top-right, 20% of output width");
+that's a planned extension.
 
-**Forward-compatibility commitment**: when `monitors` is introduced,
-the *absence* of the field will mean "all outputs" — the same
-behaviour as today. Configs written for the current implementation
-will keep working unchanged after that milestone lands.
+If you want a clock in the top-left of each monitor at sizes that
+make sense for each monitor's resolution, write one `[[plugin]]`
+entry per monitor with the appropriate region and a `monitors`
+selector naming that one output.
+
+### Process count
+
+A config with N `[[plugin]]` entries and M connected outputs
+produces up to N × M plugin processes (fewer if some entries use
+`monitors` to narrow). This is the honest cost of per-output
+isolation. For plugins that are cheap to run (a static icon, a
+clock), running M instances costs almost nothing. For plugins
+where per-output is genuinely wasteful, use a `monitors` selector
+naming a single output.
+
+### Hot-plugging a monitor
+
+When a monitor is connected mid-lock, the host spawns plugin
+instances for it (one per matching entry, same rules as startup).
+When a monitor is disconnected, its plugin instances are torn down
+cleanly. Plugins are fresh processes on each hotplug-in; they do
+not carry state across plug/unplug cycles. If a plugin needs
+state continuity (a wallpaper that remembers its zoom level, say),
+persist it externally (a file under `$XDG_RUNTIME_DIR`, e.g.).
 
 ## 6. Things that aren't configurable
 
@@ -242,8 +297,6 @@ By design:
 Things that *will* become configurable in future milestones but
 aren't yet:
 
-- Per-output plugin instances (the `monitors = [...]` field
-  described in §5).
 - Per-plugin custom settings (`[plugin.config]` is parsed but not
   yet read by plugins — see §3).
 
@@ -261,6 +314,14 @@ aren't yet:
   workload. The locker handles it cleanly; nothing prevents you
   from declaring more, but the host's frame pacing isn't yet
   rate-limited and very high plugin counts may eat CPU.
+- **A `monitors` name that doesn't match any connected output**
+  produces zero instances of that plugin and a warning at startup;
+  the locker still runs. Check `hyprctl monitors` (Hyprland) or
+  `swaymsg -t get_outputs` (Sway) for the exact names your
+  compositor uses. Names are case-sensitive (`DP-1`, not `dp-1`).
+- **A multi-monitor setup with N plugins** produces up to N × M
+  child processes (M = output count). `pgrep -af veiland` shows
+  them all; this is per-output isolation by design, not a leak.
 
 ## 8. See also
 
