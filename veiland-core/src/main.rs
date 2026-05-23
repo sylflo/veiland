@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod auth;
+mod config;
 mod plugin;
 
 use std::{path::PathBuf, process::ExitCode, time::Duration};
@@ -441,8 +442,11 @@ fn main() -> ExitCode {
                             if !state.lock_surfaces.is_empty() {
                                 match plugin::create_host_fence(&state.egl, state.egl_display) {
                                     Ok(fence) => {
-                                        let wait_result =
-                                            plugin::wait_fence(&state.egl, state.egl_display, &fence);
+                                        let wait_result = plugin::wait_fence(
+                                            &state.egl,
+                                            state.egl_display,
+                                            &fence,
+                                        );
                                         plugin::release_fence(&state.egl, state.egl_display, fence);
                                         if let Err(e) = wait_result {
                                             eprintln!("egress fence wait failed: {}", e);

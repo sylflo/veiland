@@ -21,6 +21,8 @@ khronos-egl = { version = "6", features = ["static"] }
 gl = "0.14"
 nix = { version = "0.31", features = ["fs", "process", "mman", "signal", "socket", "uio", "user"] }
 pam-client2 = "0.5"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
 veiland-protocol = { path = "../veiland-protocol" }
 zeroize = "1.8.2"
 

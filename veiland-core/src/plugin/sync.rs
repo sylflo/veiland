@@ -102,9 +102,7 @@ pub fn create_host_fence(
     // fresh fence on the local stream).
     let sync = unsafe {
         egl.create_sync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, &[egl::ATTRIB_NONE])
-            .map_err(|_| {
-                HostError::Render("eglCreateSync(NATIVE_FENCE_ANDROID, fresh) failed")
-            })?
+            .map_err(|_| HostError::Render("eglCreateSync(NATIVE_FENCE_ANDROID, fresh) failed"))?
     };
     Ok(HostFence { sync })
 }
@@ -149,11 +147,7 @@ pub fn wait_fence(
 /// Tear down a host fence. Caller must have an active EGL context
 /// current. Failure is logged-and-ignored: we're done with this fence
 /// either way and the worst case is a leaked EGL handle.
-pub fn release_fence(
-    egl: &egl::Instance<egl::Static>,
-    display: egl::Display,
-    fence: HostFence,
-) {
+pub fn release_fence(egl: &egl::Instance<egl::Static>, display: egl::Display, fence: HostFence) {
     // SAFETY: same invariants as the create call — display and sync
     // must be valid; both were produced by this module's constructors
     // and have not been destroyed.
