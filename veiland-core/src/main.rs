@@ -618,6 +618,14 @@ impl SessionLockHandler for AppData {
             gl::Viewport(0, 0, width as i32, height as i32);
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
+            // Straight-alpha blending: plugins emit non-pre-multiplied
+            // pixels (gl_FragColor = vec4(rgb, a) with rgb not scaled
+            // by a). State stays enabled across the per-plugin loop —
+            // every draw in this codebase wants blending on. If a
+            // future non-plugin draw needs it off, that site sets state
+            // explicitly. See docs/protocol.md §12.
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         }
 
         for slot_opt in &self.plugins {
@@ -669,6 +677,13 @@ impl AppData {
                 gl::Viewport(0, 0, w, h);
                 gl::ClearColor(0.0, 0.0, 0.0, 1.0);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
+                // Straight-alpha blending. See the matching note in
+                // SessionLockHandler::configure for the why; the
+                // short version is "plugins emit non-pre-multiplied
+                // pixels and we don't toggle blend off after the
+                // loop because nothing else needs it off."
+                gl::Enable(gl::BLEND);
+                gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
             }
             for slot_opt in &self.plugins {
                 if let Some(slot) = slot_opt {

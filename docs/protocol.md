@@ -388,3 +388,31 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
   sentinel (`gbm_bo_create` without explicit modifier negotiation returns
   it). Landed atomically across `veiland-protocol`, `veiland-core`, and this
   doc as part of the M3 commit.
+
+## 12. Rendering conventions
+
+These describe how plugins should produce pixel data so the host's
+compositor blends multiple plugins correctly. They are not wire-format
+constraints — the wire bytes are unchanged — but the host assumes them.
+
+### 12.1 Straight (non-pre-multiplied) alpha
+
+Plugins emit pixels with straight alpha: the RGB channels store the
+colour as-is, and the alpha channel separately stores opacity. A red
+pixel at 50% opacity is `(1.0, 0.0, 0.0, 0.5)`, not
+`(0.5, 0.0, 0.0, 0.5)`.
+
+The host's compositor uses
+`glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`, the natural blend
+function for straight alpha. Plugins that pre-multiply alpha will
+appear washed-out where their regions overlap lower-z plugins.
+
+This convention was chosen over pre-multiplied alpha because the
+natural shape of writing a fragment shader
+(`gl_FragColor = vec4(rgb, a)`) produces straight alpha;
+pre-multiplied would force every plugin author to remember to
+multiply, and the failure mode is subtle. See `docs/m6-plan.md` Q4.
+
+If pre-multiplied alpha becomes needed for a specific plugin in the
+future, it should be opted into via a flag in `Hello`, not made the
+default.
