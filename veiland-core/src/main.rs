@@ -69,7 +69,7 @@ struct AppData {
     egl_display: egl::Display,
     egl_config: egl::Config,
     egl_context: egl::Context,
-    plugins: Vec<Option<PluginSlot>>,
+    plugins: Vec<Vec<Option<PluginSlot>>>,
     compositor_program: gl::types::GLuint,
     compositor_vbo: gl::types::GLuint,
     compositor_sampler_loc: gl::types::GLint,
@@ -280,31 +280,6 @@ fn main() -> ExitCode {
         unsafe { build_compositor_program() };
     eprintln!("built compositor program id={}", compositor_program);
 
-    // --- 4. Spawn plugins per config -----------------------------------------
-    let mut plugins: Vec<Option<PluginSlot>> = Vec::with_capacity(config.plugins.len());
-    for entry in &config.plugins {
-        match try_spawn_one(entry, host_capabilities, &egl, egl_display) {
-            Ok(slot) => {
-                eprintln!(
-                    "veiland-core: spawned plugin {:?} (binary {:?}, z_index {}) pid={}",
-                    slot.name, slot.binary, slot.z_index, slot.pid
-                );
-                plugins.push(Some(slot));
-            }
-            Err(e) => {
-                eprintln!(
-                    "veiland-core: plugin {:?} failed to start: {} — its layer will be empty",
-                    entry.name, e
-                );
-                plugins.push(None);
-            }
-        }
-    }
-
-    // Sort by z_index, stable: ties keep config-file order. Failed (None)
-    // slots sort to the end via i32::MAX; they never render anything anyway.
-    plugins.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
-
     let auth = match auth::Session::new() {
         Ok(s) => s,
         Err(e) => {
@@ -331,7 +306,7 @@ fn main() -> ExitCode {
         egl_display,
         egl_config,
         egl_context,
-        plugins,
+        plugins: Vec::new(),
         compositor_program,
         compositor_vbo,
         compositor_sampler_loc,
@@ -348,6 +323,50 @@ fn main() -> ExitCode {
     event_queue
         .roundtrip(&mut state)
         .expect("roundtrip for output names");
+
+    let output_names: Vec<String> = state
+        .output_state
+        .outputs()
+        .map(|o| {
+            state
+                .output_state
+                .info(&o)
+                .and_then(|i| i.name)
+                .unwrap_or_else(|| "<unnamed>".into())
+        })
+        .collect();
+    // --- 4. Spawn plugins per config -----------------------------------------
+    for output_name in &output_names {
+        let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(config.plugins.len());
+        for entry in &config.plugins {
+            match try_spawn_one(
+                entry,
+                output_name,
+                host_capabilities,
+                &state.egl,
+                state.egl_display,
+            ) {
+                Ok(slot) => {
+                    eprintln!(
+                        "veiland-core: spawned plugin {:?} on output {} (binary {:?}, z_index {}) pid={}",
+                        slot.name, output_name, slot.binary, slot.z_index, slot.pid
+                    );
+                    per_output.push(Some(slot));
+                }
+                Err(e) => {
+                    eprintln!(
+                        "veiland-core: plugin {:?} failed to start on output {}: {} — its layer will be empty",
+                        entry.name, output_name, e
+                    );
+                    per_output.push(None);
+                }
+            }
+        }
+        // Sort by z_index, stable: ties keep config-file order. Failed (None)
+        // slots sort to the end via i32::MAX; they never render anything anyway.
+        per_output.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
+        state.plugins.push(per_output)
+    }
 
     let session_lock = state
         .session_lock_state
@@ -384,23 +403,25 @@ fn main() -> ExitCode {
     // recv_message and dispatches to PluginState. On any error we treat
     // the plugin as dead, log, and remove the source (the lock keeps
     // running with the fallback black screen).
-    for i in 0..state.plugins.len() {
-        let Some(slot) = state.plugins[i].as_ref() else {
-            continue;
-        };
-        let plugin_fd = slot
-            .state
-            .connection
-            .as_fd()
-            .try_clone_to_owned()
-            .expect("dup plugin socket for calloop");
-        event_loop
-            .handle()
-            .insert_source(
-                Generic::new(plugin_fd, Interest::READ, Mode::Level),
-                move |_event, _meta, state: &mut AppData| state.drive_plugin(i),
-            )
-            .expect("register plugin fd with calloop");
+    for o in 0..state.plugins.len() {
+        for p in 0..state.plugins[o].len() {
+            let Some(slot) = state.plugins[o][p].as_ref() else {
+                continue;
+            };
+            let plugin_fd = slot
+                .state
+                .connection
+                .as_fd()
+                .try_clone_to_owned()
+                .expect("dup plugin socket for calloop");
+            event_loop
+                .handle()
+                .insert_source(
+                    Generic::new(plugin_fd, Interest::READ, Mode::Level),
+                    move |_event, _meta, state: &mut AppData| state.drive_plugin(o, p),
+                )
+                .expect("register plugin fd with calloop");
+        }
     }
 
     // --- 7. Main loop --------------------------------------------------------
@@ -414,20 +435,24 @@ fn main() -> ExitCode {
     // Polite shutdown sequence per plugin: ask, wait, SIGTERM, wait, SIGKILL.
     // Send Shutdown to every live plugin first, then wait per-plugin — for
     // N plugins this caps total teardown at one grace period, not N.
-    for slot_opt in state.plugins.iter_mut() {
-        if let Some(slot) = slot_opt {
-            if let Err(e) = slot.state.connection.send_shutdown() {
-                eprintln!(
-                    "teardown: plugin {:?} send_shutdown failed: {} (continuing)",
-                    slot.name, e
-                );
+    for per_output in state.plugins.iter_mut() {
+        for slot_opt in per_output.iter_mut() {
+            if let Some(slot) = slot_opt {
+                if let Err(e) = slot.state.connection.send_shutdown() {
+                    eprintln!(
+                        "teardown: plugin {:?} send_shutdown failed: {} (continuing)",
+                        slot.name, e
+                    );
+                }
             }
         }
     }
 
-    for slot_opt in state.plugins.iter_mut() {
-        if let Some(slot) = slot_opt.take() {
-            teardown_one_plugin(slot);
+    for per_output in state.plugins.iter_mut() {
+        for slot_opt in per_output.iter_mut() {
+            if let Some(slot) = slot_opt.take() {
+                teardown_one_plugin(slot);
+            }
         }
     }
 
@@ -443,6 +468,7 @@ fn main() -> ExitCode {
 
 fn try_spawn_one(
     entry: &config::PluginEntry,
+    output_name: &str,
     host_capabilities: HostCapabilities,
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
@@ -503,6 +529,7 @@ fn try_spawn_one(
         binary: entry.binary.clone(),
         z_index: entry.z_index,
         region: entry.region.clone(),
+        output_name: output_name.to_string(),
     })
 }
 
@@ -593,11 +620,12 @@ impl SessionLockHandler for AppData {
         let (width, height) = configure.new_size;
 
         let target = session_lock_surface.wl_surface();
-        let entry = self
+        let output_idx = self
             .lock_surfaces
-            .iter_mut()
-            .find(|ls| ls.lock_surface.wl_surface() == target)
+            .iter()
+            .position(|ls| ls.lock_surface.wl_surface() == target)
             .expect("Configure for unknown lock surface");
+        let entry = &mut self.lock_surfaces[output_idx];
         if entry.egl_window.is_none() {
             let egl_window =
                 wayland_egl::WlEglSurface::new(target.id(), width as i32, height as i32)
@@ -654,7 +682,7 @@ impl SessionLockHandler for AppData {
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         }
 
-        for slot_opt in &self.plugins {
+        for slot_opt in &self.plugins[output_idx] {
             if let Some(slot) = slot_opt {
                 let rect =
                     region::region_to_clip_rect(slot.region.as_ref(), width as i32, height as i32);
@@ -700,7 +728,7 @@ impl AppData {
         if !matches!(self.run, RunState::Running) {
             return;
         }
-        for entry in &self.lock_surfaces {
+        for (output_idx, entry) in self.lock_surfaces.iter().enumerate() {
             let Some(egl_surface) = entry.egl_surface.as_ref() else {
                 continue;
             };
@@ -730,7 +758,7 @@ impl AppData {
                 gl::Enable(gl::BLEND);
                 gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
             }
-            for slot_opt in &self.plugins {
+            for slot_opt in &self.plugins[output_idx] {
                 if let Some(slot) = slot_opt {
                     let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
                     slot.state.composite(
@@ -742,6 +770,7 @@ impl AppData {
                     );
                 }
             }
+
             self.egl
                 .swap_buffers(self.egl_display, *egl_surface)
                 .expect("eglSwapBuffers (repaint)");
@@ -998,13 +1027,14 @@ impl KeyboardHandler for AppData {
 }
 
 impl AppData {
-    fn slot_mut(&mut self, i: usize) -> Option<&mut PluginSlot> {
-        self.plugins.get_mut(i).and_then(|s| s.as_mut())
+    fn slot_mut(&mut self, o: usize, p: usize) -> Option<&mut PluginSlot> {
+        self.plugins.get_mut(o)?.get_mut(p)?.as_mut()
     }
 
-    fn plugin_name_for_log(&self, i: usize) -> String {
+    fn plugin_name_for_log(&self, o: usize, p: usize) -> String {
         self.plugins
-            .get(i)
+            .get(o)
+            .and_then(|per_output| per_output.get(p))
             .and_then(|s| s.as_ref())
             .map(|s| s.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string())
@@ -1012,10 +1042,10 @@ impl AppData {
 }
 
 impl AppData {
-    fn drive_plugin(&mut self, i: usize) -> std::io::Result<PostAction> {
+    fn drive_plugin(&mut self, o: usize, p: usize) -> std::io::Result<PostAction> {
         // 1. Recv. Borrow scoped to this block.
         let recv_result = {
-            let Some(slot) = self.slot_mut(i) else {
+            let Some(slot) = self.slot_mut(o, p) else {
                 // Slot was nulled by an earlier event on this fd
                 // before calloop drained the queue. Remove the source.
                 return Ok(PostAction::Remove);
@@ -1026,12 +1056,12 @@ impl AppData {
         let (msg, fds) = match recv_result {
             Ok(t) => t,
             Err(e) => {
-                let name = self.plugin_name_for_log(i);
+                let name = self.plugin_name_for_log(o, p);
                 eprintln!(
                     "veiland-core: plugin {:?} disconnected or violated protocol: {}",
                     name, e
                 );
-                self.plugins[i] = None;
+                self.plugins[o][p] = None;
                 return Ok(PostAction::Remove);
             }
         };
@@ -1048,7 +1078,12 @@ impl AppData {
         let dispatch_result: Result<(), (String, plugin::HostError)> = {
             let egl = &self.egl;
             let display = self.egl_display;
-            let Some(slot) = self.plugins.get_mut(i).and_then(|s| s.as_mut()) else {
+            let Some(slot) = self
+                .plugins
+                .get_mut(o)
+                .and_then(|per_output| per_output.get_mut(p))
+                .and_then(|s| s.as_mut())
+            else {
                 return Ok(PostAction::Remove);
             };
             let name = slot.name.clone();
@@ -1062,7 +1097,7 @@ impl AppData {
                 "veiland-core: plugin {:?} protocol error: {} — treating as dead",
                 name, e
             );
-            self.plugins[i] = None;
+            self.plugins[o][p] = None;
             return Ok(PostAction::Remove);
         }
 
@@ -1079,7 +1114,7 @@ impl AppData {
                         plugin::release_fence(&self.egl, self.egl_display, fence);
                         if let Err(e) = wait_result {
                             eprintln!("egress fence wait failed: {}", e);
-                        } else if let Some(slot) = self.slot_mut(i) {
+                        } else if let Some(slot) = self.slot_mut(o, p) {
                             if let Some(id) = slot.state.current_buffer_id {
                                 if let Err(e) = slot.state.connection.send_buffer_released(id) {
                                     let name = slot.name.clone();
@@ -1087,7 +1122,7 @@ impl AppData {
                                         "veiland-core: plugin {:?} send_buffer_released failed: {}",
                                         name, e
                                     );
-                                    self.plugins[i] = None;
+                                    self.plugins[o][p] = None;
                                     return Ok(PostAction::Remove);
                                 }
                             }
@@ -1097,14 +1132,14 @@ impl AppData {
                 }
             }
 
-            if let Some(slot) = self.slot_mut(i) {
+            if let Some(slot) = self.slot_mut(o, p) {
                 if let Err(e) = slot.state.connection.send_frame_done() {
                     let name = slot.name.clone();
                     eprintln!(
                         "veiland-core: plugin {:?} send_frame_done failed: {}",
                         name, e
                     );
-                    self.plugins[i] = None;
+                    self.plugins[o][p] = None;
                     return Ok(PostAction::Remove);
                 }
             }

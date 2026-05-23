@@ -46,4 +46,9 @@ pub struct PluginSlot {
     /// "fill the whole lock surface." Resolved into clip-space
     /// vertices at composite time (M6 step 3).
     pub region: Option<Region>,
+    /// Which output this instance is for. Matches one of the
+    /// `LockSurface.name` strings (xdg_output.name). Used in logs
+    /// here in step 2; carried to the plugin via `Configure.output_name`
+    /// in step 3.
+    pub output_name: String,
 }
