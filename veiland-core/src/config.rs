@@ -20,7 +20,7 @@ pub struct Config {
     pub plugins: Vec<PluginEntry>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PluginEntry {
     /// Used in logs and to disambiguate `[[plugin]]` entries.
     /// Must be non-empty and unique within the config.
@@ -47,7 +47,7 @@ pub struct PluginEntry {
     pub config: Option<toml::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Region {
     pub x: i32,
     pub y: i32,

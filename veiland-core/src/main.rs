@@ -4,7 +4,7 @@ mod auth;
 mod config;
 mod plugin;
 
-use std::{path::PathBuf, process::ExitCode, time::Duration};
+use std::{process::ExitCode, time::Duration};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -36,7 +36,7 @@ use nix::unistd::{User, getuid};
 
 use veiland_protocol::{ClientMessage, Configure, HOST_CAP_FENCE_FD, HostCapabilities};
 
-use plugin::{HostConnection, PluginState, spawn_plugin};
+use plugin::{HostConnection, PluginSlot, PluginState, spawn_plugin};
 
 #[derive(Default, PartialEq)]
 enum RunState {
@@ -67,8 +67,7 @@ struct AppData {
     egl_display: egl::Display,
     egl_config: egl::Config,
     egl_context: egl::Context,
-    plugin: PluginState,
-    plugin_pid: nix::unistd::Pid,
+    plugins: Vec<Option<PluginSlot>>,
     compositor_program: gl::types::GLuint,
     compositor_vbo: gl::types::GLuint,
     compositor_sampler_loc: gl::types::GLint,
@@ -178,25 +177,22 @@ fn main() -> ExitCode {
     #[cfg(feature = "debug-unlock")]
     eprintln!("veiland-core: WARNING: debug-unlock feature enabled — Escape unlocks without auth");
 
-    // --- 1. Spawn the plugin -------------------------------------------------
-    // Plugin discovery is M6. For now we accept VEILAND_PLUGIN (path to the
-    // binary) and VEILAND_PLUGIN_NAME (label used only in logs) so we can
-    // swap between gradient and stress without recompiling the host. The
-    // plugin inherits its socket end as fd 3 (see plugin/spawn.rs); the
-    // host keeps the other end.
-    let plugin_binary = PathBuf::from(
-        std::env::var("VEILAND_PLUGIN")
-            .unwrap_or_else(|_| "./target/debug/veiland-gradient".to_string()),
-    );
-    let plugin_name =
-        std::env::var("VEILAND_PLUGIN_NAME").unwrap_or_else(|_| "gradient".to_string());
-    let process = spawn_plugin(&plugin_binary, &plugin_name)
-        .unwrap_or_else(|e| panic!("failed to spawn plugin {:?}: {}", plugin_binary, e));
-    let plugin_pid = process.child_pid;
-    eprintln!(
-        "spawned plugin {:?} as {:?} pid={}",
-        plugin_binary, plugin_name, plugin_pid
-    );
+    // --- 1. Load plugin config ----------------------------------------------
+    // Plugins are declared in $VEILAND_CONFIG (dev override) or
+    // $XDG_CONFIG_HOME/veiland/config.toml. See docs/config.md.
+    let config = match config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("veiland-core: {}; refusing to start", e);
+            return ExitCode::FAILURE;
+        }
+    };
+    if config.plugins.is_empty() {
+        eprintln!(
+            "veiland-core: no plugins configured; locker will show \
+            only the clear color. (See docs/config.md.)"
+        );
+    }
 
     // --- 2. Wayland connection + event loop ---------------------------------
     let conn = Connection::connect_to_env()
@@ -267,66 +263,30 @@ fn main() -> ExitCode {
         unsafe { build_compositor_program() };
     eprintln!("built compositor program id={}", compositor_program);
 
-    // --- 4. Protocol bootstrap: handshake + Hello + Configure + FrameDone ---
-    let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
-    connection.handshake().expect("plugin handshake");
-    eprintln!("handshake ok");
-
-    // recv_message has already enforced "Hello carries no fds" at the wire
-    // layer (any fd on a non-Buffer message is ProtocolViolation there).
-    // We just need to reject a misbehaving plugin that sent the wrong
-    // variant as its first message — and even then, exit cleanly rather
-    // than panic, because plugin input must never crash the locker.
-    let (plugin_name, plugin_version) = match connection.recv_message() {
-        Ok((ClientMessage::Hello(h), _)) => (h.plugin_name, h.plugin_version),
-        Ok((other, _)) => {
-            eprintln!(
-                "plugin sent {:?} before Hello; refusing to start lock",
-                other
-            );
-            return ExitCode::FAILURE;
+    // --- 4. Spawn plugins per config -----------------------------------------
+    let mut plugins: Vec<Option<PluginSlot>> = Vec::with_capacity(config.plugins.len());
+    for entry in &config.plugins {
+        match try_spawn_one(entry, host_capabilities, &egl, egl_display) {
+            Ok(slot) => {
+                eprintln!(
+                    "veiland-core: spawned plugin {:?} (binary {:?}, z_index {}) pid={}",
+                    slot.name, slot.binary, slot.z_index, slot.pid
+                );
+                plugins.push(Some(slot));
+            }
+            Err(e) => {
+                eprintln!(
+                    "veiland-core: plugin {:?} failed to start: {} — its layer will be empty",
+                    entry.name, e
+                );
+                plugins.push(None);
+            }
         }
-        Err(e) => {
-            eprintln!("plugin handshake failed: {}; refusing to start lock", e);
-            return ExitCode::FAILURE;
-        }
-    };
-    eprintln!("plugin says hello: {} v{}", plugin_name, plugin_version);
+    }
 
-    // Build PluginState and feed the Hello through handle_message so the
-    // state machine records name/version through the canonical path.
-    let mut plugin = PluginState::new(connection);
-    plugin
-        .handle_message(
-            ClientMessage::Hello(veiland_protocol::Hello {
-                plugin_name: plugin_name.clone(),
-                plugin_version: plugin_version.clone(),
-            }),
-            plugin::ReceivedFds::None,
-            &egl,
-            egl_display,
-        )
-        .expect("record Hello in PluginState");
-
-    // Send the initial Configure. Region = full screen at 1920x1080
-    // (placeholder until lock-surface configure tells us the real size;
-    // we'll re-send when that arrives). Time fields are zeroed for M3.
-    plugin
-        .connection
-        .send_configure(Configure {
-            region_x: 0,
-            region_y: 0,
-            region_w: 1920,
-            region_h: 1080,
-            scale: 1,
-            time_unix_seconds: 0,
-            time_tz_offset_seconds: 0,
-        })
-        .expect("send initial Configure");
-    plugin
-        .connection
-        .send_frame_done()
-        .expect("send initial FrameDone");
+    // Sort by z_index, stable: ties keep config-file order. Failed (None)
+    // slots sort to the end via i32::MAX; they never render anything anyway.
+    plugins.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
 
     let auth = match auth::Session::new() {
         Ok(s) => s,
@@ -354,8 +314,7 @@ fn main() -> ExitCode {
         egl_display,
         egl_config,
         egl_context,
-        plugin,
-        plugin_pid,
+        plugins,
         compositor_program,
         compositor_vbo,
         compositor_sampler_loc,
@@ -388,99 +347,24 @@ fn main() -> ExitCode {
     // recv_message and dispatches to PluginState. On any error we treat
     // the plugin as dead, log, and remove the source (the lock keeps
     // running with the fallback black screen).
-    let plugin_fd = state
-        .plugin
-        .connection
-        .as_fd()
-        .try_clone_to_owned()
-        .expect("dup plugin socket for calloop");
-    event_loop
-        .handle()
-        .insert_source(
-            Generic::new(plugin_fd, Interest::READ, Mode::Level),
-            |_event, _meta, state: &mut AppData| {
-                match state.plugin.connection.recv_message() {
-                    Ok((msg, fds)) => {
-                        let is_buffer = matches!(msg, ClientMessage::Buffer(_));
-                        if let Err(e) =
-                            state
-                                .plugin
-                                .handle_message(msg, fds, &state.egl, state.egl_display)
-                        {
-                            eprintln!("plugin protocol error: {} — treating as dead", e);
-                            // Drop the texture so subsequent frames go fallback.
-                            state.plugin.texture = None;
-                            return Ok(PostAction::Remove);
-                        }
-                        // After we accept a Buffer, cue the next frame.
-                        // We do *not* commit the lock surfaces here — they
-                        // attach buffers via swap_buffers in the configure
-                        // handler. Committing a buffer-less surface here
-                        // would trigger "Null buffer attached" from the
-                        // compositor and kill the session. Real frame-loop
-                        // wiring (wl_surface::frame callbacks) is M5.
-                        if is_buffer {
-                            state.repaint_lock_surfaces();
-
-                            // Egress fence: insert a sync after the
-                            // composite commands (which swap_buffers
-                            // already flushed), wait until the GPU has
-                            // finished sampling the dmabuf, then tell
-                            // the plugin its buffer is free again.
-                            //
-                            // Slow-path plugins ignore BufferReleased
-                            // per spec §7.3 — sending it unconditionally
-                            // is simpler than tracking per-plugin path
-                            // here and the extra cmsg is cheap.
-                            //
-                            // Failure is logged-and-continue: the host's
-                            // GPU is wedged, but that's not the plugin's
-                            // fault. Subsequent frames may recover; if
-                            // they don't, the user notices a frozen lock
-                            // screen, which is exactly the visible signal
-                            // for "host GPU failure."
-                            if !state.lock_surfaces.is_empty() {
-                                match plugin::create_host_fence(&state.egl, state.egl_display) {
-                                    Ok(fence) => {
-                                        let wait_result = plugin::wait_fence(
-                                            &state.egl,
-                                            state.egl_display,
-                                            &fence,
-                                        );
-                                        plugin::release_fence(&state.egl, state.egl_display, fence);
-                                        if let Err(e) = wait_result {
-                                            eprintln!("egress fence wait failed: {}", e);
-                                        } else if let Some(id) = state.plugin.current_buffer_id {
-                                            if let Err(e) =
-                                                state.plugin.connection.send_buffer_released(id)
-                                            {
-                                                eprintln!("send_buffer_released failed: {}", e);
-                                                return Ok(PostAction::Remove);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("egress fence create failed: {}", e);
-                                    }
-                                }
-                            }
-
-                            if let Err(e) = state.plugin.connection.send_frame_done() {
-                                eprintln!("send_frame_done failed: {}", e);
-                                return Ok(PostAction::Remove);
-                            }
-                        }
-                        Ok(PostAction::Continue)
-                    }
-                    Err(e) => {
-                        eprintln!("plugin disconnected or violated protocol: {}", e);
-                        state.plugin.texture = None;
-                        Ok(PostAction::Remove)
-                    }
-                }
-            },
-        )
-        .expect("register plugin fd with calloop");
+    for i in 0..state.plugins.len() {
+        let Some(slot) = state.plugins[i].as_ref() else {
+            continue;
+        };
+        let plugin_fd = slot
+            .state
+            .connection
+            .as_fd()
+            .try_clone_to_owned()
+            .expect("dup plugin socket for calloop");
+        event_loop
+            .handle()
+            .insert_source(
+                Generic::new(plugin_fd, Interest::READ, Mode::Level),
+                move |_event, _meta, state: &mut AppData| state.drive_plugin(i),
+            )
+            .expect("register plugin fd with calloop");
+    }
 
     // --- 7. Main loop --------------------------------------------------------
     while matches!(state.run, RunState::Running) {
@@ -490,9 +374,25 @@ fn main() -> ExitCode {
     }
 
     // --- 8. Plugin teardown -------------------------------------------------
-    // Polite shutdown sequence: ask, wait, SIGTERM, wait, SIGKILL.
-    // Don't let the plugin outlive us; don't leave a zombie either.
-    teardown_plugin(&mut state.plugin.connection, state.plugin_pid);
+    // Polite shutdown sequence per plugin: ask, wait, SIGTERM, wait, SIGKILL.
+    // Send Shutdown to every live plugin first, then wait per-plugin — for
+    // N plugins this caps total teardown at one grace period, not N.
+    for slot_opt in state.plugins.iter_mut() {
+        if let Some(slot) = slot_opt {
+            if let Err(e) = slot.state.connection.send_shutdown() {
+                eprintln!(
+                    "teardown: plugin {:?} send_shutdown failed: {} (continuing)",
+                    slot.name, e
+                );
+            }
+        }
+    }
+
+    for slot_opt in state.plugins.iter_mut() {
+        if let Some(slot) = slot_opt.take() {
+            teardown_one_plugin(slot);
+        }
+    }
 
     match state.run {
         RunState::Running => unreachable!(),
@@ -504,26 +404,88 @@ fn main() -> ExitCode {
     }
 }
 
+fn try_spawn_one(
+    entry: &config::PluginEntry,
+    host_capabilities: HostCapabilities,
+    egl: &egl::Instance<egl::Static>,
+    display: egl::Display,
+) -> Result<PluginSlot, plugin::HostError> {
+    let process = spawn_plugin(&entry.binary, &entry.name)?;
+    let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
+    connection.handshake()?;
+    eprintln!("plugin {:?}: handshake ok", entry.name);
+
+    // recv_message has already enforced "Hello carries no fds" at the
+    // wire layer (any fd on a non-Buffer message is ProtocolViolation
+    // there). We just need to reject a misbehaving plugin that sent
+    // the wrong variant as its first message — never panic, plugin
+    // input must not crash the locker.
+    let (msg, _fds) = connection.recv_message()?;
+    let (hello_name, hello_version) = match msg {
+        ClientMessage::Hello(h) => (h.plugin_name, h.plugin_version),
+        _ => {
+            return Err(plugin::HostError::ProtocolViolation(
+                "first message was not Hello",
+            ));
+        }
+    };
+    eprintln!(
+        "plugin {:?}: says hello: {} v{}",
+        entry.name, hello_name, hello_version
+    );
+    // Build PluginState and feed the Hello through handle_message so
+    // the state machine records name/version through the canonical path.
+    let mut state = PluginState::new(connection);
+    state.handle_message(
+        ClientMessage::Hello(veiland_protocol::Hello {
+            plugin_name: hello_name.clone(),
+            plugin_version: hello_version.clone(),
+        }),
+        plugin::ReceivedFds::None,
+        egl,
+        display,
+    )?;
+
+    // Initial Configure. Region is still hardcoded full-screen
+    // 1920x1080 here; step 3 makes this region-aware.
+    state.connection.send_configure(Configure {
+        region_x: 0,
+        region_y: 0,
+        region_w: 1920,
+        region_h: 1080,
+        scale: 1,
+        time_unix_seconds: 0,
+        time_tz_offset_seconds: 0,
+    })?;
+    state.connection.send_frame_done()?;
+
+    Ok(PluginSlot {
+        state,
+        pid: process.child_pid,
+        name: entry.name.clone(),
+        binary: entry.binary.clone(),
+        z_index: entry.z_index,
+        region: entry.region.clone(),
+    })
+}
+
 /// Wind down the plugin: send Shutdown, give it ~250ms to exit on its own,
 /// then SIGTERM, then SIGKILL. Reaps the zombie. Best-effort — if any step
 /// fails we log and continue, because at this point the host is exiting
 /// anyway and refusing to exit would be worse than a leaked plugin.
-fn teardown_plugin(connection: &mut HostConnection, pid: nix::unistd::Pid) {
+fn teardown_one_plugin(slot: PluginSlot) {
     use nix::sys::signal::{Signal, kill};
     use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 
-    // 1. Polite ask. Plugin's recv_event sees Shutdown, returns Ok(()).
-    if let Err(e) = connection.send_shutdown() {
-        eprintln!("teardown: send_shutdown failed: {} (continuing)", e);
-    }
+    // Shutdown was already sent in the loop above; here we just wait.
 
-    // 2. Grace period. The spec says "implementation-defined"; 250ms is
+    // Grace period. The spec says "implementation-defined"; 250ms is
     //    enough for a well-behaved plugin to exit and short enough that
     //    a session-unlock doesn't feel laggy.
     let grace = Duration::from_millis(250);
     let deadline = std::time::Instant::now() + grace;
     loop {
-        match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
+        match waitpid(slot.pid, Some(WaitPidFlag::WNOHANG)) {
             Ok(WaitStatus::StillAlive) => {
                 if std::time::Instant::now() >= deadline {
                     break;
@@ -531,11 +493,14 @@ fn teardown_plugin(connection: &mut HostConnection, pid: nix::unistd::Pid) {
                 std::thread::sleep(Duration::from_millis(10));
             }
             Ok(_) => {
-                eprintln!("teardown: plugin exited cleanly");
+                eprintln!("teardown: plugin {:?} exited cleanly", slot.name);
                 return;
             }
             Err(e) => {
-                eprintln!("teardown: waitpid failed: {} (continuing)", e);
+                eprintln!(
+                    "teardown: plugin {:?} waitpid failed: {} (continuing)",
+                    slot.name, e
+                );
                 return;
             }
         }
@@ -543,22 +508,26 @@ fn teardown_plugin(connection: &mut HostConnection, pid: nix::unistd::Pid) {
 
     // 3. SIGTERM, brief wait.
     eprintln!(
-        "teardown: plugin did not exit in {}ms, sending SIGTERM",
+        "teardown: plugin {:?} did not exit in {}ms, sending SIGTERM",
+        slot.name,
         grace.as_millis()
     );
-    let _ = kill(pid, Signal::SIGTERM);
+    let _ = kill(slot.pid, Signal::SIGTERM);
     std::thread::sleep(Duration::from_millis(100));
-    if let Ok(status) = waitpid(pid, Some(WaitPidFlag::WNOHANG))
+    if let Ok(status) = waitpid(slot.pid, Some(WaitPidFlag::WNOHANG))
         && !matches!(status, WaitStatus::StillAlive)
     {
-        eprintln!("teardown: plugin reaped after SIGTERM");
+        eprintln!("teardown: plugin {:?} reaped after SIGTERM", slot.name);
         return;
     }
 
     // 4. SIGKILL, reap, done.
-    eprintln!("teardown: plugin still alive, sending SIGKILL");
-    let _ = kill(pid, Signal::SIGKILL);
-    let _ = waitpid(pid, None);
+    eprintln!(
+        "teardown: plugin {:?} still alive, sending SIGKILL",
+        slot.name
+    );
+    let _ = kill(slot.pid, Signal::SIGKILL);
+    let _ = waitpid(slot.pid, None);
 }
 
 impl SessionLockHandler for AppData {
@@ -634,11 +603,15 @@ impl SessionLockHandler for AppData {
             gl::Clear(gl::COLOR_BUFFER_BIT);
         }
 
-        self.plugin.composite(
-            self.compositor_program,
-            self.compositor_vbo,
-            self.compositor_sampler_loc,
-        );
+        for slot_opt in &self.plugins {
+            if let Some(slot) = slot_opt {
+                slot.state.composite(
+                    self.compositor_program,
+                    self.compositor_vbo,
+                    self.compositor_sampler_loc,
+                );
+            }
+        }
 
         self.egl
             .swap_buffers(self.egl_display, *egl_surface)
@@ -676,11 +649,15 @@ impl AppData {
                 gl::ClearColor(0.0, 0.0, 0.0, 1.0);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
             }
-            self.plugin.composite(
-                self.compositor_program,
-                self.compositor_vbo,
-                self.compositor_sampler_loc,
-            );
+            for slot_opt in &self.plugins {
+                if let Some(slot) = slot_opt {
+                    slot.state.composite(
+                        self.compositor_program,
+                        self.compositor_vbo,
+                        self.compositor_sampler_loc,
+                    );
+                }
+            }
             self.egl
                 .swap_buffers(self.egl_display, *egl_surface)
                 .expect("eglSwapBuffers (repaint)");
@@ -933,6 +910,122 @@ impl KeyboardHandler for AppData {
         _: u32,
     ) {
         self.modifiers = modifiers;
+    }
+}
+
+impl AppData {
+    fn slot_mut(&mut self, i: usize) -> Option<&mut PluginSlot> {
+        self.plugins.get_mut(i).and_then(|s| s.as_mut())
+    }
+
+    fn plugin_name_for_log(&self, i: usize) -> String {
+        self.plugins
+            .get(i)
+            .and_then(|s| s.as_ref())
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| "<unknown>".to_string())
+    }
+}
+
+impl AppData {
+    fn drive_plugin(&mut self, i: usize) -> std::io::Result<PostAction> {
+        // 1. Recv. Borrow scoped to this block.
+        let recv_result = {
+            let Some(slot) = self.slot_mut(i) else {
+                // Slot was nulled by an earlier event on this fd
+                // before calloop drained the queue. Remove the source.
+                return Ok(PostAction::Remove);
+            };
+            slot.state.connection.recv_message()
+        };
+
+        let (msg, fds) = match recv_result {
+            Ok(t) => t,
+            Err(e) => {
+                let name = self.plugin_name_for_log(i);
+                eprintln!(
+                    "veiland-core: plugin {:?} disconnected or violated protocol: {}",
+                    name, e
+                );
+                self.plugins[i] = None;
+                return Ok(PostAction::Remove);
+            }
+        };
+
+        let is_buffer = matches!(msg, ClientMessage::Buffer(_));
+
+        // 2. Dispatch. The block produces an owned outcome
+        //    (Result<(), (name, err)>) so the slot borrow ends before
+        //    we touch `self.plugins[i] = None` on the failure path.
+        //    `&self.egl` and `self.egl_display` are captured *before*
+        //    the slot borrow because handle_message needs them while
+        //    we hold the slot; the borrow checker won't let us reach
+        //    into self after slot_mut has taken &mut self.
+        let dispatch_result: Result<(), (String, plugin::HostError)> = {
+            let egl = &self.egl;
+            let display = self.egl_display;
+            let Some(slot) = self.plugins.get_mut(i).and_then(|s| s.as_mut()) else {
+                return Ok(PostAction::Remove);
+            };
+            let name = slot.name.clone();
+            slot.state
+                .handle_message(msg, fds, egl, display)
+                .map_err(|e| (name, e))
+        };
+
+        if let Err((name, e)) = dispatch_result {
+            eprintln!(
+                "veiland-core: plugin {:?} protocol error: {} — treating as dead",
+                name, e
+            );
+            self.plugins[i] = None;
+            return Ok(PostAction::Remove);
+        }
+
+        // 3. Buffer post-processing: composite, egress fence,
+        //    BufferReleased, FrameDone. Each piece re-fetches the
+        //    slot as needed
+        if is_buffer {
+            self.repaint_lock_surfaces();
+
+            if !self.lock_surfaces.is_empty() {
+                match plugin::create_host_fence(&self.egl, self.egl_display) {
+                    Ok(fence) => {
+                        let wait_result = plugin::wait_fence(&self.egl, self.egl_display, &fence);
+                        plugin::release_fence(&self.egl, self.egl_display, fence);
+                        if let Err(e) = wait_result {
+                            eprintln!("egress fence wait failed: {}", e);
+                        } else if let Some(slot) = self.slot_mut(i) {
+                            if let Some(id) = slot.state.current_buffer_id {
+                                if let Err(e) = slot.state.connection.send_buffer_released(id) {
+                                    let name = slot.name.clone();
+                                    eprintln!(
+                                        "veiland-core: plugin {:?} send_buffer_released failed: {}",
+                                        name, e
+                                    );
+                                    self.plugins[i] = None;
+                                    return Ok(PostAction::Remove);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("egress fence create failed: {}", e),
+                }
+            }
+
+            if let Some(slot) = self.slot_mut(i) {
+                if let Err(e) = slot.state.connection.send_frame_done() {
+                    let name = slot.name.clone();
+                    eprintln!(
+                        "veiland-core: plugin {:?} send_frame_done failed: {}",
+                        name, e
+                    );
+                    self.plugins[i] = None;
+                    return Ok(PostAction::Remove);
+                }
+            }
+        }
+        Ok(PostAction::Continue)
     }
 }
 

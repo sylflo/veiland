@@ -56,7 +56,6 @@ impl HostConnection {
         let mut iov = [IoSliceMut::new(&mut version_in)];
         let msg = recvmsg::<()>(self.socket.as_raw_fd(), &mut iov, None, MsgFlags::empty())?;
 
-        // TODO magic number waht do they mean ?
         match msg.bytes {
             0 => return Err(HostError::PluginDisconnected),
             4 => {}

@@ -3,12 +3,14 @@
 mod connection;
 mod dmabuf;
 mod error;
+mod slot;
 mod spawn;
 mod state;
 mod sync;
 
 pub use connection::{HostConnection, ReceivedFds};
 pub use error::HostError;
+pub use slot::PluginSlot;
 pub use spawn::spawn_plugin;
 pub use state::PluginState;
 pub use sync::{create_host_fence, release_fence, wait_fence};
