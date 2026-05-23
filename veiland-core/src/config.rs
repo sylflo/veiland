@@ -40,9 +40,14 @@ pub struct PluginEntry {
     #[serde(default)]
     pub region: Option<Region>,
 
-    /// Optional pass-through table. Serialized to JSON and handed
-    /// to the plugin via the `VEILAND_PLUGIN_CONFIG` env var.
-    /// Plugins that don't care never read it.
+    /// Optional pass-through table for plugin-specific settings.
+    /// Schema-only in M6: the field is parsed so user configs with
+    /// `[plugin.config]` tables don't break, but the spawn side
+    /// doesn't yet serialise it to JSON or export it via
+    /// `VEILAND_PLUGIN_CONFIG`. Wired up when a real plugin needs
+    /// it (M7's clock will want a timezone) — at which point this
+    /// `#[allow(dead_code)]` goes away.
+    #[allow(dead_code)]
     #[serde(default)]
     pub config: Option<toml::Value>,
 }
