@@ -655,6 +655,25 @@ impl AppData {
     /// first Buffer and the screen stays at the clear-color.
     /// Real frame-callback wiring is M5.
     fn repaint_lock_surfaces(&mut self) {
+        // Bail if we're past the Running state. After lock.unlock()
+        // the compositor destroys our lock surface server-side; a
+        // swap_buffers() into it then blocks forever waiting for
+        // the compositor to release the previous frame. That kept
+        // the main loop stuck and teardown never ran (M6 step 6
+        // bug; surfaced with three plugins, where there's always a
+        // Buffer event queued behind unlock — two plugins worked by
+        // timing luck).
+        //
+        // TODO: this is a defensive bail-out at the GPU layer. The
+        // structural fix is to drop the plugin calloop sources at
+        // the start of teardown so Buffer events stop arriving at
+        // all. Leave both in place once that lands — the
+        // invariant "no compositing post-unlock" is worth enforcing
+        // at the GPU site regardless of who upstream might violate
+        // it.
+        if !matches!(self.run, RunState::Running) {
+            return;
+        }
         for entry in &self.lock_surfaces {
             let Some(egl_surface) = entry.egl_surface.as_ref() else {
                 continue;
