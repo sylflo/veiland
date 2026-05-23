@@ -3,6 +3,7 @@
 mod auth;
 mod config;
 mod plugin;
+mod region;
 
 use std::{process::ExitCode, time::Duration};
 
@@ -71,6 +72,7 @@ struct AppData {
     compositor_program: gl::types::GLuint,
     compositor_vbo: gl::types::GLuint,
     compositor_sampler_loc: gl::types::GLint,
+    compositor_rect_loc: gl::types::GLint,
     auth: auth::Session,
     modifiers: Modifiers,
 }
@@ -127,15 +129,28 @@ unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::type
     }
 }
 
-unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, gl::types::GLint) {
+unsafe fn build_compositor_program() -> (
+    gl::types::GLuint,
+    gl::types::GLuint,
+    gl::types::GLint,
+    gl::types::GLint,
+) {
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
+        uniform vec4 u_rect;\n\
         varying vec2 v_uv;\n\
         void main() {\n\
-            // a_pos is in clip space [-1, 1]. UV is [0, 1] with V flipped\n\
-            // because the dmabuf is top-down but GL samples bottom-up.\n\
-            v_uv = vec2(a_pos.x * 0.5 + 0.5, 1.0 - (a_pos.y * 0.5 + 0.5));\n\
-            gl_Position = vec4(a_pos, 0.0, 1.0);\n\
+            // a_pos is the unit quad in [-1, 1]\xB2. Remap to [0, 1]\n\
+            // (= 'normalised quad'), then place inside the target\n\
+            // clip-space rect u_rect = (x, y, w, h).\n\
+            vec2 unit01 = a_pos * 0.5 + 0.5;\n\
+            vec2 clip = u_rect.xy + unit01 * u_rect.zw;\n\
+            gl_Position = vec4(clip.x, clip.y, 0.0, 1.0);\n\
+    \n\
+            // UV samples the plugin's dmabuf edge-to-edge regardless\n\
+            // of where the quad lands on screen. Y is flipped because\n\
+            // the dmabuf is top-down but GL samples bottom-up.\n\
+            v_uv = vec2(unit01.x, 1.0 - unit01.y);\n\
         }\n\0";
 
     let fs_src = b"#version 100\n\
@@ -166,8 +181,9 @@ unsafe fn build_compositor_program() -> (gl::types::GLuint, gl::types::GLuint, g
         );
 
         let sampler_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
+        let rect_loc = gl::GetUniformLocation(program, b"u_rect\0".as_ptr() as *const _);
 
-        (program, vbo, sampler_loc)
+        (program, vbo, sampler_loc, rect_loc)
     }
 }
 
@@ -259,7 +275,7 @@ fn main() -> ExitCode {
     egl.make_current(egl_display, None, None, Some(egl_context))
         .expect("eglMakeCurrent (surfaceless)");
 
-    let (compositor_program, compositor_vbo, compositor_sampler_loc) =
+    let (compositor_program, compositor_vbo, compositor_sampler_loc, compositor_rect_loc) =
         unsafe { build_compositor_program() };
     eprintln!("built compositor program id={}", compositor_program);
 
@@ -318,6 +334,7 @@ fn main() -> ExitCode {
         compositor_program,
         compositor_vbo,
         compositor_sampler_loc,
+        compositor_rect_loc,
         auth,
         modifiers: Modifiers::default(),
     };
@@ -605,10 +622,14 @@ impl SessionLockHandler for AppData {
 
         for slot_opt in &self.plugins {
             if let Some(slot) = slot_opt {
+                let rect =
+                    region::region_to_clip_rect(slot.region.as_ref(), width as i32, height as i32);
                 slot.state.composite(
                     self.compositor_program,
                     self.compositor_vbo,
                     self.compositor_sampler_loc,
+                    self.compositor_rect_loc,
+                    rect,
                 );
             }
         }
@@ -651,10 +672,13 @@ impl AppData {
             }
             for slot_opt in &self.plugins {
                 if let Some(slot) = slot_opt {
+                    let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
                     slot.state.composite(
                         self.compositor_program,
                         self.compositor_vbo,
                         self.compositor_sampler_loc,
+                        self.compositor_rect_loc,
+                        rect,
                     );
                 }
             }

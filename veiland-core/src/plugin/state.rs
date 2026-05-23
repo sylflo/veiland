@@ -148,6 +148,8 @@ impl PluginState {
         program: gl::types::GLuint,
         vbo: gl::types::GLuint,
         sampler_loc: gl::types::GLint,
+        rect_loc: gl::types::GLint,
+        rect: [f32; 4],
     ) {
         let Some(texture) = self.texture.as_ref() else {
             // No texture imported yet: the caller's clear-to-black
@@ -158,6 +160,12 @@ impl PluginState {
 
         unsafe {
             gl::UseProgram(program);
+
+            // Per-plugin clip-space rect. Must come *after* UseProgram
+            // (uniform locations are program-scoped; setting before
+            // binding the program is undefined). See main.rs's
+            // region_to_clip_rect for the pixel→clip math.
+            gl::Uniform4f(rect_loc, rect[0], rect[1], rect[2], rect[3]);
 
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, texture.name);
