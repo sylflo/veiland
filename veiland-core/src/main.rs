@@ -48,6 +48,7 @@ enum RunState {
 }
 
 struct LockSurface {
+    name: String,
     lock_surface: SessionLockSurface,
     egl_window: Option<wayland_egl::WlEglSurface>,
     egl_surface: Option<egl::Surface>,
@@ -213,7 +214,7 @@ fn main() -> ExitCode {
     // --- 2. Wayland connection + event loop ---------------------------------
     let conn = Connection::connect_to_env()
         .expect("failed to connect to Wayland display (is WAYLAND_DISPLAY set?)");
-    let (globals, event_queue) = registry_queue_init(&conn).unwrap();
+    let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
     let mut event_loop: EventLoop<AppData> = EventLoop::try_new().expect("calloop event loop");
 
@@ -339,14 +340,33 @@ fn main() -> ExitCode {
         modifiers: Modifiers::default(),
     };
 
+    // xdg_output.name arrives async after registry bind; without a roundtrip
+    // here we'd hit the create-lock-surface loop below before SCTK has the
+    // names and log "<unnamed>" for every output. One sync round-trip is
+    // enough — all pending output events have been dispatched by the time
+    // it returns.
+    event_queue
+        .roundtrip(&mut state)
+        .expect("roundtrip for output names");
+
     let session_lock = state
         .session_lock_state
         .lock(&qh)
         .expect("ext-session-lock not supported");
 
     for output in state.output_state.outputs() {
+        let name = state
+            .output_state
+            .info(&output)
+            .and_then(|i| i.name)
+            .unwrap_or_else(|| "<unnamed>".to_string());
         let surface = state.compositor_state.create_surface(&qh);
+        eprintln!(
+            "veiland-core: output {} connected, creating lock surface",
+            name
+        );
         let lock_surface = LockSurface {
+            name,
             lock_surface: session_lock.create_lock_surface(surface, &output, &qh),
             egl_window: None,
             egl_surface: None,
@@ -594,14 +614,20 @@ impl SessionLockHandler for AppData {
             .expect("create_window_surface");
             entry.egl_window = Some(egl_window);
             entry.egl_surface = Some(egl_surface);
-            println!(" -> created EGL surface ({}x{})", width, height);
+            println!(
+                " -> [{}] created EGL surface ({}x{})",
+                entry.name, width, height
+            );
         } else {
             entry
                 .egl_window
                 .as_ref()
                 .unwrap()
                 .resize(width as i32, height as i32, 0, 0);
-            println!(" -> resized EGL surface ({}x{})", width, height);
+            println!(
+                " -> [{}] resized EGL surface ({}x{})",
+                entry.name, width, height
+            );
         }
 
         let egl_surface = entry.egl_surface.as_ref().unwrap();
