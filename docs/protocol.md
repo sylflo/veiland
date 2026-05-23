@@ -266,11 +266,31 @@ u32   region_h           (1..=8192)
 u32   scale              (integer scale factor; 1, 2, 3)
 i64   time_unix_seconds
 i32   time_tz_offset_seconds
+str   output_name        (max 64 bytes)
 ```
 
 Scale is an integer in v1. Fractional scaling is a future extension that will
 add a new field or message variant; v1 plugins that only handle integer scale
 remain correct.
+
+`output_name` is the `xdg_output.name` string for the output this plugin
+instance is rendering for (e.g. `"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`). Each
+`[[plugin]]` entry in the user's config is instantiated once per matching
+output (see `docs/config.md` §5); each instance is its own process and each
+gets its own `Configure` with the corresponding `output_name`.
+
+Plugins that don't care about per-output behaviour ignore the field. Plugins
+that do care (a wallpaper rendering different images per monitor, a clock
+showing a different timezone per monitor) use `output_name` as the key for
+per-instance state — it is the only protocol-level signal that distinguishes
+"the DP-1 instance of plugin X" from "the HDMI-A-1 instance of plugin X."
+
+The 64-byte cap matches `Hello.plugin_name`'s cap. Real Wayland output names
+are short (typically 4–10 bytes); 64 is wildly generous and exists to bound
+the decoder's allocation. Empty `output_name` is accepted on the wire — it
+represents the rare case where the compositor has not yet delivered an
+`xdg_output.name` event for this output (transient, expected to resolve
+within one roundtrip).
 
 ### 7.2 `FrameDone` — tag `0x0002`
 

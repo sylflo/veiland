@@ -350,6 +350,7 @@ fn recv_event_configure_roundtrip() {
         scale: 1,
         time_unix_seconds: 1_700_000_000,
         time_tz_offset_seconds: 3600,
+        output_name: "DP-1".to_string(),
     });
     host_send_server_message(host_raw, &configure);
 

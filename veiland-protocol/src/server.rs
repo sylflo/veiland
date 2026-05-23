@@ -3,14 +3,20 @@
 //! Host-to-plugin messages. See `docs/protocol.md` §7.
 
 use crate::codec::{
-    read_i32_le, read_i64_le, read_u16_le, read_u32_le, write_i32_le, write_i64_le, write_u16_le,
-    write_u32_le,
+    read_i32_le, read_i64_le, read_str, read_u16_le, read_u32_le, write_i32_le, write_i64_le,
+    write_str, write_u16_le, write_u32_le,
 };
 use crate::error::ProtocolError;
 
+/// Cap on `Configure.output_name`'s length on the wire. Matches
+/// `Hello.plugin_name`'s cap; Wayland output names are short
+/// (`"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`) and 64 bytes is wildly
+/// generous. See `docs/protocol.md` §7.1.
+pub const CONFIGURE_OUTPUT_NAME_MAX: u16 = 64;
+
 /// Host configures the plugin's render region, scale, and time tick.
 /// See `docs/protocol.md` §7.1.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Configure {
     pub region_x: i32,
     pub region_y: i32,
@@ -19,6 +25,12 @@ pub struct Configure {
     pub scale: u32,
     pub time_unix_seconds: i64,
     pub time_tz_offset_seconds: i32,
+    /// `xdg_output.name` of the output this plugin instance serves
+    /// (e.g. `"DP-1"`, `"HDMI-A-1"`). Plugins that don't care about
+    /// per-output behaviour ignore it; plugins that do (a wallpaper
+    /// rendering different images per monitor, a clock showing a
+    /// different timezone per monitor) key internal state off it.
+    pub output_name: String,
 }
 
 /// Host is done sampling the buffer with this id; plugin may reuse it.
@@ -97,6 +109,23 @@ impl Configure {
         write_u32_le(out, self.scale);
         write_i64_le(out, self.time_unix_seconds);
         write_i32_le(out, self.time_tz_offset_seconds);
+        // Host-controlled string (xdg_output.name), always short in
+        // practice. An over-cap value would be a host bug, not runtime
+        // input — keep encode infallible (matches the §7 invariant
+        // "no server-side variant can fail to encode in v1") and assert
+        // on the bug case.
+        debug_assert!(
+            self.output_name.len() <= CONFIGURE_OUTPUT_NAME_MAX as usize,
+            "output_name {} bytes exceeds CONFIGURE_OUTPUT_NAME_MAX ({})",
+            self.output_name.len(),
+            CONFIGURE_OUTPUT_NAME_MAX,
+        );
+        // Panic-free in release: write_str's check catches it and
+        // returns Err; we just unwrap since encode's signature is
+        // infallible and the debug_assert above already covered the
+        // dev-time case.
+        write_str(out, &self.output_name, CONFIGURE_OUTPUT_NAME_MAX)
+            .expect("Configure.output_name length already bounded");
     }
 
     pub(crate) fn decode(buf: &[u8]) -> Result<(Self, &[u8]), ProtocolError> {
@@ -121,6 +150,8 @@ impl Configure {
         let (time_unix_seconds, buf) = read_i64_le(buf)?;
         let (time_tz_offset_seconds, buf) = read_i32_le(buf)?;
 
+        let (output_name, buf) = read_str(buf, CONFIGURE_OUTPUT_NAME_MAX)?;
+
         Ok((
             Self {
                 region_x,
@@ -130,6 +161,7 @@ impl Configure {
                 scale,
                 time_unix_seconds,
                 time_tz_offset_seconds,
+                output_name,
             },
             buf,
         ))
@@ -160,6 +192,7 @@ mod tests {
             scale: 1,
             time_unix_seconds: 1_700_000_000,
             time_tz_offset_seconds: 3600,
+            output_name: "DP-1".to_string(),
         }
     }
 
@@ -174,7 +207,8 @@ mod tests {
     #[test]
     fn configure_wire_format() {
         // From the spec, §7.1. Field order: region_x, region_y, region_w,
-        // region_h, scale, time_unix_seconds, time_tz_offset_seconds.
+        // region_h, scale, time_unix_seconds, time_tz_offset_seconds,
+        // output_name.
         let expected: Vec<u8> = vec![
             0x01, 0x00, // tag = Configure
             0x64, 0x00, 0x00, 0x00, // region_x = 100
@@ -184,6 +218,8 @@ mod tests {
             0x01, 0x00, 0x00, 0x00, // scale = 1
             0x00, 0xf1, 0x53, 0x65, 0x00, 0x00, 0x00, 0x00, // time_unix = 1_700_000_000
             0x10, 0x0e, 0x00, 0x00, // tz_offset = 3600
+            0x04, 0x00, // output_name length = 4
+            b'D', b'P', b'-', b'1', // output_name = "DP-1"
         ];
         let msg = ServerMessage::Configure(valid_configure());
         let mut out = Vec::new();
@@ -312,6 +348,76 @@ mod tests {
         assert_eq!(
             ServerMessage::decode(&buf),
             Err(ProtocolError::UnknownTag(0x0099))
+        );
+    }
+
+    #[test]
+    fn configure_empty_output_name_roundtrip() {
+        // A hotplug edge case could briefly produce an unnamed output;
+        // the codec must accept the empty string cleanly (length = 0,
+        // no payload bytes).
+        let mut c = valid_configure();
+        c.output_name = String::new();
+        let msg = ServerMessage::Configure(c);
+        let mut out = Vec::new();
+        msg.encode(&mut out);
+        assert_eq!(ServerMessage::decode(&out).unwrap(), msg);
+    }
+
+    #[test]
+    fn configure_max_length_output_name_roundtrip() {
+        // 64 bytes is at the inclusive cap; must round-trip.
+        let mut c = valid_configure();
+        c.output_name = "a".repeat(CONFIGURE_OUTPUT_NAME_MAX as usize);
+        let msg = ServerMessage::Configure(c);
+        let mut out = Vec::new();
+        msg.encode(&mut out);
+        assert_eq!(ServerMessage::decode(&out).unwrap(), msg);
+    }
+
+    #[test]
+    fn configure_over_cap_output_name_rejected_on_decode() {
+        // Craft bytes claiming a 65-byte output_name. decode must reject
+        // before allocating. (We don't go through encode here — the
+        // host-side debug_assert would trip first; this test exercises
+        // the wire-level defence against a malicious peer.)
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[0x01, 0x00]); // tag = Configure
+        bytes.extend_from_slice(&100i32.to_le_bytes()); // region_x
+        bytes.extend_from_slice(&200i32.to_le_bytes()); // region_y
+        bytes.extend_from_slice(&800u32.to_le_bytes()); // region_w
+        bytes.extend_from_slice(&600u32.to_le_bytes()); // region_h
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // scale
+        bytes.extend_from_slice(&1_700_000_000i64.to_le_bytes()); // time_unix
+        bytes.extend_from_slice(&3600i32.to_le_bytes()); // tz
+        bytes.extend_from_slice(&65u16.to_le_bytes()); // output_name length = 65
+        bytes.extend(std::iter::repeat(b'a').take(65));
+        assert_eq!(
+            ServerMessage::decode(&bytes),
+            Err(ProtocolError::StringTooLong {
+                max: CONFIGURE_OUTPUT_NAME_MAX,
+                actual: 65,
+            })
+        );
+    }
+
+    #[test]
+    fn configure_invalid_utf8_output_name_rejected() {
+        // Length = 1, one byte that's not valid UTF-8 on its own.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[0x01, 0x00]); // tag = Configure
+        bytes.extend_from_slice(&100i32.to_le_bytes());
+        bytes.extend_from_slice(&200i32.to_le_bytes());
+        bytes.extend_from_slice(&800u32.to_le_bytes());
+        bytes.extend_from_slice(&600u32.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&1_700_000_000i64.to_le_bytes());
+        bytes.extend_from_slice(&3600i32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // output_name length = 1
+        bytes.push(0xff); // not valid UTF-8
+        assert_eq!(
+            ServerMessage::decode(&bytes),
+            Err(ProtocolError::InvalidUtf8)
         );
     }
 }

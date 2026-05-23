@@ -349,7 +349,7 @@ fn main() -> ExitCode {
                 Ok(slot) => {
                     eprintln!(
                         "veiland-core: spawned plugin {:?} on output {} (binary {:?}, z_index {}) pid={}",
-                        slot.name, output_name, slot.binary, slot.z_index, slot.pid
+                        slot.name, slot.output_name, slot.binary, slot.z_index, slot.pid
                     );
                     per_output.push(Some(slot));
                 }
@@ -519,6 +519,7 @@ fn try_spawn_one(
         scale: 1,
         time_unix_seconds: 0,
         time_tz_offset_seconds: 0,
+        output_name: output_name.to_string(),
     })?;
     state.connection.send_frame_done()?;
 
