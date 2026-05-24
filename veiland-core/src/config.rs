@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Config {
     /// Plugins to spawn, in declaration order. The host sorts by
     /// `z_index` at spawn time; ties keep config-file order.

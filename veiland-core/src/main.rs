@@ -11,7 +11,7 @@ use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     output::{OutputHandler, OutputState},
     reexports::{
-        calloop::{EventLoop, Interest, Mode, PostAction, generic::Generic},
+        calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction, generic::Generic},
         calloop_wayland_source::WaylandSource,
     },
     registry::{ProvidesRegistryState, RegistryState},
@@ -76,6 +76,18 @@ struct AppData {
     compositor_rect_loc: gl::types::GLint,
     auth: auth::Session,
     modifiers: Modifiers,
+    /// Calloop handle for registering new plugin sockets on hotplug
+    /// (step 5c). Cloned once at startup; the original handle stays
+    /// with the EventLoop in main().
+    loop_handle: LoopHandle<'static, AppData>,
+    /// Wayland queue handle for creating new lock surfaces on hotplug
+    /// (step 5c). Cloned once at startup.
+    qh: QueueHandle<AppData>,
+    /// The plugin config — owned here so the spawn helper can read it
+    /// without re-plumbing. Read-only after startup. Will also be
+    /// consulted by the future hotplug-in path (deferred — see
+    /// docs/m7-plan.md "Known limitations after step 5").
+    config: config::Config,
 }
 
 unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
@@ -312,6 +324,9 @@ fn main() -> ExitCode {
         compositor_sampler_loc,
         compositor_rect_loc,
         auth,
+        loop_handle: event_loop.handle(),
+        qh: qh.clone(),
+        config: config.clone(),
         modifiers: Modifiers::default(),
     };
 
@@ -336,45 +351,12 @@ fn main() -> ExitCode {
         })
         .collect();
     // --- 4. Spawn plugins per config -----------------------------------------
+    // Uses the shared helper so the startup spawn path and the hotplug
+    // path (update_output) stay identical. The helper appends one
+    // Vec<Option<PluginSlot>> per call; outer-vec index aligns with
+    // lock_surfaces, populated below.
     for output_name in &output_names {
-        let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(config.plugins.len());
-        for entry in &config.plugins {
-            if !entry_matches_output(entry, output_name) {
-                // No instance for this (entry, output) pair. Push a None
-                // slot so the inner vec's indexing stays predictable
-                // relative to config.plugins — though nothing currently
-                // depends on it, keeping the shape symmetric makes the
-                // dead-output-still-keeps-its-index assumption explicit.
-                per_output.push(None);
-                continue;
-            }
-            match try_spawn_one(
-                entry,
-                output_name,
-                host_capabilities,
-                &state.egl,
-                state.egl_display,
-            ) {
-                Ok(slot) => {
-                    eprintln!(
-                        "veiland-core: spawned plugin {:?} on output {} (binary {:?}, z_index {}) pid={}",
-                        slot.name, slot.output_name, slot.binary, slot.z_index, slot.pid
-                    );
-                    per_output.push(Some(slot));
-                }
-                Err(e) => {
-                    eprintln!(
-                        "veiland-core: plugin {:?} failed to start on output {}: {} — its layer will be empty",
-                        entry.name, output_name, e
-                    );
-                    per_output.push(None);
-                }
-            }
-        }
-        // Sort by z_index, stable: ties keep config-file order. Failed (None)
-        // slots sort to the end via i32::MAX; they never render anything anyway.
-        per_output.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
-        state.plugins.push(per_output)
+        state.spawn_plugins_for_output(output_name, host_capabilities);
     }
 
     // Warn about monitors entries that didn't match any connected output.
@@ -401,55 +383,40 @@ fn main() -> ExitCode {
         .session_lock_state
         .lock(&qh)
         .expect("ext-session-lock not supported");
-
-    for output in state.output_state.outputs() {
-        let name = state
-            .output_state
-            .info(&output)
-            .and_then(|i| i.name)
-            .unwrap_or_else(|| "<unnamed>".to_string());
-        let surface = state.compositor_state.create_surface(&qh);
-        eprintln!(
-            "veiland-core: output {} connected, creating lock surface",
-            name
-        );
-        let lock_surface = LockSurface {
-            name,
-            lock_surface: session_lock.create_lock_surface(surface, &output, &qh),
-            egl_window: None,
-            egl_surface: None,
-        };
-        state.lock_surfaces.push(Some(lock_surface));
-    }
     state.session_lock = Some(session_lock);
+
+    // Drive the create-lock-surface side via the shared helper so the
+    // startup path and the hotplug path (update_output) stay identical.
+    // Collect outputs into an owned vec first because the helper takes
+    // &mut self and SCTK's outputs() iterator borrows output_state.
+    let initial_outputs: Vec<(wl_output::WlOutput, String)> = state
+        .output_state
+        .outputs()
+        .map(|o| {
+            let name = state
+                .output_state
+                .info(&o)
+                .and_then(|i| i.name)
+                .unwrap_or_else(|| "<unnamed>".to_string());
+            (o, name)
+        })
+        .collect();
+    for (output, name) in &initial_outputs {
+        state.create_lock_surface_for_output(output, name.clone());
+    }
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
         .unwrap();
 
-    // --- 6. Register the plugin's socket as a calloop event source ----------
-    // calloop owns the fd via Generic; on readability, our closure runs
-    // recv_message and dispatches to PluginState. On any error we treat
-    // the plugin as dead, log, and remove the source (the lock keeps
-    // running with the fallback black screen).
+    // --- 6. Register each plugin's socket as a calloop event source ---------
+    // The helper handles None slots by no-oping; we just blanket-call.
+    // On hotplug, update_output uses the same helper for newly-arrived
+    // plugins (step 5c). On plugin death drive_plugin returns
+    // PostAction::Remove and the source self-cleans.
     for o in 0..state.plugins.len() {
         for p in 0..state.plugins[o].len() {
-            let Some(slot) = state.plugins[o][p].as_ref() else {
-                continue;
-            };
-            let plugin_fd = slot
-                .state
-                .connection
-                .as_fd()
-                .try_clone_to_owned()
-                .expect("dup plugin socket for calloop");
-            event_loop
-                .handle()
-                .insert_source(
-                    Generic::new(plugin_fd, Interest::READ, Mode::Level),
-                    move |_event, _meta, state: &mut AppData| state.drive_plugin(o, p),
-                )
-                .expect("register plugin fd with calloop");
+            state.register_plugin_source(o, p);
         }
     }
 
@@ -659,16 +626,42 @@ impl SessionLockHandler for AppData {
     ) {
         let (width, height) = configure.new_size;
 
+        // Note (M7 step 5c known limitation): if the user hot-plugs a
+        // *new* monitor mid-lock (or replugs one that was disconnected
+        // earlier), Hyprland reshuffles wl_output bindings in a way
+        // that puts wl_display into a fatal protocol error state. The
+        // very next eglSwapBuffers (in this handler) then panics from
+        // inside khronos-egl. We deliberately do NOT catch that panic
+        // here: an ext-session-lock-v1-compliant compositor keeps the
+        // screen locked when the client dies (the user is frozen-but-
+        // -secure, recoverable via TTY-switch), which is the safe
+        // failure mode. Catching the error and gracefully exiting
+        // would set RunState::UnlockedCleanly or similar — on a
+        // non-compliant compositor that's a security regression.
+        // Letting the panic propagate keeps the locker honest.
+        // Tracked in docs/m7-plan.md "Known limitations".
+
         let target = session_lock_surface.wl_surface();
-        let output_idx = self
-            .lock_surfaces
-            .iter()
-            .position(|ls| {
-                ls.as_ref()
-                    .map(|ls| ls.lock_surface.wl_surface() == target)
-                    .unwrap_or(false)
-            })
-    .expect("Configure for unknown lock surface");
+        // Look up the surface in our vec. Returning None here is *not*
+        // a panic-worthy case: hotplug-out can put a Configure event
+        // for the now-departed surface ahead of our output_destroyed
+        // handler in the queue, so by the time we see the Configure
+        // the slot is already None. (Or the compositor sent Configure
+        // for a surface we never tracked — also not our problem to die
+        // on.) Log and skip; the matching surface, if it ever existed,
+        // is being torn down through the proper path.
+        let Some(output_idx) = self.lock_surfaces.iter().position(|ls| {
+            ls.as_ref()
+                .map(|ls| ls.lock_surface.wl_surface() == target)
+                .unwrap_or(false)
+        }) else {
+            eprintln!(
+                "veiland-core: ignoring Configure for unknown/departed lock surface \
+                ({}x{}) — the matching output was probably just unplugged",
+                width, height
+            );
+            return;
+        };
         let entry = self.lock_surfaces[output_idx]
             .as_mut()
             .expect("just matched Some");
@@ -745,6 +738,117 @@ impl SessionLockHandler for AppData {
         self.egl
             .swap_buffers(self.egl_display, *egl_surface)
             .expect("eglSwapBuffers");
+    }
+}
+
+impl AppData {
+    /// Create a `LockSurface` for one output and append it to
+    /// `self.lock_surfaces` as a fresh `Some(_)` slot. Currently only
+    /// called by the startup enumeration loop in `main()`; kept as a
+    /// helper so the future hotplug-in implementation (deferred — see
+    /// docs/m7-plan.md "Known limitations after step 5") can reuse it
+    /// without duplicating logic. Returns the index the surface was
+    /// inserted at, or `None` if the session_lock isn't held
+    /// (defensive check, log + skip).
+    fn create_lock_surface_for_output(
+        &mut self,
+        output: &wl_output::WlOutput,
+        name: String,
+    ) -> Option<usize> {
+        let session_lock = match self.session_lock.as_ref() {
+            Some(l) => l,
+            None => {
+                eprintln!(
+                    "veiland-core: refusing to create lock surface for {:?}: \
+                    no session lock held",
+                    name
+                );
+                return None;
+            }
+        };
+        let surface = self.compositor_state.create_surface(&self.qh);
+        eprintln!(
+            "veiland-core: output {} connected, creating lock surface",
+            name
+        );
+        let lock_surface = LockSurface {
+            name,
+            lock_surface: session_lock.create_lock_surface(surface, output, &self.qh),
+            egl_window: None,
+            egl_surface: None,
+        };
+        self.lock_surfaces.push(Some(lock_surface));
+        Some(self.lock_surfaces.len() - 1)
+    }
+
+    /// Spawn the per-output slice of plugins for `output_name`, filtering
+    /// by each entry's `monitors` selector. Appends a `Vec<Option<PluginSlot>>`
+    /// onto `self.plugins`. The new outer index lines up with the
+    /// LockSurface index returned by `create_lock_surface_for_output`
+    /// (callers must keep them in lockstep). Currently only called by
+    /// the startup loop in `main()`; same reasoning as
+    /// `create_lock_surface_for_output` for keeping it factored out.
+    fn spawn_plugins_for_output(&mut self, output_name: &str, host_capabilities: HostCapabilities) {
+        let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(self.config.plugins.len());
+        for entry in &self.config.plugins {
+            if !entry_matches_output(entry, output_name) {
+                per_output.push(None);
+                continue;
+            }
+            match try_spawn_one(
+                entry,
+                output_name,
+                host_capabilities,
+                &self.egl,
+                self.egl_display,
+            ) {
+                Ok(slot) => {
+                    eprintln!(
+                        "veiland-core: spawned plugin {:?} on output {} (binary {:?}, z_index {}) pid={}",
+                        slot.name, slot.output_name, slot.binary, slot.z_index, slot.pid
+                    );
+                    per_output.push(Some(slot));
+                }
+                Err(e) => {
+                    eprintln!(
+                        "veiland-core: plugin {:?} failed to start on output {}: {} — its layer will be empty",
+                        entry.name, output_name, e
+                    );
+                    per_output.push(None);
+                }
+            }
+        }
+        // Sort by z_index, stable: ties keep config-file order. Failed (None)
+        // slots sort to the end via i32::MAX; they never render anything.
+        per_output.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
+        self.plugins.push(per_output);
+    }
+
+    /// Register a plugin's socket as a calloop event source. Captures
+    /// `(o, p)` by value; the closure stays valid as long as
+    /// `self.plugins[o][p]` remains in place (slot may be `None` later;
+    /// `drive_plugin` handles that by returning `PostAction::Remove`).
+    fn register_plugin_source(&self, o: usize, p: usize) {
+        let Some(slot) = self
+            .plugins
+            .get(o)
+            .and_then(|po| po.get(p))
+            .and_then(|s| s.as_ref())
+        else {
+            return;
+        };
+        let plugin_fd = slot
+            .state
+            .connection
+            .as_fd()
+            .try_clone_to_owned()
+            .expect("dup plugin socket for calloop");
+        self.loop_handle
+            .insert_source(
+                Generic::new(plugin_fd, Interest::READ, Mode::Level),
+                move |_event, _meta, state: &mut AppData| state.drive_plugin(o, p),
+            )
+            .expect("register plugin fd with calloop");
     }
 }
 
@@ -885,6 +989,15 @@ impl OutputHandler for AppData {
         _qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
+        // Hotplug-in (creating a lock surface + plugins for a newly-
+        // arrived output) is deliberately not implemented in M7.
+        // Attempting it triggers an SCTK/Hyprland wl_output rebinding
+        // interaction that puts wl_display into a fatal protocol error
+        // state, and the locker can't recover. See
+        // docs/m7-plan.md "Known limitations after step 5" and the
+        // memory note `project_m7_hotplug_in_gap.md`. Plug all
+        // monitors *before* locking; once locked, monitors may be
+        // unplugged (handled by `output_destroyed`) but not added.
     }
 
     fn update_output(
@@ -893,14 +1006,123 @@ impl OutputHandler for AppData {
         _qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
+        // Same rationale as `new_output`: per-output mode/scale changes
+        // (re-Configure of an existing surface) are step 6's job, and
+        // a *new* output appearing here would route through the same
+        // crash path described above. No-op for M7.
     }
 
     fn output_destroyed(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
+        // The compositor has already torn down the server-side
+        // SessionLockSurface for this output; touching its EGL surface
+        // from here on would block in eglSwapBuffers waiting on a
+        // commit no one will ever ack. We:
+        //   1. Resolve the departed output's name (so we can find our
+        //      matching slot — names are the only stable identity we
+        //      keep on LockSurface).
+        //   2. Tear down every plugin instance for that output via the
+        //      existing Shutdown → grace → SIGTERM → SIGKILL sequence.
+        //      Plugin calloop sources self-remove via PostAction::Remove
+        //      when drive_plugin next sees EOF on the dropped socket.
+        //   3. Replace both the lock_surfaces and plugins slots with
+        //      None sentinels — preserves the (o, p) indices captured
+        //      in surviving calloop closures.
+        // Defensive throughout: this is compositor-driven input, never
+        // crash on it.
+        let name = match self.output_state.info(&output).and_then(|i| i.name) {
+            Some(n) => n,
+            None => {
+                eprintln!(
+                    "veiland-core: output_destroyed fired for an output \
+                    with no cached name; skipping teardown (would not \
+                    know which lock surface to tear down)"
+                );
+                return;
+            }
+        };
+
+        let output_idx = self
+            .lock_surfaces
+            .iter()
+            .position(|opt| opt.as_ref().map(|ls| ls.name == name).unwrap_or(false));
+        let Some(output_idx) = output_idx else {
+            eprintln!(
+                "veiland-core: output_destroyed for {:?} but no matching \
+                lock surface; nothing to tear down",
+                name
+            );
+            return;
+        };
+
+        eprintln!(
+            "veiland-core: output {} disconnected, tearing down {} plugin instance(s)",
+            name,
+            self.plugins[output_idx]
+                .iter()
+                .filter(|s| s.is_some())
+                .count()
+        );
+
+        // Phase 1: send Shutdown to every live plugin on this output.
+        // Errors are non-fatal — the next phase will SIGTERM/SIGKILL
+        // anything that's not already dying.
+        for slot_opt in self.plugins[output_idx].iter_mut() {
+            if let Some(slot) = slot_opt {
+                if let Err(e) = slot.state.connection.send_shutdown() {
+                    eprintln!(
+                        "veiland-core: hotplug teardown: plugin {:?} \
+                        send_shutdown failed: {} (continuing)",
+                        slot.name, e
+                    );
+                }
+            }
+        }
+
+        // Phase 2: take each slot and run the per-plugin teardown
+        // (grace period, escalate to SIGTERM/SIGKILL, reap zombie).
+        for slot_opt in self.plugins[output_idx].iter_mut() {
+            if let Some(slot) = slot_opt.take() {
+                teardown_one_plugin(slot);
+            }
+        }
+
+        // Phase 3: tear down EGL bits *before* dropping the LockSurface.
+        // wayland_egl::WlEglSurface holds an internal reference to the
+        // wl_surface; explicit destroy first keeps EGL from sending
+        // commits to a dying surface.
+        if let Some(surface_ref) = self.lock_surfaces[output_idx].as_mut() {
+            if let Some(egl_surface) = surface_ref.egl_surface.take() {
+                if let Err(e) = self.egl.destroy_surface(self.egl_display, egl_surface) {
+                    eprintln!(
+                        "veiland-core: eglDestroySurface for {:?} failed: {:?} (continuing)",
+                        surface_ref.name, e
+                    );
+                }
+            }
+            // WlEglSurface drops via the take() leaving None.
+            surface_ref.egl_window = None;
+        }
+        // Phase 4: leak the SessionLockSurface instead of dropping it.
+        // SCTK's SessionLockSurfaceInner::drop sends a destroy request
+        // to the compositor, but when the output is gone the server has
+        // already destroyed its end — that request lands on an invalid
+        // object and puts wl_display into a fatal error state, which
+        // then makes the *next* swap_buffers (on the surviving monitor)
+        // crash. Forgetting the slot keeps Rust from running Drop. The
+        // proxy handle leak is small and bounded by unplug events.
+        let taken = std::mem::take(&mut self.lock_surfaces[output_idx]);
+        if let Some(ls) = taken {
+            std::mem::forget(ls);
+        }
+        eprintln!(
+            "veiland-core: output {} teardown complete; slot is now None",
+            name
+        );
     }
 }
 
