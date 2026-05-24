@@ -63,7 +63,7 @@ struct AppData {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     session_lock_state: SessionLockState,
     session_lock: Option<SessionLock>,
-    lock_surfaces: Vec<LockSurface>,
+    lock_surfaces: Vec<Option<LockSurface>>,
     run: RunState,
     egl: egl::Instance<egl::Static>,
     egl_display: egl::Display,
@@ -419,7 +419,7 @@ fn main() -> ExitCode {
             egl_window: None,
             egl_surface: None,
         };
-        state.lock_surfaces.push(lock_surface);
+        state.lock_surfaces.push(Some(lock_surface));
     }
     state.session_lock = Some(session_lock);
 
@@ -663,9 +663,15 @@ impl SessionLockHandler for AppData {
         let output_idx = self
             .lock_surfaces
             .iter()
-            .position(|ls| ls.lock_surface.wl_surface() == target)
-            .expect("Configure for unknown lock surface");
-        let entry = &mut self.lock_surfaces[output_idx];
+            .position(|ls| {
+                ls.as_ref()
+                    .map(|ls| ls.lock_surface.wl_surface() == target)
+                    .unwrap_or(false)
+            })
+    .expect("Configure for unknown lock surface");
+        let entry = self.lock_surfaces[output_idx]
+            .as_mut()
+            .expect("just matched Some");
         if entry.egl_window.is_none() {
             let egl_window =
                 wayland_egl::WlEglSurface::new(target.id(), width as i32, height as i32)
@@ -769,6 +775,9 @@ impl AppData {
             return;
         }
         for (output_idx, entry) in self.lock_surfaces.iter().enumerate() {
+            let Some(entry) = entry else {
+                continue;
+            };
             let Some(egl_surface) = entry.egl_surface.as_ref() else {
                 continue;
             };
@@ -1147,7 +1156,11 @@ impl AppData {
         if is_buffer {
             self.repaint_lock_surfaces();
 
-            if !self.lock_surfaces.is_empty() {
+            // After 5a, lock_surfaces can be non-empty while every slot is
+            // None (hotplug-departed outputs leave sentinels behind). The
+            // egress fence has nothing to do unless at least one live
+            // surface was just composited into.
+            if self.lock_surfaces.iter().any(|s| s.is_some()) {
                 match plugin::create_host_fence(&self.egl, self.egl_display) {
                     Ok(fence) => {
                         let wait_result = plugin::wait_fence(&self.egl, self.egl_display, &fence);
