@@ -1,0 +1,11 @@
+[package]
+name = "veiland-text"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Text rendering for veiland plugins: cosmic-text-backed shaping, glyph atlas, Label API."
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
+cosmic-text = "0.19"

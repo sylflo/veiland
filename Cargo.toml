@@ -9,6 +9,7 @@ members = [
     "veiland-core",
     "veiland-plugin",
     "veiland-protocol",
+    "veiland-text",
 ]
 
 # Password buffer hygiene depends on Drop running on panic. Setting
