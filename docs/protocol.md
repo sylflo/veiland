@@ -33,7 +33,11 @@ Rust code and this document disagree, the document wins and the code is a bug.
 - **Spawning:** the host creates a `socketpair(AF_UNIX, SOCK_SEQPACKET, 0)`,
   forks, and `exec`'s the plugin with one end of the pair as fd 3. The
   environment variable `VEILAND_PLUGIN_SOCKET=3` tells the plugin which fd to
-  use. No filesystem socket path is involved.
+  use. If the user declared a `[plugin.config]` table for this plugin (see
+  `docs/config.md` §3), the host also exports `VEILAND_PLUGIN_CONFIG` set to
+  the JSON-serialised table; otherwise it is unset. Plugins parse the JSON
+  themselves — the protocol does not interpret it. No filesystem socket path
+  is involved.
 - **File descriptors:** carried out-of-band via `SCM_RIGHTS` ancillary data on
   `sendmsg`/`recvmsg`. Only the `Buffer` message carries fds; all other
   messages carry zero. `Buffer` always carries a dmabuf fd, and optionally a
@@ -336,7 +340,8 @@ Empty payload. Plugin SHOULD exit cleanly within a short grace period
 ## 8. Handshake and lifecycle
 
 ```
- 1. Host spawns plugin (socketpair + exec, fd 3, VEILAND_PLUGIN_SOCKET=3).
+ 1. Host spawns plugin (socketpair + exec, fd 3, VEILAND_PLUGIN_SOCKET=3,
+    optionally VEILAND_PLUGIN_CONFIG=<json> from [plugin.config]; see §2).
  2. Plugin sends u32 client_version = 1.
  3. Host sends u32 server_version = 1.
  4. Host sends u32 host_capabilities (bitfield; see §5.1).

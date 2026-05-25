@@ -58,13 +58,11 @@ pub struct PluginEntry {
     pub monitors: Option<Vec<String>>,
 
     /// Optional pass-through table for plugin-specific settings.
-    /// Schema-only in M6: the field is parsed so user configs with
-    /// `[plugin.config]` tables don't break, but the spawn side
-    /// doesn't yet serialise it to JSON or export it via
-    /// `VEILAND_PLUGIN_CONFIG`. Wired up when a real plugin needs
-    /// it (M7's clock will want a timezone) — at which point this
-    /// `#[allow(dead_code)]` goes away.
-    #[allow(dead_code)]
+    /// Serialised to JSON at spawn time and exported to the plugin
+    /// as `VEILAND_PLUGIN_CONFIG`. Plugins parse it however they
+    /// like (`serde_json` is the obvious choice). See
+    /// `docs/config.md` §3 (`[plugin.config]`) and
+    /// `docs/protocol.md` §2 (spawning).
     #[serde(default)]
     pub config: Option<toml::Value>,
 }

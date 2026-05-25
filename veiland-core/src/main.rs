@@ -614,7 +614,25 @@ fn try_spawn_one(
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
 ) -> Result<PluginSlot, plugin::HostError> {
-    let process = spawn_plugin(&entry.binary, &entry.name)?;
+    // Serialise the plugin's [plugin.config] table to JSON if present.
+    // Failure here is a host bug (every TOML value round-trips through
+    // serde_json cleanly); we log and proceed with no config rather
+    // than refusing to spawn the plugin, since the plugin may have
+    // sensible defaults.
+    let config_json = entry.config.as_ref().and_then(|v| {
+        match serde_json::to_string(v) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!(
+                    "veiland-core: plugin {:?}: failed to serialise [plugin.config] to JSON: {} \
+                     — spawning without VEILAND_PLUGIN_CONFIG",
+                    entry.name, e
+                );
+                None
+            }
+        }
+    });
+    let process = spawn_plugin(&entry.binary, &entry.name, config_json.as_deref())?;
     let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
     connection.handshake()?;
     eprintln!("plugin {:?}: handshake ok", entry.name);

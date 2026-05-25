@@ -21,7 +21,22 @@ pub struct PluginProcess {
     pub socket: OwnedFd,
 }
 
-pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, HostError> {
+/// Spawn a plugin binary via socketpair + fork + exec.
+///
+/// `config_json`, if `Some`, is exported to the child as
+/// `VEILAND_PLUGIN_CONFIG`. The host derives this from the
+/// `[plugin.config]` TOML table for this plugin entry (see
+/// `veiland-core/src/main.rs`'s `try_spawn_one`). Plugins parse the
+/// string however they like — JSON is the wire format because it's
+/// strictly more compact in transitive dep cost than re-shipping TOML
+/// to every plugin, and `serde_json::Value` is a sufficient target for
+/// most plugin authors. `None` means the env var is not set; the
+/// plugin should fall back to its own defaults.
+pub fn spawn_plugin(
+    binary: &Path,
+    name_for_log: &str,
+    config_json: Option<&str>,
+) -> Result<PluginProcess, HostError> {
     let (host_fd, plugin_fd) = socketpair(
         AddressFamily::Unix,
         SockType::SeqPacket,
@@ -63,6 +78,17 @@ pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, 
                 Ok(s) => s,
                 Err(_) => unsafe { nix::libc::_exit(127) },
             };
+            // Same drill for the optional plugin config. An interior
+            // NUL byte in a JSON serialisation should never happen, but
+            // if somehow it does we _exit rather than risk passing a
+            // truncated string.
+            let config_cstring = match config_json {
+                Some(s) => match CString::new(s) {
+                    Ok(c) => Some(c),
+                    Err(_) => unsafe { nix::libc::_exit(127) },
+                },
+                None => None,
+            };
             // argv[0] is the binary's filename — *not* the config name.
             // This makes `pgrep veiland` find every plugin (assuming
             // plugin authors follow the `veiland-<name>` binary
@@ -89,6 +115,15 @@ pub fn spawn_plugin(binary: &Path, name_for_log: &str) -> Result<PluginProcess, 
             // single-threaded post-fork, so the race cannot occur.
             unsafe {
                 std::env::set_var("VEILAND_PLUGIN_SOCKET", "3");
+                if let Some(c) = config_cstring.as_ref() {
+                    // OsStr::from_bytes builds a borrowed OsStr without
+                    // re-allocating; set_var copies into its own
+                    // env-block storage.
+                    std::env::set_var(
+                        "VEILAND_PLUGIN_CONFIG",
+                        std::ffi::OsStr::from_bytes(c.to_bytes()),
+                    );
+                }
             }
 
             // execv replaces this process with the plugin binary.
@@ -126,7 +161,8 @@ mod tests {
     /// by the gradient plugin end-to-end at step 6.
     #[test]
     fn spawn_true_exits_zero() {
-        let process = spawn_plugin(find_true(), "true").expect("spawning `true` should succeed");
+        let process =
+            spawn_plugin(find_true(), "true", None).expect("spawning `true` should succeed");
 
         let status =
             waitpid(process.child_pid, None).expect("waitpid should succeed on a known child");
@@ -142,8 +178,9 @@ mod tests {
     /// fork return then a child that exited 127.
     #[test]
     fn spawn_nonexistent_exits_127() {
-        let process = spawn_plugin(Path::new("/nonexistent/veiland-test-binary"), "nonexistent")
-            .expect("fork itself should succeed even if exec target is missing");
+        let process =
+            spawn_plugin(Path::new("/nonexistent/veiland-test-binary"), "nonexistent", None)
+                .expect("fork itself should succeed even if exec target is missing");
 
         let status = waitpid(process.child_pid, None).expect("waitpid should succeed");
 

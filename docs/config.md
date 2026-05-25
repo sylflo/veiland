@@ -206,19 +206,18 @@ The same `[password]` config applies to every monitor's lock
 surface. If you need DP-1 to show its dots top-left while HDMI-A-1
 shows them centred, that's M11+.
 
-### `[plugin.config]` (table, optional, schema-only in M6)
+### `[plugin.config]` (table, optional)
 
-A pass-through table for plugin-specific settings. Veiland-core
-parses this so configs that include such tables don't break, but
-it does *not yet* serialize or export the contents — plugins
-cannot read them.
+A pass-through table for plugin-specific settings. At spawn time
+the host serialises the table to JSON and exports it to the plugin
+process as `VEILAND_PLUGIN_CONFIG`. Plugins parse it however they
+like — `serde_json` is the obvious choice. The schema is the
+plugin's own concern; veiland-core does not interpret the
+contents.
 
-When a real plugin needs this (the M7 clock plugin will want a
-timezone string), the host will serialize the table to JSON and
-hand it to the plugin via the `VEILAND_PLUGIN_CONFIG` environment
-variable. Writing `[plugin.config]` tables in your config now is
-safe — they'll be ignored, but they won't break anything, and
-they'll become live when the plugin side catches up.
+Plugins that do not declare a `[plugin.config]` table see
+`VEILAND_PLUGIN_CONFIG` unset and should fall back to whatever
+defaults they document.
 
 ## 4. Worked examples
 
@@ -371,12 +370,6 @@ By design:
   to filled light-grey circles (`RGB(220, 220, 220)`), no animation,
   no failure-flash. Position and sizing are configurable via
   `[password]` (see §3); the rest is deferred to M11+.
-
-Things that *will* become configurable in future milestones but
-aren't yet:
-
-- Per-plugin custom settings (`[plugin.config]` is parsed but not
-  yet read by plugins — see §3).
 
 ## 7. Pitfalls
 
