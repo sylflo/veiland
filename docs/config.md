@@ -159,6 +159,53 @@ Rules:
   and can vary its rendering accordingly (different wallpaper per
   screen, different timezone clock per screen, etc.).
 
+### `[password]` (table, optional)
+
+Controls the password-indicator dots that appear as the user types.
+The indicator is one filled grey circle per buffered character,
+painted by the core on top of any plugins (soft trust-region — see
+`docs/m9-plan.md` Q1 for the threat-model discussion).
+
+Every field is optional; missing `[password]` table → all defaults.
+
+```toml
+[password]
+x = 960          # surface px; omit → centred per surface
+y_percent = 75   # % of surface height (0..=100); omit → 75
+dot_diameter = 12   # surface px; clamped [1, 100]
+dot_spacing = 20    # surface px, centre-to-centre stride; clamped [1, 200]
+max_dots = 32       # row caps here; clamped [1, 256]
+```
+
+- **`x`** (integer, optional). Horizontal centre of the dot row in
+  surface-pixel coordinates. If omitted, the row is centred on each
+  surface's `width / 2` — different absolute pixel positions on
+  different-width monitors, same surface-relative position. No clamp:
+  values that put the row off-screen are user error but not unsafe.
+- **`y_percent`** (integer, optional, default `75`). Vertical position
+  as a percentage of surface height. `0` is the top edge; `100` is
+  the bottom. Clamped to `[0, 100]` at load time with a warning if
+  out of range — out-of-range values don't fail the locker start.
+- **`dot_diameter`** (integer, optional, default `12`). Diameter of
+  each dot in surface pixels. Clamped to `[1, 100]`.
+- **`dot_spacing`** (integer, optional, default `20`). **Centre-to-
+  centre** stride between consecutive dots in surface pixels — not
+  the gap between edges. With diameter 12, the default leaves an
+  8-px gap. Clamped to `[1, 200]`.
+- **`max_dots`** (integer, optional, default `32`). Cap on the number
+  of visible dots. Beyond this, the row freezes — the user keeps
+  typing (the password buffer keeps filling) but the indicator stops
+  growing. Clamped to `[1, 256]`. Keeps the row from running off the
+  screen on long passwords.
+
+Colours, animations, failure-flash, per-monitor positioning, and
+scale-factor support are **not** configurable in v1; all tracked
+for M11+ in `docs/m9-plan.md`'s "Deferred to post-M9" section.
+
+The same `[password]` config applies to every monitor's lock
+surface. If you need DP-1 to show its dots top-left while HDMI-A-1
+shows them centred, that's M11+.
+
 ### `[plugin.config]` (table, optional, schema-only in M6)
 
 A pass-through table for plugin-specific settings. Veiland-core
@@ -234,6 +281,33 @@ red/blue/green test plugins used during M6 development. That
 fixture exercises region clipping, z-index ordering, and alpha
 blending end-to-end.
 
+### Password indicator overrides
+
+Defaults are usually what you want; the table exists for when
+they're not. A minimal repositioning:
+
+```toml
+[password]
+y_percent = 50    # halfway down instead of 75%
+dot_diameter = 16 # larger dots
+```
+
+A no-op example (all defaults made explicit), useful as a starting
+point to tweak:
+
+```toml
+[password]
+# x omitted = centred per surface (different absolute pixel on
+# different-width monitors, same surface-relative position)
+y_percent = 75
+dot_diameter = 12
+dot_spacing = 20
+max_dots = 32
+```
+
+A live fixture exercising the indicator over a plugin (the soft
+trust-region paint order) is at `docs/examples/m9-password.toml`.
+
 ## 5. Multi-monitor
 
 Each `[[plugin]]` entry produces **one independent plugin process
@@ -293,6 +367,10 @@ By design:
 - **Which fence-sync extension to use.** Detected at startup; fast
   path if `EGL_ANDROID_native_fence_sync` is available, slow path
   otherwise.
+- **The password-indicator colour, shape, and animation.** Hardcoded
+  to filled light-grey circles (`RGB(220, 220, 220)`), no animation,
+  no failure-flash. Position and sizing are configurable via
+  `[password]` (see §3); the rest is deferred to M11+.
 
 Things that *will* become configurable in future milestones but
 aren't yet:
@@ -322,6 +400,16 @@ aren't yet:
 - **A multi-monitor setup with N plugins** produces up to N × M
   child processes (M = output count). `pgrep -af veiland` shows
   them all; this is per-output isolation by design, not a leak.
+- **`[password]` `dot_spacing` is centre-to-centre stride, not the
+  gap between edges.** With `dot_diameter = 12` and `dot_spacing =
+  8` you get *overlapping* dots, not 8-px-wide gaps. Default 20
+  with diameter 12 yields the visually-natural 8-px edge gap.
+- **`[password]` `x` defaults to "centre of this surface", not a
+  fixed pixel.** On a multi-monitor setup with different-width
+  outputs, an absent `x` means each monitor's row sits at its own
+  centre. Set `x` explicitly if you want the same absolute pixel
+  position on every monitor (note: the row may be off-centre or
+  off-screen on monitors with widths below `2 * x`).
 
 ## 8. See also
 
