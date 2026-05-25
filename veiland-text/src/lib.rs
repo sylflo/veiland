@@ -20,7 +20,7 @@ use cosmic_text::{FontSystem, SwashCache};
 use atlas::Atlas;
 use label::LabelGl;
 
-pub use label::{HAlign, Label, VAlign};
+pub use label::{HAlign, Label, Shadow, VAlign};
 
 /// Per-plugin-process owner of the font database and glyph rasterization
 /// cache. Constructed once at plugin startup; reused across every frame.

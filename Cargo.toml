@@ -4,6 +4,7 @@ members = [
     "plugins/blue-box",
     "plugins/gradient",
     "plugins/green-box",
+    "plugins/label",
     "plugins/red-box",
     "plugins/stress",
     "veiland-core",

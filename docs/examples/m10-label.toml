@@ -1,0 +1,51 @@
+# M10 step 6 validation fixture — two labels exercising the
+# veiland-text Label API end-to-end.
+#
+# Layout on a 1920x1080 surface:
+#
+#   latin    z=10  centred, white with drop shadow
+#   japanese z=20  upper-third, no shadow
+#
+# The Latin label verifies the common case (Latin shaping, drop
+# shadow, centre alignment). The Japanese label verifies that
+# cosmic-text's shaping pipeline handles CJK — if you see tofu
+# (□□□□) instead of "こんにちは", the dev system is missing a CJK
+# font (install noto-fonts-cjk or distro equivalent; see
+# docs/m10-plan.md Q6).
+#
+# Run: VEILAND_CONFIG=docs/examples/m10-label.toml cargo run -p veiland-core
+#
+# Note: binary paths are absolute and target/debug/. Adjust if you
+# build elsewhere or rename the workspace target directory.
+
+[[plugin]]
+name = "label-latin"
+binary = "/home/sylflo/Projects/veiland/target/debug/veiland-label"
+z_index = 10
+
+[plugin.config]
+text = "Hello veiland"
+font_family = "Sans"
+font_size = 64
+color = [0.95, 0.95, 0.95, 1.0]
+halign = "center"
+valign = "middle"
+position = [960, 540]
+rotation = 0
+shadow_offset = [3, 3]
+shadow_color = [0.0, 0.0, 0.0, 0.6]
+shadow_blur = 0.0
+
+[[plugin]]
+name = "label-japanese"
+binary = "/home/sylflo/Projects/veiland/target/debug/veiland-label"
+z_index = 20
+
+[plugin.config]
+text = "こんにちは"
+font_family = "Sans"
+font_size = 80
+color = [1.0, 1.0, 1.0, 1.0]
+halign = "center"
+valign = "middle"
+position = [960, 280]

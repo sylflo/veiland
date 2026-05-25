@@ -1,0 +1,16 @@
+[package]
+name = "veiland-label"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "M10 demo plugin — renders a single styled text label from [plugin.config] via veiland-text."
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
+gl = "0.14"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1"
+veiland-plugin = { path = "../../veiland-plugin" }
+veiland-protocol = { path = "../../veiland-protocol" }
+veiland-text = { path = "../../veiland-text" }

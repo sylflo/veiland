@@ -152,8 +152,15 @@ const VS_SRC: &[u8] = b"#version 100\n\
         // a_pos is in surface pixels, top-left origin. Rotate around\n\
         // u_anchor (CCW; u_rot = vec2(cos, sin)) and apply the pass\n\
         // offset (zero for main, shadow.offset for the shadow pass),\n\
-        // then convert to clip space [-1, 1] with Y flipped so\n\
-        // top-left in pixels maps to top of clip.\n\
+        // then convert to clip space [-1, 1].\n\
+        //\n\
+        // Y is NOT flipped here. Veiland's compositor samples plugin\n\
+        // dmabufs with v = 1 - unit01.y (see build_compositor_program in\n\
+        // veiland-core/src/main.rs), but the EGLImage import path's\n\
+        // own Y convention cancels it, so the net effect is identity:\n\
+        // pixel-y = 0 in the plugin renders to screen-row 0. So we map\n\
+        // pixel-y/h directly to clip.y * 0.5 + 0.5.\n\
+        //\n\
         // See docs/m10-plan.md step 5b for the rotation + shadow math.\n\
         vec2 rel = a_pos - u_anchor;\n\
         vec2 rot = vec2(rel.x * u_rot.x - rel.y * u_rot.y,\n\
@@ -161,7 +168,7 @@ const VS_SRC: &[u8] = b"#version 100\n\
         vec2 px = rot + u_anchor + u_offset;\n\
         vec2 clip;\n\
         clip.x = (px.x / u_surface.x) * 2.0 - 1.0;\n\
-        clip.y = 1.0 - (px.y / u_surface.y) * 2.0;\n\
+        clip.y = (px.y / u_surface.y) * 2.0 - 1.0;\n\
         gl_Position = vec4(clip, 0.0, 1.0);\n\
         v_uv = a_uv;\n\
     }\n\0";
