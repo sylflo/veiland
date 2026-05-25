@@ -82,6 +82,11 @@ struct AppData {
     compositor_vbo: gl::types::GLuint,
     compositor_sampler_loc: gl::types::GLint,
     compositor_rect_loc: gl::types::GLint,
+    indicator_program: gl::types::GLuint,
+    indicator_vbo: gl::types::GLuint,
+    indicator_centre_loc: gl::types::GLint,
+    indicator_radius_loc: gl::types::GLint,
+    indicator_color_loc: gl::types::GLint,
     auth: auth::Session,
     modifiers: Modifiers,
     /// Calloop handle for registering new plugin sockets on hotplug.
@@ -224,6 +229,88 @@ unsafe fn build_compositor_program() -> (
     }
 }
 
+/// Build the password-indicator GL program.
+///
+/// One filled circle per draw call. The "circle" is a unit quad whose
+/// fragment shader discards anything outside radius 1 from the quad
+/// centre — standard procedural-shape trick, no geometry library
+/// needed. The caller issues N draws (N = dot count) with `u_centre`
+/// updated between each; `u_radius` and `u_color` stay constant
+/// across the row.
+///
+/// `u_centre` and `u_radius` are in clip space (so per-frame the
+/// caller converts surface-px → clip-space). Y is flipped at
+/// conversion time, not in the shader, because there's no UV here.
+unsafe fn build_indicator_program() -> (
+    gl::types::GLuint,
+    gl::types::GLuint,
+    gl::types::GLint,
+    gl::types::GLint,
+    gl::types::GLint,
+) {
+    let vs_src = b"#version 100\n\
+        attribute vec2 a_pos;\n\
+        uniform vec2 u_centre;\n\
+        uniform vec2 u_radius;\n\
+        varying vec2 v_local;\n\
+        void main() {\n\
+            v_local = a_pos;\n\
+            vec2 clip = u_centre + a_pos * u_radius;\n\
+            gl_Position = vec4(clip, 0.0, 1.0);\n\
+        }\n\0";
+
+    // highp on the fragment shader: GLES 2 defaults to mediump,
+    // which some Mesa drivers honour as fp16 and bands the circle
+    // edge visibly at 12-px diameter. NVIDIA defaults to fp32
+    // either way. highp is portable and cheap at this scale.
+    //
+    // smoothstep gives a one-fragment-wide antialias ramp on the
+    // edge instead of a hard discard. Without it the dot looks
+    // pixelated on both vendors at small sizes.
+    let fs_src = b"#version 100\n\
+        precision highp float;\n\
+        varying vec2 v_local;\n\
+        uniform vec4 u_color;\n\
+        void main() {\n\
+            float d = length(v_local);\n\
+            // 1.0 inside, 0.0 outside, smooth across the last\n\
+            // ~1.5/radius_px fraction of the radius. fwidth would\n\
+            // be more correct but isn't in GLES 2 core.\n\
+            float a = 1.0 - smoothstep(0.92, 1.0, d);\n\
+            if (a <= 0.0) discard;\n\
+            gl_FragColor = vec4(u_color.rgb, u_color.a * a);\n\
+        }\n\0";
+
+    unsafe {
+        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
+        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
+        let program = link_program(vs, fs);
+
+        // Same unit quad as the compositor. Allocated separately so
+        // the two programs stay independent — no shared-VBO coupling
+        // to worry about. 48 bytes is free.
+        let quad: [f32; 12] = [
+            -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
+        ];
+
+        let mut vbo: gl::types::GLuint = 0;
+        gl::GenBuffers(1, &mut vbo);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            std::mem::size_of_val(&quad) as isize,
+            quad.as_ptr() as *const _,
+            gl::STATIC_DRAW,
+        );
+
+        let centre_loc = gl::GetUniformLocation(program, b"u_centre\0".as_ptr() as *const _);
+        let radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
+        let color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
+
+        (program, vbo, centre_loc, radius_loc, color_loc)
+    }
+}
+
 fn main() -> ExitCode {
     println!("veiland-core");
 
@@ -316,6 +403,15 @@ fn main() -> ExitCode {
         unsafe { build_compositor_program() };
     eprintln!("built compositor program id={}", compositor_program);
 
+    let (
+        indicator_program,
+        indicator_vbo,
+        indicator_centre_loc,
+        indicator_radius_loc,
+        indicator_color_loc,
+    ) = unsafe { build_indicator_program() };
+    eprintln!("built indicator program id={}", indicator_program);
+
     let auth = match auth::Session::new() {
         Ok(s) => s,
         Err(e) => {
@@ -347,6 +443,11 @@ fn main() -> ExitCode {
         compositor_vbo,
         compositor_sampler_loc,
         compositor_rect_loc,
+        indicator_program,
+        indicator_vbo,
+        indicator_centre_loc,
+        indicator_radius_loc,
+        indicator_color_loc,
         auth,
         loop_handle: event_loop.handle(),
         qh: qh.clone(),
@@ -721,12 +822,16 @@ impl SessionLockHandler for AppData {
             );
         }
 
-        let egl_surface = entry.egl_surface.as_ref().unwrap();
+        // Copy the egl::Surface out so `entry`'s mutable borrow
+        // ends here; we need an immutable self borrow later for
+        // draw_password_indicator. egl::Surface is Copy (the rest
+        // of this function already deref-copies it via *egl_surface).
+        let egl_surface = *entry.egl_surface.as_ref().unwrap();
         self.egl
             .make_current(
                 self.egl_display,
-                Some(*egl_surface),
-                Some(*egl_surface),
+                Some(egl_surface),
+                Some(egl_surface),
                 Some(self.egl_context),
             )
             .expect("eglMakeCurrent");
@@ -759,8 +864,14 @@ impl SessionLockHandler for AppData {
             }
         }
 
+        // Indicator paints on top of any plugins — soft trust-region
+        // enforcement. Plugins can declare any region; the indicator
+        // is always painted last so it can't be obscured. See M9
+        // step 4 / docs/m9-plan.md Q1.
+        self.draw_password_indicator(width as i32, height as i32);
+
         self.egl
-            .swap_buffers(self.egl_display, *egl_surface)
+            .swap_buffers(self.egl_display, egl_surface)
             .expect("eglSwapBuffers");
     }
 }
@@ -1066,9 +1177,107 @@ impl AppData {
                 }
             }
 
+            // Indicator paints on top of any plugins — see the
+            // matching note in SessionLockHandler::configure.
+            self.draw_password_indicator(w, h);
+
             self.egl
                 .swap_buffers(self.egl_display, *egl_surface)
                 .expect("eglSwapBuffers (repaint)");
+        }
+    }
+
+    /// Draw the password indicator on the currently-bound EGL surface.
+    ///
+    /// `width` and `height` are the surface's pixel dimensions. The
+    /// caller is responsible for making the right EGL context current
+    /// and clearing the framebuffer; this method only issues the
+    /// indicator draws. Designed to be called *last* in the per-
+    /// surface paint sequence so the indicator appears on top of any
+    /// plugins (the soft trust-region — plugins can declare any
+    /// region, the indicator always wins on paint order).
+    ///
+    /// One draw call per dot (N ≤ 32). Cheap enough that loop-vs-
+    /// instancing doesn't matter at this scale.
+    ///
+    /// Sizing / position / colour are hardcoded in M9 step 3; step 5
+    /// replaces them with the `[password]` config table.
+    fn draw_password_indicator(&self, width: i32, height: i32) {
+        let pw = &self.config.password;
+
+        // Cap at max_dots (config-driven; clamped at load to [1, 256]).
+        // The row freezes at this value — the user keeps typing but
+        // the dot count stops growing.
+        let n = self.auth.char_count().min(pw.max_dots as usize);
+        if n == 0 || width <= 0 || height <= 0 {
+            return;
+        }
+
+        // Colours are not configurable in v1; see docs/m9-plan.md
+        // "Deferred to post-M9".
+        let color: [f32; 4] = [220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 1.0];
+
+        let diameter = pw.dot_diameter as f32;
+        let spacing = pw.dot_spacing as f32;
+
+        // `x` default is surface-relative (centred), so it can't be
+        // baked into the config struct — resolved per-surface here.
+        // Same for `y_percent` default of 75. Both pass through their
+        // clamp ranges at load if explicitly set.
+        let centre_x_px = pw.x.map(|v| v as f32).unwrap_or(width as f32 / 2.0);
+        let y_percent = pw.y_percent.unwrap_or(75) as f32;
+
+        let w = width as f32;
+        let h = height as f32;
+
+        // Leftmost dot centre in surface pixels. total_width is the
+        // row's extent edge-to-edge; centring it on centre_x_px puts
+        // the leftmost *edge* at centre_x_px - total/2, so the
+        // leftmost *centre* is half a diameter further right.
+        let total_width = (n as f32 - 1.0) * spacing + diameter;
+        let start_x = centre_x_px - total_width / 2.0 + diameter / 2.0;
+        let centre_y_px = h * y_percent / 100.0;
+
+        // Clip-space radius: surface-px / (surface-px / 2) = 2 * px /
+        // surface, per axis. Width and height differ for non-square
+        // surfaces, so the dot stays circular on screen.
+        let rx = diameter / w;
+        let ry = diameter / h;
+
+        unsafe {
+            gl::UseProgram(self.indicator_program);
+
+            // Vertex attribute setup — same shape as plugin/state.rs's
+            // composite(). Re-binding per call is cheap and keeps this
+            // method self-contained (no assumed GL state from the
+            // previous program).
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.indicator_vbo);
+            let a_pos =
+                gl::GetAttribLocation(self.indicator_program, b"a_pos\0".as_ptr() as *const _);
+            gl::EnableVertexAttribArray(a_pos as u32);
+            gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+
+            // Uniforms that don't change between dots.
+            gl::Uniform2f(self.indicator_radius_loc, rx, ry);
+            gl::Uniform4f(
+                self.indicator_color_loc,
+                color[0],
+                color[1],
+                color[2],
+                color[3],
+            );
+
+            for i in 0..n {
+                let centre_x = start_x + i as f32 * spacing;
+                // Surface-px → clip space. Y is flipped: surface y=0
+                // is top, clip y=+1 is top. (The compositor shader
+                // flips at the UV instead; the indicator has no UV,
+                // so we flip here.)
+                let cx = (centre_x / w) * 2.0 - 1.0;
+                let cy = -((centre_y_px / h) * 2.0 - 1.0);
+                gl::Uniform2f(self.indicator_centre_loc, cx, cy);
+                gl::DrawArrays(gl::TRIANGLES, 0, 6);
+            }
         }
     }
 }
@@ -1413,6 +1622,14 @@ impl AppData {
             return;
         }
 
+        // Tracks whether this key changed the indicator-visible state
+        // (buffer length). Set on push/pop and on PAM-fail (the
+        // buffer is cleared inside authenticate()). On unlock we
+        // don't bother — the lock surface is about to go away and
+        // repaint_lock_surfaces will bail on RunState::UnlockedCleanly
+        // anyway.
+        let mut buffer_changed = false;
+
         match event.keysym {
             Keysym::Return | Keysym::KP_Enter => {
                 if self.auth.is_empty() {
@@ -1435,11 +1652,15 @@ impl AppData {
                     }
                     Err(_) => {
                         // Buffer already cleared by authenticate(). User retypes.
+                        // Repaint so the dots vanish — that's the
+                        // (silent) failure feedback for M9.
+                        buffer_changed = true;
                     }
                 }
             }
             Keysym::BackSpace => {
                 self.auth.pop_char();
+                buffer_changed = true;
             }
             #[cfg(feature = "debug-unlock")]
             Keysym::Escape => {
@@ -1455,8 +1676,18 @@ impl AppData {
                     && !s.chars().any(|c| c.is_control())
                 {
                     self.auth.push_utf8(s);
+                    buffer_changed = true;
                 }
             }
+        }
+
+        if buffer_changed {
+            // Synchronous repaint from inside the keyboard handler.
+            // Single-threaded calloop: this can't race with a Buffer-
+            // driven repaint because both run on the same loop. The
+            // RunState guard inside repaint_lock_surfaces handles the
+            // post-unlock case defensively.
+            self.repaint_lock_surfaces();
         }
     }
 }
