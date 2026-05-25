@@ -140,6 +140,13 @@ impl Session {
         self.len == 0
     }
 
+    pub fn char_count(&self) -> usize {
+        match std::str::from_utf8(&self.buf[..self.len]) {
+            Ok(s) => s.chars().count(),
+            Err(_) => 0,
+        }
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.len
@@ -168,6 +175,19 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn char_count_empty() {
+        let s = Session::new().unwrap();
+        assert_eq!(s.char_count(), 0);
+    }
+
+    #[test]
+    fn char_count_multibyte() {
+        let mut s = Session::new().unwrap();
+        s.push_utf8("hé");
+        assert_eq!(s.char_count(), 2);
+    }
 
     #[test]
     fn new_succeeds() {
