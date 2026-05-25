@@ -273,6 +273,13 @@ Scale is an integer in v1. Fractional scaling is a future extension that will
 add a new field or message variant; v1 plugins that only handle integer scale
 remain correct.
 
+The region dimensions (`region_w`, `region_h`) are already in physical pixels;
+plugins do not multiply them by `scale`. `scale` is for converting
+*plugin-internal* logical sizes (font sizes, shadow radii, asset selection)
+into physical pixels. The host sources `scale` from `wl_output.scale`; values
+outside `1..=3` are clamped to `3` (with a warn log on the host side) so the
+encoder never produces an out-of-range Configure.
+
 `output_name` is the `xdg_output.name` string for the output this plugin
 instance is rendering for (e.g. `"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`). Each
 `[[plugin]]` entry in the user's config is instantiated once per matching

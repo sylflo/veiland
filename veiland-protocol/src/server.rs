@@ -22,6 +22,13 @@ pub struct Configure {
     pub region_y: i32,
     pub region_w: u32,
     pub region_h: u32,
+    /// Output scale factor from `wl_output.scale` (1, 2, or 3 — Wayland's
+    /// integer-scale field; fractional scale is a separate protocol).
+    /// Plugins use this to convert logical-pixel config values (e.g.
+    /// `font_size`, shadow blur radius) into physical pixels. The region
+    /// dimensions are already in physical pixels — the host has done the
+    /// multiplication — so plugins do **not** multiply region_w/region_h
+    /// by scale.
     pub scale: u32,
     pub time_unix_seconds: i64,
     pub time_tz_offset_seconds: i32,

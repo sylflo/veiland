@@ -609,6 +609,7 @@ fn entry_matches_output(entry: &config::PluginEntry, output_name: &str) -> bool 
 fn try_spawn_one(
     entry: &config::PluginEntry,
     output_name: &str,
+    scale: u32,
     host_capabilities: HostCapabilities,
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
@@ -656,7 +657,7 @@ fn try_spawn_one(
         region_y: 0,
         region_w: 1920,
         region_h: 1080,
-        scale: 1,
+        scale,
         time_unix_seconds: 0,
         time_tz_offset_seconds: 0,
         output_name: output_name.to_string(),
@@ -934,6 +935,34 @@ impl AppData {
     /// hotplug-in case where `create_lock_surface_for_output`
     /// returned a recycled `None` slot.
     fn spawn_plugins_for_output(&mut self, output_idx: usize, output_name: &str) {
+        // Look up the output's scale factor via SCTK's OutputInfo and clamp to
+        // the protocol's 1..=3 range. Hardware reporting an out-of-range value
+        // (e.g. 4 on 8K-at-200%) is rare but real; clamping to 3 keeps text
+        // *almost* the right size on unfamiliar hardware, which is the least
+        // surprising failure mode. Raising the cap is a separate decision.
+        let raw_scale = self.lock_surfaces[output_idx]
+            .as_ref()
+            .and_then(|s| self.output_state.info(&s.wl_output))
+            .map(|info| info.scale_factor)
+            .unwrap_or(1);
+        let scale: u32 = match u32::try_from(raw_scale) {
+            Ok(s) if (1..=3).contains(&s) => s,
+            Ok(s) => {
+                eprintln!(
+                    "veiland-core: output {} reports scale {}, outside 1..=3; clamping to 3",
+                    output_name, s
+                );
+                3
+            }
+            Err(_) => {
+                eprintln!(
+                    "veiland-core: output {} reports negative scale {}; clamping to 1",
+                    output_name, raw_scale
+                );
+                1
+            }
+        };
+
         let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(self.config.plugins.len());
         for entry in &self.config.plugins {
             if !entry_matches_output(entry, output_name) {
@@ -943,6 +972,7 @@ impl AppData {
             match try_spawn_one(
                 entry,
                 output_name,
+                scale,
                 self.host_capabilities,
                 &self.egl,
                 self.egl_display,
