@@ -49,6 +49,14 @@ enum RunState {
 
 struct LockSurface {
     name: String,
+    /// The `wl_output` proxy this lock surface was created against.
+    /// Kept so `update_output` can detect a rebind: if SCTK rebinds
+    /// the global on a topology change, the new `WlOutput` will have
+    /// a different `id()` and we know to destroy + recreate this
+    /// surface against the fresh proxy. Comparing by id (not by
+    /// equality of the WlOutput value) is the protocol-correct way
+    /// to detect identity change.
+    wl_output: wl_output::WlOutput,
     lock_surface: SessionLockSurface,
     egl_window: Option<wayland_egl::WlEglSurface>,
     egl_surface: Option<egl::Surface>,
@@ -76,18 +84,33 @@ struct AppData {
     compositor_rect_loc: gl::types::GLint,
     auth: auth::Session,
     modifiers: Modifiers,
-    /// Calloop handle for registering new plugin sockets on hotplug
-    /// (step 5c). Cloned once at startup; the original handle stays
-    /// with the EventLoop in main().
+    /// Calloop handle for registering new plugin sockets on hotplug.
+    /// Cloned once at startup; the original handle stays with the
+    /// EventLoop in main().
     loop_handle: LoopHandle<'static, AppData>,
-    /// Wayland queue handle for creating new lock surfaces on hotplug
-    /// (step 5c). Cloned once at startup.
+    /// Wayland queue handle for creating new lock surfaces on hotplug.
+    /// Cloned once at startup.
     qh: QueueHandle<AppData>,
     /// The plugin config — owned here so the spawn helper can read it
-    /// without re-plumbing. Read-only after startup. Will also be
-    /// consulted by the future hotplug-in path (deferred — see
-    /// docs/m7-plan.md "Known limitations after step 5").
+    /// without re-plumbing. Read-only after startup. Also consulted
+    /// by the hotplug-in path (`process_pending_hotplug`).
     config: config::Config,
+    /// EGL fence-fd capability bit, computed once at startup. Stored
+    /// on AppData so the hotplug-in path can pass it to
+    /// `spawn_plugins_for_output` for newly-arrived monitors.
+    host_capabilities: HostCapabilities,
+    /// Outputs whose `new_output` fired during the last dispatch
+    /// batch. Drained after `event_loop.dispatch()` returns, when
+    /// SCTK's `OutputState` has fully processed all events from the
+    /// batch (so `xdg_output.name` and friends are populated). See
+    /// `process_pending_hotplug` and docs/m8-investigation.md.
+    pending_outputs_arrived: Vec<(wl_output::WlOutput, String)>,
+    /// Outputs whose `wl_output` proxy was rebound mid-flight
+    /// (Hyprland fast-replug pattern: global_remove + global on
+    /// the same local id within one dispatch batch). We need to
+    /// destroy the lock surface tied to the old proxy and create
+    /// a fresh one against the new proxy. Carries the new proxy.
+    pending_outputs_rebound: Vec<(wl_output::WlOutput, String)>,
 }
 
 unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
@@ -328,6 +351,9 @@ fn main() -> ExitCode {
         qh: qh.clone(),
         config: config.clone(),
         modifiers: Modifiers::default(),
+        host_capabilities,
+        pending_outputs_arrived: Vec::new(),
+        pending_outputs_rebound: Vec::new(),
     };
 
     // xdg_output.name arrives async after registry bind; without a roundtrip
@@ -350,14 +376,6 @@ fn main() -> ExitCode {
                 .unwrap_or_else(|| "<unnamed>".into())
         })
         .collect();
-    // --- 4. Spawn plugins per config -----------------------------------------
-    // Uses the shared helper so the startup spawn path and the hotplug
-    // path (update_output) stay identical. The helper appends one
-    // Vec<Option<PluginSlot>> per call; outer-vec index aligns with
-    // lock_surfaces, populated below.
-    for output_name in &output_names {
-        state.spawn_plugins_for_output(output_name, host_capabilities);
-    }
 
     // Warn about monitors entries that didn't match any connected output.
     // A typo'd name shouldn't fail the locker, but the user wants to know
@@ -385,9 +403,11 @@ fn main() -> ExitCode {
         .expect("ext-session-lock not supported");
     state.session_lock = Some(session_lock);
 
-    // Drive the create-lock-surface side via the shared helper so the
-    // startup path and the hotplug path (update_output) stay identical.
-    // Collect outputs into an owned vec first because the helper takes
+    // --- 4. Spawn plugins + create lock surfaces per output ------------------
+    // Create lock surface first (returns its index), then spawn plugins at
+    // the matching index. Same call pattern as `process_pending_hotplug`'s
+    // arrival path — startup and runtime use identical plumbing.
+    // Collect outputs into an owned vec first because the helpers take
     // &mut self and SCTK's outputs() iterator borrows output_state.
     let initial_outputs: Vec<(wl_output::WlOutput, String)> = state
         .output_state
@@ -402,8 +422,15 @@ fn main() -> ExitCode {
         })
         .collect();
     for (output, name) in &initial_outputs {
-        state.create_lock_surface_for_output(output, name.clone());
+        if let Some(idx) = state.create_lock_surface_for_output(output, name.clone()) {
+            state.spawn_plugins_for_output(idx, name);
+        }
     }
+    // Discard anything `new_output` collected during the startup
+    // roundtrip — we've already handled those outputs explicitly
+    // here. The drain-after-dispatch path is for *real* hotplug.
+    state.pending_outputs_arrived.clear();
+    state.pending_outputs_rebound.clear();
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
@@ -425,6 +452,11 @@ fn main() -> ExitCode {
         event_loop
             .dispatch(Duration::from_millis(16), &mut state)
             .expect("event loop dispatch");
+        // Drain any topology changes the just-finished dispatch
+        // collected. By now SCTK's OutputState has fully processed
+        // them, so creating/recreating lock surfaces here is safe.
+        // See AppData::process_pending_hotplug.
+        state.process_pending_hotplug();
     }
 
     // --- 8. Plugin teardown -------------------------------------------------
@@ -632,21 +664,6 @@ impl SessionLockHandler for AppData {
             height,
         );
 
-        // Note (M7 step 5c known limitation): if the user hot-plugs a
-        // *new* monitor mid-lock (or replugs one that was disconnected
-        // earlier), Hyprland reshuffles wl_output bindings in a way
-        // that puts wl_display into a fatal protocol error state. The
-        // very next eglSwapBuffers (in this handler) then panics from
-        // inside khronos-egl. We deliberately do NOT catch that panic
-        // here: an ext-session-lock-v1-compliant compositor keeps the
-        // screen locked when the client dies (the user is frozen-but-
-        // -secure, recoverable via TTY-switch), which is the safe
-        // failure mode. Catching the error and gracefully exiting
-        // would set RunState::UnlockedCleanly or similar — on a
-        // non-compliant compositor that's a security regression.
-        // Letting the panic propagate keeps the locker honest.
-        // Tracked in docs/m7-plan.md "Known limitations".
-
         let target = session_lock_surface.wl_surface();
         // Look up the surface in our vec. Returning None here is *not*
         // a panic-worthy case: hotplug-out can put a Configure event
@@ -748,13 +765,13 @@ impl SessionLockHandler for AppData {
 }
 
 impl AppData {
-    /// Create a `LockSurface` for one output and append it to
-    /// `self.lock_surfaces` as a fresh `Some(_)` slot. Currently only
-    /// called by the startup enumeration loop in `main()`; kept as a
-    /// helper so the future hotplug-in implementation (deferred — see
-    /// docs/m7-plan.md "Known limitations after step 5") can reuse it
-    /// without duplicating logic. Returns the index the surface was
-    /// inserted at, or `None` if the session_lock isn't held
+    /// Create a `LockSurface` for one output and place it in
+    /// `self.lock_surfaces`. Prefers reusing the first `None` slot
+    /// (left behind by an earlier `output_destroyed`) so the
+    /// `lock_surfaces` ↔ `plugins` index correspondence stays
+    /// compact across hotplug cycles. If no `None` slot exists,
+    /// pushes a fresh one. Returns the index the surface was
+    /// placed at, or `None` if the session_lock isn't held
     /// (defensive check, log + skip).
     fn create_lock_surface_for_output(
         &mut self,
@@ -779,22 +796,32 @@ impl AppData {
         );
         let lock_surface = LockSurface {
             name,
+            wl_output: output.clone(),
             lock_surface: session_lock.create_lock_surface(surface, output, &self.qh),
             egl_window: None,
             egl_surface: None,
         };
-        self.lock_surfaces.push(Some(lock_surface));
-        Some(self.lock_surfaces.len() - 1)
+        // Reuse the first None slot if one exists (hotplug-out leaves
+        // sentinels; reusing keeps lock_surfaces.len() bounded under
+        // long sessions with frequent topology changes).
+        if let Some(idx) = self.lock_surfaces.iter().position(|s| s.is_none()) {
+            self.lock_surfaces[idx] = Some(lock_surface);
+            Some(idx)
+        } else {
+            self.lock_surfaces.push(Some(lock_surface));
+            Some(self.lock_surfaces.len() - 1)
+        }
     }
 
-    /// Spawn the per-output slice of plugins for `output_name`, filtering
-    /// by each entry's `monitors` selector. Appends a `Vec<Option<PluginSlot>>`
-    /// onto `self.plugins`. The new outer index lines up with the
-    /// LockSurface index returned by `create_lock_surface_for_output`
-    /// (callers must keep them in lockstep). Currently only called by
-    /// the startup loop in `main()`; same reasoning as
-    /// `create_lock_surface_for_output` for keeping it factored out.
-    fn spawn_plugins_for_output(&mut self, output_name: &str, host_capabilities: HostCapabilities) {
+    /// Spawn the per-output slice of plugins for `output_name` and
+    /// place it at `output_idx` in `self.plugins`, growing the outer
+    /// vec with empty slices as needed so the index matches the
+    /// LockSurface index returned by `create_lock_surface_for_output`.
+    /// Filters each entry by its `monitors` selector. Reusing slot
+    /// `output_idx` (overwriting whatever was there) handles the
+    /// hotplug-in case where `create_lock_surface_for_output`
+    /// returned a recycled `None` slot.
+    fn spawn_plugins_for_output(&mut self, output_idx: usize, output_name: &str) {
         let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(self.config.plugins.len());
         for entry in &self.config.plugins {
             if !entry_matches_output(entry, output_name) {
@@ -804,7 +831,7 @@ impl AppData {
             match try_spawn_one(
                 entry,
                 output_name,
-                host_capabilities,
+                self.host_capabilities,
                 &self.egl,
                 self.egl_display,
             ) {
@@ -827,7 +854,11 @@ impl AppData {
         // Sort by z_index, stable: ties keep config-file order. Failed (None)
         // slots sort to the end via i32::MAX; they never render anything.
         per_output.sort_by_key(|slot| slot.as_ref().map(|s| s.z_index).unwrap_or(i32::MAX));
-        self.plugins.push(per_output);
+        // Place at output_idx, growing with empty slices if needed.
+        while self.plugins.len() <= output_idx {
+            self.plugins.push(Vec::new());
+        }
+        self.plugins[output_idx] = per_output;
     }
 
     /// Register a plugin's socket as a calloop event source. Captures
@@ -855,6 +886,110 @@ impl AppData {
                 move |_event, _meta, state: &mut AppData| state.drive_plugin(o, p),
             )
             .expect("register plugin fd with calloop");
+    }
+
+    /// Drain the pending-hotplug queues. Called after every
+    /// `event_loop.dispatch()` returns — by that point SCTK has fully
+    /// processed all events from the batch (registry bind/unbind,
+    /// xdg_output.name, geometry, etc.) and our internal state is
+    /// safe to mutate.
+    ///
+    /// Two queues:
+    ///
+    /// - `pending_outputs_arrived`: outputs whose `wl_output` global
+    ///   newly appeared. Create a lock surface (the compositor will
+    ///   send us a Configure for it on a later dispatch), then spawn
+    ///   the matching plugin instances and register their sockets.
+    ///
+    /// - `pending_outputs_rebound`: outputs whose `wl_output` proxy
+    ///   was rebound (Hyprland's fast-replug pattern). The plugins
+    ///   are still alive and connected; only the lock surface needs
+    ///   replacing. Destroy the old surface (dropping it lets SCTK's
+    ///   Drop send `ext_session_lock_surface_v1.destroy()`), then
+    ///   create a fresh one against the new proxy.
+    ///
+    /// Both paths are idempotent against running again with the same
+    /// queues — we filter "already have a lock surface for this
+    /// name" out of the arrived queue defensively in case SCTK fires
+    /// `new_output` for an output we already created at startup.
+    fn process_pending_hotplug(&mut self) {
+        let arrived = std::mem::take(&mut self.pending_outputs_arrived);
+        let rebound = std::mem::take(&mut self.pending_outputs_rebound);
+
+        // --- Arrivals ---
+        // For each newly-arrived output, create a lock surface and
+        // spawn plugins. The compositor will send a Configure for
+        // the new surface on a subsequent dispatch.
+        for (output, name) in arrived {
+            // Defensive: if we already have a lock surface for this
+            // name, this is a spurious notification. Skip rather
+            // than double-create.
+            let already_have = self
+                .lock_surfaces
+                .iter()
+                .any(|s| s.as_ref().map(|ls| ls.name == name).unwrap_or(false));
+            if already_have {
+                eprintln!(
+                    "[M8-TRACE] arrival skipped: {:?} already has a lock surface",
+                    name
+                );
+                continue;
+            }
+            eprintln!("[M8-TRACE] processing arrival: {:?}", name);
+            let Some(idx) = self.create_lock_surface_for_output(&output, name.clone()) else {
+                continue;
+            };
+            self.spawn_plugins_for_output(idx, &name);
+            // Register calloop sources for every plugin slot at this
+            // index. Even if the slot was previously occupied (slot
+            // recycled from a torn-down output), the prior calloop
+            // sources self-removed when their plugin sockets hit EOF;
+            // the new processes need fresh sources.
+            for p in 0..self.plugins[idx].len() {
+                self.register_plugin_source(idx, p);
+            }
+        }
+
+        // --- Rebinds ---
+        // For each rebound output, replace the lock surface with a
+        // fresh one against the new wl_output proxy. The old surface
+        // is dropped (sending destroy) before the new one is created.
+        for (output, name) in rebound {
+            eprintln!("[M8-TRACE] processing rebind: {:?}", name);
+            // Find the matching slot. If it's gone (e.g. our previous
+            // drain step already replaced it), nothing to do.
+            let Some(idx) = self
+                .lock_surfaces
+                .iter()
+                .position(|s| s.as_ref().map(|ls| ls.name == name).unwrap_or(false))
+            else {
+                eprintln!(
+                    "[M8-TRACE] rebind skipped: {:?} has no current lock surface",
+                    name
+                );
+                continue;
+            };
+            // Tear down EGL bits first (same order as output_destroyed
+            // Phase 3 — keep EGL from sending commits to a dying surface).
+            if let Some(surface_ref) = self.lock_surfaces[idx].as_mut() {
+                if let Some(egl_surface) = surface_ref.egl_surface.take() {
+                    if let Err(e) = self.egl.destroy_surface(self.egl_display, egl_surface) {
+                        eprintln!(
+                            "veiland-core: eglDestroySurface for {:?} (rebind) failed: \
+                            {:?} (continuing)",
+                            surface_ref.name, e
+                        );
+                    }
+                }
+                surface_ref.egl_window = None;
+            }
+            // Drop the old LockSurface so SCTK's Drop sends destroy.
+            self.lock_surfaces[idx] = None;
+            // Create the fresh one against the new wl_output proxy.
+            // It will land in the just-emptied slot (`create_lock_
+            // surface_for_output` prefers None slots).
+            self.create_lock_surface_for_output(&output, name);
+        }
     }
 }
 
@@ -995,26 +1130,21 @@ impl OutputHandler for AppData {
         _qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        // [M8-TRACE] No-op handler; we log entry so the WAYLAND_DEBUG
-        // capture shows whether SCTK fires this on cold-plug-only runs
-        // (it shouldn't, since startup enumerates from outputs() before
-        // we install handlers) and whether it fires for re-advertised
-        // outputs during fast unplug-replug cycles.
+        // Defer hotplug-in to `process_pending_hotplug` (called after
+        // each `event_loop.dispatch()`). Doing EGL/session_lock work
+        // synchronously inside the handler is unsafe: SCTK is mid-way
+        // through processing the current event batch and may not have
+        // finished binding the new wl_output globally yet. The
+        // deferred drain runs after SCTK's internal state has
+        // settled. See docs/m8-investigation.md for the trace
+        // evidence.
         let name = self
             .output_state
             .info(&output)
             .and_then(|i| i.name)
             .unwrap_or_else(|| "<unnamed>".to_string());
-        eprintln!("[M8-TRACE] new_output fired: {:?} (no-op)", name);
-        // Hotplug-in (creating a lock surface + plugins for a newly-
-        // arrived output) is deliberately not implemented in M7.
-        // Attempting it triggers an SCTK/Hyprland wl_output rebinding
-        // interaction that puts wl_display into a fatal protocol error
-        // state, and the locker can't recover. See
-        // docs/m7-plan.md "Known limitations after step 5" and the
-        // memory note `project_m7_hotplug_in_gap.md`. Plug all
-        // monitors *before* locking; once locked, monitors may be
-        // unplugged (handled by `output_destroyed`) but not added.
+        eprintln!("[M8-TRACE] new_output fired: {:?} (queued)", name);
+        self.pending_outputs_arrived.push((output, name));
     }
 
     fn update_output(
@@ -1023,19 +1153,53 @@ impl OutputHandler for AppData {
         _qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        // [M8-TRACE] No-op handler; we log entry so the WAYLAND_DEBUG
-        // capture shows whether SCTK fires this when wl_output globals
-        // get re-advertised mid-lock (suspect path for the rebind storm).
+        // `update_output` fires for two distinct reasons we have to
+        // distinguish:
+        //
+        // (a) Mode/scale change on a still-alive output. The wl_output
+        //     proxy identity is the same; nothing to do here (a future
+        //     M-step may want to re-send Configure to plugins with the
+        //     new size).
+        //
+        // (b) SCTK rebound the wl_output global after a topology event
+        //     (Hyprland fast-replug pattern: global_remove + global on
+        //     the same local id within one batch). The proxy identity
+        //     is DIFFERENT from what we have stored on `LockSurface`,
+        //     and we need to destroy + recreate our lock surface
+        //     against the fresh proxy. Otherwise the next commit on
+        //     the still-alive surface trips "invalid object" because
+        //     dmabuf-feedback / scanout state references the rebound
+        //     identity.
+        //
+        // Discriminator: `output.id() != stored.wl_output.id()`.
+        // ObjectId equality is Arc-based on the proxy's alive flag,
+        // not on the wire-level id — so even when SCTK re-uses local
+        // id 12 for the new binding, the new proxy's ObjectId is
+        // distinct from the released one.
         let name = self
             .output_state
             .info(&output)
             .and_then(|i| i.name)
             .unwrap_or_else(|| "<unnamed>".to_string());
-        eprintln!("[M8-TRACE] update_output fired: {:?} (no-op)", name);
-        // Same rationale as `new_output`: per-output mode/scale changes
-        // (re-Configure of an existing surface) are step 6's job, and
-        // a *new* output appearing here would route through the same
-        // crash path described above. No-op for M7.
+        let rebound = self
+            .lock_surfaces
+            .iter()
+            .filter_map(|s| s.as_ref())
+            .find(|ls| ls.name == name)
+            .map(|ls| ls.wl_output.id() != output.id())
+            .unwrap_or(false);
+        if rebound {
+            eprintln!(
+                "[M8-TRACE] update_output fired: {:?} (REBOUND, queued for recreate)",
+                name
+            );
+            self.pending_outputs_rebound.push((output, name));
+        } else {
+            eprintln!(
+                "[M8-TRACE] update_output fired: {:?} (mode/scale change, no-op)",
+                name
+            );
+        }
     }
 
     fn output_destroyed(
