@@ -3,11 +3,13 @@
 //! Public `Label` API and its GL draw path. See `docs/m10-plan.md`
 //! step 5a.
 //!
-//! 5a is "see Latin text on screen for the first time." The public
-//! struct has text/font/size/color/alignment/position; the render path
-//! shapes via cosmic-text, uploads glyphs into the atlas (step 4) on
-//! cache miss, then emits one quad per glyph and issues a single
-//! `glDrawArrays`. No rotation, no shadow — 5b adds those.
+//! 5a built the core: text/font/size/color/alignment/position; shape
+//! via cosmic-text, upload glyphs into the atlas (step 4), one
+//! `glDrawArrays` per label. 5b layers on rotation (vertex shader
+//! transform around the anchor) and drop shadow (a second draw pass
+//! with offset position + tint). Blur on the shadow is not implemented
+//! in M10 — the field exists so plugins compile, a `blur > 0.0` value
+//! logs once and is otherwise ignored.
 //!
 //! GL dialect matches the rest of veiland: GLES 2 (`#version 100`),
 //! `attribute`/`varying`/`uniform`, `gl_FragColor`. See
@@ -40,11 +42,27 @@ pub enum VAlign {
     Bottom,
 }
 
-/// A single styled text label. Constructed by the plugin from its
-/// config; consumed by `FontContext::render_label`. Cheap to build — all
-/// the work happens in `render_label`.
+/// Drop shadow on a label. Drawn as a second pass under the main text:
+/// same shaped glyphs, offset position, separate colour, blended below.
 ///
-/// 5a fields. Rotation and shadow land in 5b.
+/// `blur` is reserved — the field is on the struct so plugins compile
+/// stable against the API, but `blur > 0.0` is ignored in M10 with a
+/// one-time eprintln warning. Two-pass Gaussian on an FBO lands when
+/// (and if) a plugin actually asks for blurred shadows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shadow {
+    /// Pixel offset from the text. `(3, 3)` draws the shadow down-right
+    /// of the text; `(-3, -3)` up-left.
+    pub offset: (f32, f32),
+    /// Straight-alpha RGBA, each component in [0, 1].
+    pub color: [f32; 4],
+    /// Reserved. Set to `0.0` in M10. Non-zero values are ignored.
+    pub blur: f32,
+}
+
+/// A single styled text label. Constructed by the plugin from its
+/// config; consumed by `FontContext::render`. Cheap to build — all the
+/// work happens in `render`.
 #[derive(Debug, Clone)]
 pub struct Label {
     /// The text to display. UTF-8; cosmic-text handles complex scripts
@@ -63,6 +81,12 @@ pub struct Label {
     pub valign: VAlign,
     /// Anchor point in surface pixels (top-left origin).
     pub position: (f32, f32),
+    /// Counter-clockwise rotation in degrees, around the anchor point
+    /// (`position`). 0.0 means axis-aligned — the 5a default.
+    pub rotation: f32,
+    /// Optional drop shadow. `None` draws a single pass; `Some(_)`
+    /// draws a shadow pass first and the main text on top.
+    pub shadow: Option<Shadow>,
 }
 
 impl Label {
@@ -78,6 +102,8 @@ impl Label {
             halign: HAlign::Left,
             valign: VAlign::Top,
             position: (0.0, 0.0),
+            rotation: 0.0,
+            shadow: None,
         }
     }
 }
@@ -93,25 +119,49 @@ pub(crate) struct LabelGl {
     u_surface_loc: i32,
     u_color_loc: i32,
     u_atlas_loc: i32,
+    /// Rotation pivot in surface pixels — vertices are rotated around
+    /// this point before being converted to clip space. Equals the
+    /// label's `position`.
+    u_anchor_loc: i32,
+    /// `vec2(cos(rotation), sin(rotation))`. Computed CPU-side once per
+    /// draw; the vertex shader does one 2D rotation matrix multiply.
+    u_rot_loc: i32,
+    /// Per-pass position offset in pixels. Zero for the main pass;
+    /// `shadow.offset` for the shadow pass. Lets both passes share one
+    /// vertex buffer.
+    u_offset_loc: i32,
     /// Set to `true` if shader compile/link failed. Subsequent renders
     /// no-op. Lockscreen-grade error handling: don't crash the locker
     /// because a driver hiccupped. Tofu beats a black screen, but a
     /// black screen beats a panic.
     broken: bool,
+    /// Set once after the first `blur > 0.0` shadow is encountered, so
+    /// we don't spam the log every frame. M10 doesn't implement blur.
+    blur_warned: bool,
 }
 
 const VS_SRC: &[u8] = b"#version 100\n\
     attribute vec2 a_pos;\n\
     attribute vec2 a_uv;\n\
     uniform vec2 u_surface;\n\
+    uniform vec2 u_anchor;\n\
+    uniform vec2 u_rot;\n\
+    uniform vec2 u_offset;\n\
     varying vec2 v_uv;\n\
     void main() {\n\
-        // a_pos is in surface pixels, top-left origin. Convert to GL\n\
-        // clip space [-1, 1], flipping Y so top-left in pixels maps to\n\
-        // top of clip. See docs/m10-plan.md step 5a concept 3.\n\
+        // a_pos is in surface pixels, top-left origin. Rotate around\n\
+        // u_anchor (CCW; u_rot = vec2(cos, sin)) and apply the pass\n\
+        // offset (zero for main, shadow.offset for the shadow pass),\n\
+        // then convert to clip space [-1, 1] with Y flipped so\n\
+        // top-left in pixels maps to top of clip.\n\
+        // See docs/m10-plan.md step 5b for the rotation + shadow math.\n\
+        vec2 rel = a_pos - u_anchor;\n\
+        vec2 rot = vec2(rel.x * u_rot.x - rel.y * u_rot.y,\n\
+                        rel.x * u_rot.y + rel.y * u_rot.x);\n\
+        vec2 px = rot + u_anchor + u_offset;\n\
         vec2 clip;\n\
-        clip.x = (a_pos.x / u_surface.x) * 2.0 - 1.0;\n\
-        clip.y = 1.0 - (a_pos.y / u_surface.y) * 2.0;\n\
+        clip.x = (px.x / u_surface.x) * 2.0 - 1.0;\n\
+        clip.y = 1.0 - (px.y / u_surface.y) * 2.0;\n\
         gl_Position = vec4(clip, 0.0, 1.0);\n\
         v_uv = a_uv;\n\
     }\n\0";
@@ -183,6 +233,11 @@ impl LabelGl {
                 gl::GetUniformLocation(program, b"u_surface\0".as_ptr() as *const _);
             let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
             let u_atlas_loc = gl::GetUniformLocation(program, b"u_atlas\0".as_ptr() as *const _);
+            let u_anchor_loc =
+                gl::GetUniformLocation(program, b"u_anchor\0".as_ptr() as *const _);
+            let u_rot_loc = gl::GetUniformLocation(program, b"u_rot\0".as_ptr() as *const _);
+            let u_offset_loc =
+                gl::GetUniformLocation(program, b"u_offset\0".as_ptr() as *const _);
 
             let mut vbo: u32 = 0;
             gl::GenBuffers(1, &mut vbo);
@@ -197,7 +252,11 @@ impl LabelGl {
                 u_surface_loc,
                 u_color_loc,
                 u_atlas_loc,
+                u_anchor_loc,
+                u_rot_loc,
+                u_offset_loc,
                 broken: false,
+                blur_warned: false,
             }
         }
     }
@@ -211,7 +270,11 @@ impl LabelGl {
             u_surface_loc: -1,
             u_color_loc: -1,
             u_atlas_loc: -1,
+            u_anchor_loc: -1,
+            u_rot_loc: -1,
+            u_offset_loc: -1,
             broken: true,
+            blur_warned: false,
         }
     }
 }
@@ -457,7 +520,30 @@ pub(crate) fn render_label(
         return;
     }
 
-    // 5. Issue the draw.
+    // 5. Issue the draw(s). Rotation is computed once on the CPU and
+    //    pushed as a vec2(cos, sin) uniform — cheaper per vertex than
+    //    sin/cos in the shader, and 0° collapses to identity (cos=1,
+    //    sin=0) so the non-rotated case pays nothing visible.
+    //    If there's a shadow, draw it first (lower colour, offset
+    //    position) so the main text composites on top with the
+    //    existing SRC_ALPHA / ONE_MINUS_SRC_ALPHA blend.
+    let rot_rad = label.rotation.to_radians();
+    let (rot_sin, rot_cos) = rot_rad.sin_cos();
+
+    // M10 doesn't implement blur. Warn once per LabelGl if a plugin
+    // sets it, so the user sees something in the log; the shadow still
+    // draws sharp.
+    if let Some(s) = label.shadow.as_ref() {
+        if s.blur > 0.0 && !label_gl.blur_warned {
+            eprintln!(
+                "veiland-text: shadow blur {} requested but blur is unimplemented in M10; \
+                 drawing sharp-edged shadow instead",
+                s.blur
+            );
+            label_gl.blur_warned = true;
+        }
+    }
+
     // SAFETY: gl FFI; LabelGl invariants checked above (broken=false),
     // Atlas owns a valid texture from its own construction. Surface
     // size from caller; vertices owned by us.
@@ -490,14 +576,10 @@ pub(crate) fn render_label(
             (2 * std::mem::size_of::<f32>()) as *const _,
         );
 
+        // Uniforms that don't change between the shadow and main passes.
         gl::Uniform2f(label_gl.u_surface_loc, surface_size.0 as f32, surface_size.1 as f32);
-        gl::Uniform4f(
-            label_gl.u_color_loc,
-            label.color[0],
-            label.color[1],
-            label.color[2],
-            label.color[3],
-        );
+        gl::Uniform2f(label_gl.u_anchor_loc, label.position.0, label.position.1);
+        gl::Uniform2f(label_gl.u_rot_loc, rot_cos, rot_sin);
         gl::ActiveTexture(gl::TEXTURE0);
         gl::BindTexture(gl::TEXTURE_2D, atlas.texture());
         gl::Uniform1i(label_gl.u_atlas_loc, 0);
@@ -505,6 +587,28 @@ pub(crate) fn render_label(
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
+        // Shadow pass first (if any) — drawn underneath the main text.
+        if let Some(s) = label.shadow.as_ref() {
+            gl::Uniform2f(label_gl.u_offset_loc, s.offset.0, s.offset.1);
+            gl::Uniform4f(
+                label_gl.u_color_loc,
+                s.color[0],
+                s.color[1],
+                s.color[2],
+                s.color[3],
+            );
+            gl::DrawArrays(gl::TRIANGLES, 0, vertices.len() as i32);
+        }
+
+        // Main pass.
+        gl::Uniform2f(label_gl.u_offset_loc, 0.0, 0.0);
+        gl::Uniform4f(
+            label_gl.u_color_loc,
+            label.color[0],
+            label.color[1],
+            label.color[2],
+            label.color[3],
+        );
         gl::DrawArrays(gl::TRIANGLES, 0, vertices.len() as i32);
 
         gl::DisableVertexAttribArray(label_gl.a_pos_loc as u32);
