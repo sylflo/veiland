@@ -18,6 +18,13 @@ pub struct Config {
     /// `z_index` at spawn time; ties keep config-file order.
     #[serde(rename = "plugin", default)]
     pub plugins: Vec<PluginEntry>,
+
+    /// Password-indicator config. Missing `[password]` table →
+    /// `Password::default()`. Missing individual fields → that
+    /// field's per-fn default (see the struct doc-comments and
+    /// `validate_password` for clamping ranges).
+    #[serde(default)]
+    pub password: Password,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,6 +75,73 @@ pub struct Region {
     pub y: i32,
     pub w: u32,
     pub h: u32,
+}
+
+/// Password-indicator configuration. All fields are optional in
+/// the on-disk schema; missing fields take per-field defaults
+/// (see the `default_*` fns below for the constants).
+///
+/// `x` and `y_percent` are `Option<i32>` rather than plain `i32`
+/// because their defaults are *surface-relative* and can't be
+/// resolved at config-load time (we don't know the surface size
+/// yet). The renderer maps `None` to "centre horizontally on
+/// this surface" / "75% down this surface".
+///
+/// The other three (`dot_diameter`, `dot_spacing`, `max_dots`)
+/// have absolute defaults, so they're plain values and the
+/// renderer doesn't need to think about `None`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Password {
+    /// Horizontal centre of the dot row, in surface-pixel coords.
+    /// `None` → centred (renderer computes `width / 2` per output).
+    #[serde(default)]
+    pub x: Option<i32>,
+
+    /// Vertical position as a percentage of surface height (0..=100).
+    /// `None` → 75. Clamped to [0, 100] at load with a warning if
+    /// out of range. (i32, not u32, so out-of-range values from
+    /// users who write negatives are caught at clamping rather than
+    /// rejected at parse time.)
+    #[serde(default)]
+    pub y_percent: Option<i32>,
+
+    /// Dot diameter in surface pixels. Default 12; clamped to [1, 100].
+    #[serde(default = "default_dot_diameter")]
+    pub dot_diameter: u32,
+
+    /// Centre-to-centre stride between consecutive dots in surface
+    /// pixels. Default 20; clamped to [1, 200]. With diameter 12,
+    /// the default leaves an 8-px gap between dot edges.
+    #[serde(default = "default_dot_spacing")]
+    pub dot_spacing: u32,
+
+    /// Cap on the number of visible dots. Default 32; clamped to
+    /// [1, 256]. Beyond this, the indicator row freezes — the user
+    /// keeps typing but the dot count stops growing.
+    #[serde(default = "default_max_dots")]
+    pub max_dots: u32,
+}
+
+impl Default for Password {
+    fn default() -> Self {
+        Self {
+            x: None,
+            y_percent: None,
+            dot_diameter: default_dot_diameter(),
+            dot_spacing: default_dot_spacing(),
+            max_dots: default_max_dots(),
+        }
+    }
+}
+
+fn default_dot_diameter() -> u32 {
+    12
+}
+fn default_dot_spacing() -> u32 {
+    20
+}
+fn default_max_dots() -> u32 {
+    32
 }
 
 #[derive(Debug)]
@@ -145,12 +219,14 @@ fn load_from_path(path: &Path) -> Result<Config, ConfigError> {
         }
         Err(e) => return Err(ConfigError::Io(e)),
     };
-    let config: Config = toml::from_str(&text).map_err(ConfigError::Parse)?;
-    validate(&config)?;
+    let mut config: Config = toml::from_str(&text).map_err(ConfigError::Parse)?;
+    validate(&mut config)?;
     Ok(config)
 }
 
-fn validate(config: &Config) -> Result<(), ConfigError> {
+fn validate(config: &mut Config) -> Result<(), ConfigError> {
+    validate_password(&mut config.password);
+
     let mut seen: Vec<&str> = Vec::with_capacity(config.plugins.len());
     for (i, p) in config.plugins.iter().enumerate() {
         if p.name.is_empty() {
@@ -198,6 +274,60 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
     Ok(())
 }
 
+/// Clamp password-indicator fields to safe ranges, logging a
+/// warning when a value had to move. Never fatal: out-of-range
+/// values from a user config shouldn't lock them out, and the
+/// clamped values still produce a usable indicator.
+///
+/// `x` isn't clamped — any surface-pixel value is meaningful
+/// (negative places the dots off the left edge, large places them
+/// off the right; both are user errors but neither is dangerous).
+/// `y_percent` is clamped to [0, 100] because percentages outside
+/// that range have no meaning.
+fn validate_password(p: &mut Password) {
+    if let Some(y) = p.y_percent {
+        let clamped = y.clamp(0, 100);
+        if clamped != y {
+            eprintln!(
+                "veiland-core: [password] y_percent = {} out of range [0, 100]; \
+                clamped to {}",
+                y, clamped
+            );
+            p.y_percent = Some(clamped);
+        }
+    }
+
+    let clamped_diameter = p.dot_diameter.clamp(1, 100);
+    if clamped_diameter != p.dot_diameter {
+        eprintln!(
+            "veiland-core: [password] dot_diameter = {} out of range [1, 100]; \
+            clamped to {}",
+            p.dot_diameter, clamped_diameter
+        );
+        p.dot_diameter = clamped_diameter;
+    }
+
+    let clamped_spacing = p.dot_spacing.clamp(1, 200);
+    if clamped_spacing != p.dot_spacing {
+        eprintln!(
+            "veiland-core: [password] dot_spacing = {} out of range [1, 200]; \
+            clamped to {}",
+            p.dot_spacing, clamped_spacing
+        );
+        p.dot_spacing = clamped_spacing;
+    }
+
+    let clamped_max = p.max_dots.clamp(1, 256);
+    if clamped_max != p.max_dots {
+        eprintln!(
+            "veiland-core: [password] max_dots = {} out of range [1, 256]; \
+            clamped to {}",
+            p.max_dots, clamped_max
+        );
+        p.max_dots = clamped_max;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,8 +338,8 @@ mod tests {
     /// depend on the runtime env, and the dev-loop `$VEILAND_CONFIG`
     /// override is what we actually use to exercise them by hand.
     fn parse(text: &str) -> Result<Config, ConfigError> {
-        let config: Config = toml::from_str(text).map_err(ConfigError::Parse)?;
-        validate(&config)?;
+        let mut config: Config = toml::from_str(text).map_err(ConfigError::Parse)?;
+        validate(&mut config)?;
         Ok(config)
     }
 
@@ -452,6 +582,106 @@ mod tests {
             .as_ref()
             .expect("monitors is Some");
         assert_eq!(monitors, &vec!["DP-1".to_string(), "HDMI-A-1".to_string()]);
+    }
+
+    #[test]
+    fn password_absent_uses_defaults() {
+        // Missing [password] table → Password::default(): no x/y_percent
+        // overrides, defaults for the three sized fields.
+        let config = parse("").expect("empty config parses");
+        assert!(config.password.x.is_none());
+        assert!(config.password.y_percent.is_none());
+        assert_eq!(config.password.dot_diameter, 12);
+        assert_eq!(config.password.dot_spacing, 20);
+        assert_eq!(config.password.max_dots, 32);
+    }
+
+    #[test]
+    fn password_partial_table_keeps_other_defaults() {
+        // Only `x` written; the others should keep their defaults.
+        // Proves per-field #[serde(default = "...")] is wired up.
+        let text = r#"
+            [password]
+            x = 800
+        "#;
+        let config = parse(text).expect("partial password parses");
+        assert_eq!(config.password.x, Some(800));
+        assert!(config.password.y_percent.is_none());
+        assert_eq!(config.password.dot_diameter, 12);
+        assert_eq!(config.password.dot_spacing, 20);
+        assert_eq!(config.password.max_dots, 32);
+    }
+
+    #[test]
+    fn password_full_table_roundtrips() {
+        let text = r#"
+            [password]
+            x = 960
+            y_percent = 50
+            dot_diameter = 16
+            dot_spacing = 24
+            max_dots = 64
+        "#;
+        let config = parse(text).expect("full password parses");
+        assert_eq!(config.password.x, Some(960));
+        assert_eq!(config.password.y_percent, Some(50));
+        assert_eq!(config.password.dot_diameter, 16);
+        assert_eq!(config.password.dot_spacing, 24);
+        assert_eq!(config.password.max_dots, 64);
+    }
+
+    #[test]
+    fn password_y_percent_clamped_high() {
+        // 150 > 100 → clamped to 100 (with a warning we don't capture
+        // here — eprintln goes to stderr, not testable cheaply).
+        let text = r#"
+            [password]
+            y_percent = 150
+        "#;
+        let config = parse(text).expect("out-of-range y_percent clamps, not rejects");
+        assert_eq!(config.password.y_percent, Some(100));
+    }
+
+    #[test]
+    fn password_y_percent_clamped_negative() {
+        let text = r#"
+            [password]
+            y_percent = -10
+        "#;
+        let config = parse(text).expect("negative y_percent clamps, not rejects");
+        assert_eq!(config.password.y_percent, Some(0));
+    }
+
+    #[test]
+    fn password_dot_diameter_clamped() {
+        // dot_diameter = 0 → clamped to 1 (zero would degenerate the
+        // shader; one is the smallest meaningful dot).
+        let text = r#"
+            [password]
+            dot_diameter = 0
+        "#;
+        let config = parse(text).expect("zero diameter clamps, not rejects");
+        assert_eq!(config.password.dot_diameter, 1);
+    }
+
+    #[test]
+    fn password_dot_spacing_clamped_high() {
+        let text = r#"
+            [password]
+            dot_spacing = 99999
+        "#;
+        let config = parse(text).expect("huge spacing clamps, not rejects");
+        assert_eq!(config.password.dot_spacing, 200);
+    }
+
+    #[test]
+    fn password_max_dots_clamped() {
+        let text = r#"
+            [password]
+            max_dots = 0
+        "#;
+        let config = parse(text).expect("zero max_dots clamps, not rejects");
+        assert_eq!(config.password.max_dots, 1);
     }
 
     #[test]
