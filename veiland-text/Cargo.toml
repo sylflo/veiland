@@ -9,3 +9,4 @@ publish = false
 
 [dependencies]
 cosmic-text = "0.19"
+gl = "0.14"
