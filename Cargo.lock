@@ -956,6 +956,7 @@ name = "veiland-text"
 version = "0.1.0"
 dependencies = [
  "cosmic-text",
+ "gl",
 ]
 
 [[package]]
