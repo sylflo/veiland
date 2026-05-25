@@ -1138,13 +1138,38 @@ impl OutputHandler for AppData {
         // deferred drain runs after SCTK's internal state has
         // settled. See docs/m8-investigation.md for the trace
         // evidence.
+        //
+        // Hyprland twist: when a monitor is unplugged, Hyprland
+        // sometimes re-advertises the *surviving* monitor's wl_output
+        // under a new global. SCTK fires `new_output` for that new
+        // global, with a name that matches our existing entry. The
+        // server-side state is now tied to the new global; using
+        // the old wl_output proxy on the next commit produces
+        // "invalid object N". Detection: if `name` already has a
+        // lock surface, route this to the rebound queue instead of
+        // the arrival queue. The drain's rebound path destroys
+        // the affected lock surface and creates a fresh one against
+        // the new proxy. (Sway doesn't re-advertise, so this branch
+        // never fires there and behavior is unchanged.)
         let name = self
             .output_state
             .info(&output)
             .and_then(|i| i.name)
             .unwrap_or_else(|| "<unnamed>".to_string());
-        eprintln!("[M8-TRACE] new_output fired: {:?} (queued)", name);
-        self.pending_outputs_arrived.push((output, name));
+        let already_have = self
+            .lock_surfaces
+            .iter()
+            .any(|s| s.as_ref().map(|ls| ls.name == name).unwrap_or(false));
+        if already_have {
+            eprintln!(
+                "[M8-TRACE] new_output fired: {:?} (REBIND of existing name, queued)",
+                name
+            );
+            self.pending_outputs_rebound.push((output, name));
+        } else {
+            eprintln!("[M8-TRACE] new_output fired: {:?} (queued)", name);
+            self.pending_outputs_arrived.push((output, name));
+        }
     }
 
     fn update_output(
