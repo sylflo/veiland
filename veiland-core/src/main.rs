@@ -625,6 +625,12 @@ impl SessionLockHandler for AppData {
         _serial: u32,
     ) {
         let (width, height) = configure.new_size;
+        eprintln!(
+            "[M8-TRACE] configure ENTER: wl_surface={:?} size=({}x{})",
+            session_lock_surface.wl_surface().id(),
+            width,
+            height,
+        );
 
         // Note (M7 step 5c known limitation): if the user hot-plugs a
         // *new* monitor mid-lock (or replugs one that was disconnected
@@ -987,8 +993,19 @@ impl OutputHandler for AppData {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
+        // [M8-TRACE] No-op handler; we log entry so the WAYLAND_DEBUG
+        // capture shows whether SCTK fires this on cold-plug-only runs
+        // (it shouldn't, since startup enumerates from outputs() before
+        // we install handlers) and whether it fires for re-advertised
+        // outputs during fast unplug-replug cycles.
+        let name = self
+            .output_state
+            .info(&output)
+            .and_then(|i| i.name)
+            .unwrap_or_else(|| "<unnamed>".to_string());
+        eprintln!("[M8-TRACE] new_output fired: {:?} (no-op)", name);
         // Hotplug-in (creating a lock surface + plugins for a newly-
         // arrived output) is deliberately not implemented in M7.
         // Attempting it triggers an SCTK/Hyprland wl_output rebinding
@@ -1004,8 +1021,17 @@ impl OutputHandler for AppData {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
+        // [M8-TRACE] No-op handler; we log entry so the WAYLAND_DEBUG
+        // capture shows whether SCTK fires this when wl_output globals
+        // get re-advertised mid-lock (suspect path for the rebind storm).
+        let name = self
+            .output_state
+            .info(&output)
+            .and_then(|i| i.name)
+            .unwrap_or_else(|| "<unnamed>".to_string());
+        eprintln!("[M8-TRACE] update_output fired: {:?} (no-op)", name);
         // Same rationale as `new_output`: per-output mode/scale changes
         // (re-Configure of an existing surface) are step 6's job, and
         // a *new* output appearing here would route through the same
@@ -1042,9 +1068,11 @@ impl OutputHandler for AppData {
                     with no cached name; skipping teardown (would not \
                     know which lock surface to tear down)"
                 );
+                eprintln!("[M8-TRACE] output_destroyed RETURNING (no name)");
                 return;
             }
         };
+        eprintln!("[M8-TRACE] output_destroyed ENTER: {:?}", name);
 
         let output_idx = self
             .lock_surfaces
@@ -1056,6 +1084,7 @@ impl OutputHandler for AppData {
                 lock surface; nothing to tear down",
                 name
             );
+            eprintln!("[M8-TRACE] output_destroyed RETURNING (no matching surface): {:?}", name);
             return;
         };
 
@@ -1133,6 +1162,7 @@ impl OutputHandler for AppData {
             "veiland-core: output {} teardown complete; slot is now None",
             name
         );
+        eprintln!("[M8-TRACE] output_destroyed RETURNING (normal): {:?}", name);
     }
 }
 
