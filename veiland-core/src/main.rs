@@ -103,7 +103,8 @@ struct AppData {
     /// batch. Drained after `event_loop.dispatch()` returns, when
     /// SCTK's `OutputState` has fully processed all events from the
     /// batch (so `xdg_output.name` and friends are populated). See
-    /// `process_pending_hotplug` and docs/m8-investigation.md.
+    /// `process_pending_hotplug` and the M8 retrospective in
+    /// docs/m8-plan.md.
     pending_outputs_arrived: Vec<(wl_output::WlOutput, String)>,
     /// Outputs whose `wl_output` proxy was rebound mid-flight
     /// (Hyprland fast-replug pattern: global_remove + global on
@@ -1136,8 +1137,8 @@ impl OutputHandler for AppData {
         // through processing the current event batch and may not have
         // finished binding the new wl_output globally yet. The
         // deferred drain runs after SCTK's internal state has
-        // settled. See docs/m8-investigation.md for the trace
-        // evidence.
+        // settled. See the M8 retrospective in docs/m8-plan.md
+        // for the trace evidence and design rationale.
         //
         // Hyprland twist: when a monitor is unplugged, Hyprland
         // sometimes re-advertises the *surviving* monitor's wl_output
@@ -1273,7 +1274,10 @@ impl OutputHandler for AppData {
                 lock surface; nothing to tear down",
                 name
             );
-            eprintln!("[M8-TRACE] output_destroyed RETURNING (no matching surface): {:?}", name);
+            eprintln!(
+                "[M8-TRACE] output_destroyed RETURNING (no matching surface): {:?}",
+                name
+            );
             return;
         };
 
