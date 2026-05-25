@@ -284,6 +284,15 @@ into physical pixels. The host sources `scale` from `wl_output.scale`; values
 outside `1..=3` are clamped to `3` (with a warn log on the host side) so the
 encoder never produces an out-of-range Configure.
 
+A re-`Configure` may arrive at any time with a different `scale` (e.g. the
+user changes their monitor's scale factor in the compositor settings). The
+plugin should latch the new value and use it on the next `FrameDone` — there
+is no separate "scale-changed" message and no requirement to re-render
+immediately on receipt. M10's `veiland-label` is the reference shape:
+`scale` is stored on plugin state at every `Configure`, and every render
+multiplies logical-pixel config values (`font_size`, `position`, shadow
+offset) by the current scale.
+
 `output_name` is the `xdg_output.name` string for the output this plugin
 instance is rendering for (e.g. `"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`). Each
 `[[plugin]]` entry in the user's config is instantiated once per matching
