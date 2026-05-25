@@ -1107,18 +1107,28 @@ impl OutputHandler for AppData {
             // WlEglSurface drops via the take() leaving None.
             surface_ref.egl_window = None;
         }
-        // Phase 4: leak the SessionLockSurface instead of dropping it.
-        // SCTK's SessionLockSurfaceInner::drop sends a destroy request
-        // to the compositor, but when the output is gone the server has
-        // already destroyed its end — that request lands on an invalid
-        // object and puts wl_display into a fatal error state, which
-        // then makes the *next* swap_buffers (on the surviving monitor)
-        // crash. Forgetting the slot keeps Rust from running Drop. The
-        // proxy handle leak is small and bounded by unplug events.
-        let taken = std::mem::take(&mut self.lock_surfaces[output_idx]);
-        if let Some(ls) = taken {
-            std::mem::forget(ls);
-        }
+        // Phase 4: drop the SessionLockSurface, letting SCTK's
+        // SessionLockSurfaceInner::Drop send ext_session_lock_surface_v1
+        // .destroy() to the compositor. SCTK runs *our* output_destroyed
+        // handler BEFORE releasing the wl_output (SCTK 0.20
+        // src/output.rs lines 909-918), so destroying the lock surface
+        // here happens while the wl_output is still alive — matching
+        // swaylock / hyprlock's destruction order:
+        //
+        //     ext_session_lock_surface_v1.destroy()  ← our Drop here
+        //     wl_surface.destroy()                   ← chained Drops
+        //     wl_output.release()                    ← SCTK after we return
+        //
+        // The earlier `mem::forget` was a M7-debug-cycle empirical
+        // workaround that traded a Drop-time crash for a later
+        // swap-time crash on the surviving monitor (Hyprland) and
+        // stranded keyboard focus on the destroyed surface (Sway —
+        // the compositor doesn't re-route until the surface object
+        // is actually destroyed). Both researched references just
+        // drop the surface — see hyprlock's
+        // src/core/hyprlock.cpp setGlobalRemove and swaylock-plugin's
+        // main.c destroy_surface.
+        self.lock_surfaces[output_idx] = None;
         eprintln!(
             "veiland-core: output {} teardown complete; slot is now None",
             name
