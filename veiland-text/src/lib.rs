@@ -2,18 +2,25 @@
 
 //! Text rendering for veiland plugins. See `docs/m10-plan.md`.
 //!
-//! M10 step 4: `FontContext` now plumbs a GPU glyph atlas. The atlas
-//! itself materializes lazily on the first `Label::render` call (step 5)
-//! when a live GL context exists — `FontContext::new()` stays
-//! GL-context-free so plugin startup order remains forgiving.
+//! M10 step 5a: the public `Label` API and its GL draw path land.
+//! Plugins construct a `FontContext` once at startup, build a `Label`
+//! per frame (cheap — just config), and call `FontContext::render`.
+//! Atlas (step 4) and shader/VBO (this step) materialize lazily on the
+//! first render so `FontContext::new()` stays GL-context-free.
+//!
+//! No rotation or shadow yet — step 5b adds those.
 
 #![deny(unsafe_code)]
 
 mod atlas;
+mod label;
 
 use cosmic_text::{FontSystem, SwashCache};
 
 use atlas::Atlas;
+use label::LabelGl;
+
+pub use label::{HAlign, Label, VAlign};
 
 /// Per-plugin-process owner of the font database and glyph rasterization
 /// cache. Constructed once at plugin startup; reused across every frame.
@@ -31,11 +38,14 @@ use atlas::Atlas;
 pub struct FontContext {
     font_system: FontSystem,
     swash_cache: SwashCache,
-    /// Lazily initialized on the first `Label::render` call (step 5);
-    /// `None` until then so plugins without a GL context yet (e.g.
-    /// during their own startup before the first FrameDone) can still
-    /// construct a `FontContext`.
+    /// Lazily initialized on the first `render` call; `None` until then
+    /// so plugins without a GL context yet (e.g. during their own
+    /// startup before the first FrameDone) can still construct a
+    /// `FontContext`.
     atlas: Option<Atlas>,
+    /// Same lazy-init story as `atlas`: shader compilation needs a live
+    /// GL context, so we wait until the plugin has one.
+    label_gl: Option<LabelGl>,
 }
 
 impl FontContext {
@@ -44,7 +54,32 @@ impl FontContext {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
             atlas: None,
+            label_gl: None,
         }
+    }
+
+    /// Draw `label` into the currently-bound framebuffer. Requires a
+    /// live GL context.
+    ///
+    /// First call lazily initializes the glyph atlas and the shader
+    /// program; subsequent calls reuse both. If shader compilation
+    /// failed (logged via `eprintln!`), this becomes a no-op for the
+    /// rest of the session — the lockscreen continues without text
+    /// rather than crashing.
+    ///
+    /// `surface_size` is the framebuffer's `(width, height)` in
+    /// physical pixels. The plugin passes its dmabuf's dimensions.
+    pub fn render(&mut self, label: &Label, surface_size: (u32, u32)) {
+        let atlas = self.atlas.get_or_insert_with(Atlas::new);
+        let label_gl = self.label_gl.get_or_insert_with(LabelGl::new);
+        label::render_label(
+            label,
+            label_gl,
+            atlas,
+            &mut self.font_system,
+            &mut self.swash_cache,
+            surface_size,
+        );
     }
 }
 

@@ -280,6 +280,15 @@ impl Atlas {
 
 impl Drop for Atlas {
     fn drop(&mut self) {
+        // 0 is GL's "no such texture" sentinel: glGenTextures never
+        // returns 0, so a 0 here means this Atlas was built outside of
+        // `new()` (specifically, by the GL-free test fixture) and there
+        // is nothing to delete. Skipping the FFI call also avoids
+        // panicking in unit tests where the `gl` crate's function
+        // pointers were never loaded.
+        if self.texture == 0 {
+            return;
+        }
         // SAFETY: gl is FFI; if the GL context has gone away before us
         // (plugin shutdown order), glDeleteTextures is a no-op on an
         // invalid name rather than UB. Best-effort cleanup.
