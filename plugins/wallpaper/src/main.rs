@@ -3,10 +3,12 @@
 //! M11 reference plugin — displays a single fixed image as a
 //! full-surface background.
 //!
-//! Reads `path = "..."` from `VEILAND_PLUGIN_CONFIG`, decodes the
-//! image once at startup via the `image` crate, uploads it to a GL
-//! texture, and draws a textured full-buffer quad on every
-//! `FrameDone`.
+//! Reads `path = "..."` from `VEILAND_PLUGIN_CONFIG`, kicks off a
+//! worker thread that decodes the image via the `image` crate, and
+//! in parallel proceeds through the host handshake and first-frame
+//! path. Early frames render solid black; once the worker finishes,
+//! the main thread uploads the pixels to a GL texture and subsequent
+//! frames draw a textured full-buffer quad.
 //!
 //! On any failure to load the configured image (missing path, decode
 //! error, unsupported format) the plugin logs and falls back to
@@ -14,8 +16,8 @@
 //! never take down the locker (lockscreen-grade error handling per
 //! CLAUDE.md).
 
-use image::ImageReader;
 use serde::Deserialize;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
 use veiland_protocol::{Buffer, ServerMessage};
 
@@ -63,34 +65,85 @@ fn decode_image(path: &str) -> Option<DecodedImage> {
     if path.is_empty() {
         return None;
     }
-    let reader = match ImageReader::open(path) {
-        Ok(r) => r,
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
         Err(e) => {
-            eprintln!("veiland-{}: failed to open {:?}: {}", PLUGIN_NAME, path, e);
+            eprintln!("veiland-{}: failed to read {:?}: {}", PLUGIN_NAME, path, e);
             return None;
         }
     };
-    let reader = match reader.with_guessed_format() {
-        Ok(r) => r,
+
+    // Sniff by magic bytes, not extension — handles mislabelled files
+    // and avoids handing a PNG to libjpeg-turbo (which would just
+    // error). JPEG: FF D8 FF. PNG: 89 50 4E 47 0D 0A 1A 0A.
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        decode_jpeg(path, &bytes)
+    } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        decode_png(path, &bytes)
+    } else {
+        eprintln!(
+            "veiland-{}: {:?} is neither JPEG nor PNG (first bytes {:02X?}); \
+             black background",
+            PLUGIN_NAME,
+            path,
+            &bytes[..bytes.len().min(8)]
+        );
+        None
+    }
+}
+
+fn decode_jpeg(path: &str, bytes: &[u8]) -> Option<DecodedImage> {
+    let img = match turbojpeg::decompress(bytes, turbojpeg::PixelFormat::RGBA) {
+        Ok(i) => i,
         Err(e) => {
             eprintln!(
-                "veiland-{}: failed to sniff format of {:?}: {}",
+                "veiland-{}: turbojpeg failed to decode {:?}: {}",
                 PLUGIN_NAME, path, e
             );
             return None;
         }
     };
-    let img = match reader.decode() {
+
+    // turbojpeg allows pitch > width*4 (row padding). Our GL upload
+    // assumes tightly-packed RGBA, so reject the padded case rather
+    // than copy row-by-row. Doesn't happen for typical wallpaper
+    // sizes; if it ever bites we'll add the repack.
+    let expected_pitch = img.width.checked_mul(4).unwrap_or(0);
+    if img.pitch != expected_pitch {
+        eprintln!(
+            "veiland-{}: turbojpeg returned pitch={} for width={} (expected {}); \
+             black background",
+            PLUGIN_NAME, img.pitch, img.width, expected_pitch
+        );
+        return None;
+    }
+
+    eprintln!(
+        "veiland-{}: decoded {:?} as {}x{} RGBA (turbojpeg)",
+        PLUGIN_NAME, path, img.width, img.height
+    );
+    Some(DecodedImage {
+        width: img.width as u32,
+        height: img.height as u32,
+        rgba: img.pixels,
+    })
+}
+
+fn decode_png(path: &str, bytes: &[u8]) -> Option<DecodedImage> {
+    let img = match image::load_from_memory_with_format(bytes, image::ImageFormat::Png) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("veiland-{}: failed to decode {:?}: {}", PLUGIN_NAME, path, e);
+            eprintln!(
+                "veiland-{}: image crate failed to decode PNG {:?}: {}",
+                PLUGIN_NAME, path, e
+            );
             return None;
         }
     };
     let rgba = img.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
     eprintln!(
-        "veiland-{}: decoded {:?} as {}x{} RGBA",
+        "veiland-{}: decoded {:?} as {}x{} RGBA (image crate, PNG)",
         PLUGIN_NAME, path, width, height
     );
     Some(DecodedImage {
@@ -160,10 +213,11 @@ struct GpuState {
     tex: Option<gl::types::GLuint>,
 }
 
-/// Build the textured-quad program, upload the VBO, optionally upload
-/// the decoded image as a texture. Must be called with a current EGL
-/// context (i.e. after `dma.bind_for_rendering()`).
-unsafe fn build_gpu_state(decoded: Option<DecodedImage>) -> GpuState {
+/// Build the textured-quad program and upload the VBO. Must be called
+/// with a current EGL context (i.e. after `dma.bind_for_rendering()`).
+/// The texture starts unset; `upload_texture` fills it in when the
+/// decode worker finishes.
+unsafe fn build_gpu_state() -> GpuState {
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
         varying vec2 v_uv;\n\
@@ -206,53 +260,42 @@ unsafe fn build_gpu_state(decoded: Option<DecodedImage>) -> GpuState {
 
         let u_tex_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
 
-        let tex = decoded.map(|img| {
-            let mut tex: gl::types::GLuint = 0;
-            gl::GenTextures(1, &mut tex);
-            gl::BindTexture(gl::TEXTURE_2D, tex);
-            // Linear filtering — fit-to-buffer stretch is acceptable
-            // for M11 v1; cover/contain modes are M12+.
-            gl::TexParameteri(
-                gl::TEXTURE_2D,
-                gl::TEXTURE_MIN_FILTER,
-                gl::LINEAR as i32,
-            );
-            gl::TexParameteri(
-                gl::TEXTURE_2D,
-                gl::TEXTURE_MAG_FILTER,
-                gl::LINEAR as i32,
-            );
-            gl::TexParameteri(
-                gl::TEXTURE_2D,
-                gl::TEXTURE_WRAP_S,
-                gl::CLAMP_TO_EDGE as i32,
-            );
-            gl::TexParameteri(
-                gl::TEXTURE_2D,
-                gl::TEXTURE_WRAP_T,
-                gl::CLAMP_TO_EDGE as i32,
-            );
-            // Default GL_UNPACK_ALIGNMENT is 4, which matches RGBA8
-            // (4 bytes per pixel) — no need to override.
-            gl::TexImage2D(
-                gl::TEXTURE_2D,
-                0,
-                gl::RGBA as i32,
-                img.width as i32,
-                img.height as i32,
-                0,
-                gl::RGBA,
-                gl::UNSIGNED_BYTE,
-                img.rgba.as_ptr() as *const _,
-            );
-            tex
-        });
-
         GpuState {
             program,
             u_tex_loc,
-            tex,
+            tex: None,
         }
+    }
+}
+
+/// Upload a decoded image to a fresh GL texture. Must be called with a
+/// current EGL context — call sites are inside the render loop, after
+/// `dma.bind_for_rendering()`.
+unsafe fn upload_texture(img: &DecodedImage) -> gl::types::GLuint {
+    unsafe {
+        let mut tex: gl::types::GLuint = 0;
+        gl::GenTextures(1, &mut tex);
+        gl::BindTexture(gl::TEXTURE_2D, tex);
+        // Linear filtering — fit-to-buffer stretch is acceptable
+        // for M11 v1; cover/contain modes are M12+.
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        // Default GL_UNPACK_ALIGNMENT is 4, which matches RGBA8
+        // (4 bytes per pixel) — no need to override.
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32,
+            img.width as i32,
+            img.height as i32,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            img.rgba.as_ptr() as *const _,
+        );
+        tex
     }
 }
 
@@ -266,10 +309,18 @@ fn run() -> Result<(), PluginError> {
     let config = load_config();
     eprintln!("veiland-{}: config path={:?}", PLUGIN_NAME, config.path);
 
-    // Decode the image on the CPU before doing anything else. This is
-    // the blocking work — a 4K JPEG can take ~100ms. The lock surface
-    // shows the core's clear colour until our first buffer arrives.
-    let decoded = decode_image(&config.path);
+    // Decode runs on a worker thread so the connection handshake and
+    // first-frame path don't block on it. A 4K JPEG can take ~5s on
+    // the user's box; rendering black during that window beats
+    // stalling the lock surface on the core's clear colour.
+    let (decode_tx, decode_rx) = mpsc::channel::<Option<DecodedImage>>();
+    let decode_path = config.path.clone();
+    std::thread::spawn(move || {
+        let decoded = decode_image(&decode_path);
+        // Receiver may already be gone if the plugin shut down early.
+        // Either way there's nothing useful to do with the result.
+        let _ = decode_tx.send(decoded);
+    });
 
     let gbm_egl = GbmEgl::new()?;
 
@@ -326,7 +377,8 @@ fn run() -> Result<(), PluginError> {
     );
 
     dma.bind_for_rendering()?;
-    let gpu = unsafe { build_gpu_state(decoded) };
+    let mut gpu = unsafe { build_gpu_state() };
+    let mut decode_rx: Option<Receiver<Option<DecodedImage>>> = Some(decode_rx);
 
     let buf_msg = Buffer {
         id: 0,
@@ -362,14 +414,30 @@ fn run() -> Result<(), PluginError> {
                     pending_frame = true;
                     continue;
                 }
-                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, fast_path)?;
+                render_and_send(
+                    &dma,
+                    &gbm_egl,
+                    &mut conn,
+                    &buf_msg,
+                    &mut gpu,
+                    &mut decode_rx,
+                    fast_path,
+                )?;
                 buffer_released = false;
             }
             ServerMessage::BufferReleased(_) => {
                 buffer_released = true;
                 if pending_frame {
                     pending_frame = false;
-                    render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, fast_path)?;
+                    render_and_send(
+                        &dma,
+                        &gbm_egl,
+                        &mut conn,
+                        &buf_msg,
+                        &mut gpu,
+                        &mut decode_rx,
+                        fast_path,
+                    )?;
                     buffer_released = false;
                 }
             }
@@ -386,11 +454,40 @@ fn render_and_send(
     gbm_egl: &GbmEgl,
     conn: &mut Connection,
     buf_msg: &Buffer,
-    gpu: &GpuState,
+    gpu: &mut GpuState,
+    decode_rx: &mut Option<Receiver<Option<DecodedImage>>>,
     fast_path: bool,
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let (w, h) = (dma.width(), dma.height());
+
+    // Check the decode worker before drawing — a freshly-arrived
+    // texture renders on the same frame. The receiver is taken once
+    // the worker has reported (success or failure) so we stop polling.
+    if let Some(rx) = decode_rx.as_ref() {
+        match rx.try_recv() {
+            Ok(Some(img)) => {
+                gpu.tex = Some(unsafe { upload_texture(&img) });
+                *decode_rx = None;
+            }
+            Ok(None) => {
+                eprintln!(
+                    "veiland-{}: decode worker reported failure; staying black",
+                    PLUGIN_NAME
+                );
+                *decode_rx = None;
+            }
+            Err(TryRecvError::Disconnected) => {
+                eprintln!(
+                    "veiland-{}: decode worker disconnected (likely panicked); \
+                     staying black",
+                    PLUGIN_NAME
+                );
+                *decode_rx = None;
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+    }
 
     unsafe {
         gl::Viewport(0, 0, w as i32, h as i32);

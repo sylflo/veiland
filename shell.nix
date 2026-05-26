@@ -31,6 +31,12 @@ pkgs.mkShell {
     # PAM for veiland-core's auth path. pam-sys2's build script finds the
     # headers via pkg-config; the linker needs -lpam / -lpam_misc.
     linux-pam
+
+    # libjpeg-turbo for veiland-wallpaper's JPEG fast path. The
+    # `turbojpeg` crate is built with default-features=off + pkg-config,
+    # so it links to this rather than building libjpeg-turbo from source
+    # (which would also pull in cmake + nasm at build time).
+    libjpeg_turbo
   ];
 
   shellHook = ''
