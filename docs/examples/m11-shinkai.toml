@@ -1,0 +1,165 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# M11 mockup fixture — Shinkai movies, scene 1 ("Your Name").
+#
+# Composes all four M11 reference plugins (wallpaper, vignette,
+# particles, clock) plus two `veiland-label` instances from M10 for
+# the movie title and the quote. Z-order matches docs/m11-plan.md Q3:
+#
+#   0  wallpaper       (background image)
+#   10 vignette        (darkens corners)
+#   20 particles       (drifting white/yellow dots)
+#   30 title-english   (small, dim)
+#   31 title-japanese  (large, bright)
+#   40 quote-english   (italic-equivalent line)
+#   41 quote-japanese  (small, dim)
+#   50 clock           (time + date in upper-left)
+#
+# The M9 password indicator paints on top of everything via the core's
+# fixed paint order (not z-controlled).
+#
+# Asset path notes:
+#
+# * The wallpaper path below references the user's local checkout of
+#   system_config (Shinkai 4K reference asset). Adjust to wherever
+#   the JPG lives on your system. Anything PNG or JPEG works.
+#
+# * Fonts: the labels ask for "Noto Sans CJK JP" — present on most
+#   distros via the noto-fonts-cjk package. Latin glyphs render from
+#   the same family; Japanese glyphs render from the CJK subset.
+#   `fc-list :lang=ja` must report it or the title/quote labels
+#   render tofu.
+#
+# Visible-vs-mockup differences (M12 candidates, per
+# docs/improvements.md):
+#
+# * No letter-spacing on `title-english` (mockup uses 6px tracking).
+# * Quote not italic (`veiland-label` doesn't expose italics).
+# * Particle motion is ~10 fps not ~60 fps (host pacing limitation;
+#   see improvements.md "Per-plugin frame rate").
+
+# --- Wallpaper: edge-to-edge image ---------------------------------
+[[plugin]]
+name = "wallpaper"
+binary = "target/debug/veiland-wallpaper"
+z_index = 0
+
+[plugin.config]
+path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/938805-3840x2160-desktop-4k-makoto-shinkai-wallpaper-photo.jpg"
+
+# --- Vignette: soft corner darkening -------------------------------
+[[plugin]]
+name = "vignette"
+binary = "target/debug/veiland-vignette"
+z_index = 10
+
+[plugin.config]
+color = [0.0, 0.0, 0.0, 1.0]
+opacity_top_left = 0.55
+opacity_top_right = 0.55
+opacity_bottom_left = 0.65
+opacity_bottom_right = 0.65
+radius = 1.3
+
+# --- Particles: drifting motes -------------------------------------
+[[plugin]]
+name = "particles"
+binary = "target/debug/veiland-particles"
+z_index = 20
+
+[plugin.config]
+count = 40
+# Mockup uses translucent white; tune brighter if you want them to
+# read more clearly against this specific wallpaper.
+color = [1.0, 1.0, 1.0, 0.5]
+
+# --- Title (English) — small, dim, above the Japanese title --------
+[[plugin]]
+name = "title-english"
+binary = "target/debug/veiland-label"
+z_index = 30
+
+[plugin.config]
+text = "YOUR NAME"
+font_family = "Noto Sans CJK JP"
+font_size = 16
+color = [0.91, 0.96, 0.97, 0.6]
+halign = "center"
+valign = "middle"
+# Surface is 1920x1080; centre is (960, 540). Title block sits a bit
+# above centre. English sits ~80px above the Japanese title.
+position = [960, 420]
+shadow_offset = [0, 2]
+shadow_color = [0.0, 0.0, 0.0, 0.8]
+
+# --- Title (Japanese) — large, bright, the main visual -------------
+[[plugin]]
+name = "title-japanese"
+binary = "target/debug/veiland-label"
+z_index = 31
+
+[plugin.config]
+text = "君の名は。"
+font_family = "Noto Sans CJK JP"
+font_size = 42
+color = [0.91, 0.96, 0.97, 0.95]
+halign = "center"
+valign = "middle"
+position = [960, 480]
+shadow_offset = [0, 4]
+shadow_color = [0.0, 0.0, 0.0, 0.9]
+
+# --- Quote (English) — below the title -----------------------------
+[[plugin]]
+name = "quote-english"
+binary = "target/debug/veiland-label"
+z_index = 40
+
+[plugin.config]
+text = "Once in a while when I wake up, I find myself crying."
+font_family = "Noto Sans CJK JP"
+font_size = 28
+color = [0.91, 0.96, 0.97, 0.9]
+halign = "center"
+valign = "middle"
+position = [960, 620]
+shadow_offset = [0, 2]
+shadow_color = [0.0, 0.0, 0.0, 0.9]
+
+# --- Quote (Japanese) — smaller, dimmer, below the English quote ---
+[[plugin]]
+name = "quote-japanese"
+binary = "target/debug/veiland-label"
+z_index = 41
+
+[plugin.config]
+text = "たまに、目が覚めると泣いている"
+font_family = "Noto Sans CJK JP"
+font_size = 20
+color = [0.91, 0.96, 0.97, 0.7]
+halign = "center"
+valign = "middle"
+position = [960, 680]
+shadow_offset = [0, 2]
+shadow_color = [0.0, 0.0, 0.0, 0.8]
+
+# --- Clock: time + date, upper-left, above everything --------------
+[[plugin]]
+name = "clock"
+binary = "target/debug/veiland-clock"
+z_index = 50
+
+[plugin.config]
+time_format = "%H:%M"
+date_format = "%B %d, %Y"
+font_family = "Noto Sans CJK JP"
+time_font_size = 72
+date_font_size = 14
+time_color = [0.91, 0.96, 0.97, 0.9]
+date_color = [1.0, 1.0, 1.0, 0.9]
+time_position = [50, 50]
+date_position = [50, 130]
+halign = "left"
+valign = "top"
+shadow_offset = [0, 2]
+shadow_color = [0.0, 0.0, 0.0, 0.9]
