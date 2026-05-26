@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "plugins/blue-box",
+    "plugins/clock",
     "plugins/gradient",
     "plugins/green-box",
     "plugins/label",
