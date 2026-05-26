@@ -163,3 +163,75 @@ Things you may notice missing and not need to file as bugs:
 
 See [`m10-plan.md`](m10-plan.md)'s "Deferred to post-M10"
 section for the rationale on each.
+
+## Loading image assets
+
+Plugins that paint pixels from a file (a wallpaper, an icon, a
+splash) follow one pattern: decode once at startup with the
+`image` crate, upload the RGBA bytes to a `GL_TEXTURE_2D` via
+`glTexImage2D`, then bind that texture each frame and draw a
+textured quad. The decoded `Vec<u8>` is dropped once the upload
+finishes — pixels live on the GPU after that.
+
+A few non-obvious points:
+
+- **Decode format**: convert to `RgbaImage` via `.to_rgba8()`
+  even if the source is RGB. `RGBA8` matches the GL internal
+  format you'll upload with and avoids per-pixel conversion at
+  sample time.
+- **Default `image` features are broad**. Veiland-wallpaper uses
+  `default-features = false, features = ["png", "jpeg"]` to
+  minimise CVE surface on a security-critical process. Enable
+  more formats only when a user asks.
+- **Don't decode on the IPC main thread for large images**.
+  Today `veiland-wallpaper` does, which blocks the lock surface
+  for ~5s on a 4K JPEG; the fix is a worker thread, deferred to
+  M12+ per [`improvements.md`](improvements.md). Small icons
+  (~hundreds of KB) decode in single-digit ms and are fine
+  inline.
+- **EXIF orientation is not honoured** by `image` by default.
+  Phones / cameras embedding an "image is rotated" tag will
+  render sideways. M12+ fix.
+
+Reference: [`plugins/wallpaper`](../plugins/wallpaper/src/main.rs).
+Short enough to read top-to-bottom.
+
+## Procedural shader plugins
+
+Some effects don't need any input pixels — they're pure functions
+of the surface coordinate. A radial-gradient vignette, a starfield,
+a glow, a noise field. For these, the plugin's dmabuf is the
+framebuffer; the fragment shader produces every output pixel from
+uniforms and `gl_FragCoord` (or a `v_uv` varying).
+
+The pattern is one full-buffer quad in the vertex shader plus a
+fragment shader that does the per-pixel maths. Uniforms come from
+the plugin's `[plugin.config]` table, plumbed via
+`VEILAND_PLUGIN_CONFIG` and parsed with serde. Re-render every
+`FrameDone` for protocol correctness even if the output is static;
+the host's per-frame cost is dominated by other work.
+
+A few non-obvious points:
+
+- **`precision highp float` everywhere**. Mesa's `mediump` (16-bit
+  on some drivers) bands on smoothstep sums and other compound
+  operations at low gradient values. Veiland-vignette would visibly
+  step without highp; the cost is negligible on any modern GPU.
+- **Aspect ratio**. A `length(v_uv)` "circle" becomes an ellipse on
+  a 1920×1080 buffer because UV space is square but the buffer
+  isn't. Pass the buffer's aspect ratio (`w / h`) as a uniform and
+  apply it to the X component before computing distances.
+- **Y orientation**. The dmabuf's FBO and the host's composite path
+  share an orientation such that `v_uv = a_pos * 0.5 + 0.5` lands
+  top-left at UV (0, 0) without any extra Y flip — `gl_FragCoord.y`
+  grows downward, opposite to the "Y up in clip space" mental model
+  that classic GL tutorials teach. (See the wallpaper plugin: the
+  first cut had a flip and the image came out upside down; removing
+  it was the fix.)
+- **Straight-alpha output**. The host composites your buffer using
+  straight-alpha blending (`docs/protocol.md` §12.1). Emit
+  `vec4(rgb, a)` with `rgb` not pre-multiplied by `a`. Transparent
+  pixels should be `vec4(0.0)`.
+
+Reference: [`plugins/vignette`](../plugins/vignette/src/main.rs).
+~400 lines including the shader source as bytes-literals.
