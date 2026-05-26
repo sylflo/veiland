@@ -9,6 +9,7 @@ members = [
     "plugins/particles",
     "plugins/red-box",
     "plugins/stress",
+    "plugins/vignette",
     "plugins/wallpaper",
     "veiland-core",
     "veiland-plugin",
