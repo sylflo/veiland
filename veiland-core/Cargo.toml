@@ -14,6 +14,7 @@ default = []
 debug-unlock = []
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 smithay-client-toolkit = "0.20.0"
 wayland-client = "0.31.14"
 wayland-egl = "0.32"

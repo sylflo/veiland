@@ -21,6 +21,7 @@
 use std::path::PathBuf;
 
 use nix::unistd::Pid;
+use veiland_protocol::Configure;
 
 use crate::config::Region;
 
@@ -51,4 +52,10 @@ pub struct PluginSlot {
     /// here in step 2; carried to the plugin via `Configure.output_name`
     /// in step 3.
     pub output_name: String,
+    /// The most recent `Configure` sent to this plugin. Stored so the
+    /// host's periodic time tick (M11 step 2) can re-send a Configure
+    /// with the same region/scale/output_name and only the time fields
+    /// bumped. `None` if no Configure has been sent yet (shouldn't
+    /// happen in practice — every slot gets one at spawn).
+    pub last_configure: Option<Configure>,
 }

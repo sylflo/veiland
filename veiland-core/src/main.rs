@@ -117,6 +117,12 @@ struct AppData {
     /// destroy the lock surface tied to the old proxy and create
     /// a fresh one against the new proxy. Carries the new proxy.
     pending_outputs_rebound: Vec<(wl_output::WlOutput, String)>,
+    /// Last time the periodic Configure tick fired. Initialised at
+    /// startup; `process_periodic_tick` re-sends Configure to every
+    /// alive plugin when 30s have elapsed since this. The tick is
+    /// what keeps the clock plugin's display current — every Configure
+    /// carries a fresh `time_unix_seconds`.
+    last_time_tick: std::time::Instant,
 }
 
 unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
@@ -456,6 +462,7 @@ fn main() -> ExitCode {
         host_capabilities,
         pending_outputs_arrived: Vec::new(),
         pending_outputs_rebound: Vec::new(),
+        last_time_tick: std::time::Instant::now(),
     };
 
     // xdg_output.name arrives async after registry bind; without a roundtrip
@@ -559,6 +566,10 @@ fn main() -> ExitCode {
         // them, so creating/recreating lock surfaces here is safe.
         // See AppData::process_pending_hotplug.
         state.process_pending_hotplug();
+        // Re-send Configure with a fresh `time_unix_seconds` if 30 s
+        // have elapsed. Keeps clock plugins current without a
+        // dedicated TimeTick message. See M11 step 2.
+        state.process_periodic_tick();
     }
 
     // --- 8. Plugin teardown -------------------------------------------------
@@ -670,16 +681,18 @@ fn try_spawn_one(
 
     // Initial Configure. Region is still hardcoded full-screen
     // 1920x1080 here; step 3 makes this region-aware.
-    state.connection.send_configure(Configure {
+    let (time_unix_seconds, time_tz_offset_seconds) = current_time_for_configure();
+    let initial_configure = Configure {
         region_x: 0,
         region_y: 0,
         region_w: 1920,
         region_h: 1080,
         scale,
-        time_unix_seconds: 0,
-        time_tz_offset_seconds: 0,
+        time_unix_seconds,
+        time_tz_offset_seconds,
         output_name: output_name.to_string(),
-    })?;
+    };
+    state.connection.send_configure(initial_configure.clone())?;
     state.connection.send_frame_done()?;
 
     Ok(PluginSlot {
@@ -690,7 +703,19 @@ fn try_spawn_one(
         z_index: entry.z_index,
         region: entry.region.clone(),
         output_name: output_name.to_string(),
+        last_configure: Some(initial_configure),
     })
+}
+
+/// Snapshot the wall clock into `(unix_seconds, tz_offset_seconds)`,
+/// the two fields a plugin needs to render a localised clock without
+/// reading the system time itself. Computing `time_tz_offset_seconds`
+/// from `chrono::Local` honours DST transitions automatically — the
+/// plugin doesn't need to know the timezone, just the offset that
+/// was in effect at this instant.
+fn current_time_for_configure() -> (i64, i32) {
+    let now = chrono::Local::now();
+    (now.timestamp(), now.offset().local_minus_utc())
 }
 
 /// Wind down the plugin: send Shutdown, give it ~250ms to exit on its own,
@@ -1149,6 +1174,61 @@ impl AppData {
             // It will land in the just-emptied slot (`create_lock_
             // surface_for_output` prefers None slots).
             self.create_lock_surface_for_output(&output, name);
+        }
+    }
+
+    /// Fire the 30 s periodic Configure tick. Called from the main
+    /// loop after every `event_loop.dispatch()` returns; bails out
+    /// early if less than 30 s have elapsed since the last tick.
+    ///
+    /// Why this exists: the host's only mandatory Configure is at
+    /// spawn. A clock plugin (`veiland-clock`, M11 step 2) needs the
+    /// time field to advance for its display to track the wall clock.
+    /// Re-sending Configure with refreshed `time_unix_seconds` keeps
+    /// plugins pure functions of host events instead of each one
+    /// reaching for `clock_gettime` independently.
+    ///
+    /// 30 s is the cadence picked in `docs/m11-plan.md` Q1: within
+    /// half a minute of true wall-clock time, cheap enough to ignore.
+    /// Other Configure fields (region, scale, output_name) are
+    /// re-sent unchanged from `slot.last_configure`.
+    ///
+    /// If a plugin's socket has died, `send_configure` will return
+    /// an error; we log and continue. The next inbound-event read on
+    /// that plugin's calloop source will surface the broken-pipe
+    /// error through the existing drive_plugin error path, which
+    /// removes the slot.
+    fn process_periodic_tick(&mut self) {
+        const TICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+        if self.last_time_tick.elapsed() < TICK_INTERVAL {
+            return;
+        }
+        self.last_time_tick = std::time::Instant::now();
+
+        let (time_unix_seconds, time_tz_offset_seconds) = current_time_for_configure();
+        for per_output in self.plugins.iter_mut() {
+            for slot_opt in per_output.iter_mut() {
+                let Some(slot) = slot_opt.as_mut() else {
+                    continue;
+                };
+                let Some(prev) = slot.last_configure.clone() else {
+                    continue;
+                };
+                let next = Configure {
+                    time_unix_seconds,
+                    time_tz_offset_seconds,
+                    ..prev
+                };
+                if let Err(e) = slot.state.connection.send_configure(next.clone()) {
+                    eprintln!(
+                        "veiland-core: periodic tick: send_configure to plugin {:?} failed: {} \
+                         (will be cleaned up on next read)",
+                        slot.name, e
+                    );
+                    continue;
+                }
+                slot.last_configure = Some(next);
+            }
         }
     }
 }
