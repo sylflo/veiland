@@ -6,6 +6,7 @@ members = [
     "plugins/gradient",
     "plugins/green-box",
     "plugins/label",
+    "plugins/particles",
     "plugins/red-box",
     "plugins/stress",
     "plugins/wallpaper",
