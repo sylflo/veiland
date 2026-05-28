@@ -414,7 +414,10 @@ fn run() -> Result<(), PluginError> {
             }
             ServerMessage::FrameDone => {
                 if !buffer_released {
-                    eprintln!("FrameDone before BufferReleased; deferring");
+                    // Common case post-commit-3: host paints on the next
+                    // frame callback rather than immediately on Buffer,
+                    // so FrameDone often arrives before BufferReleased.
+                    // Silent deferral is correct.
                     pending_frame = true;
                     continue;
                 }

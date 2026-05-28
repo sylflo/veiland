@@ -183,7 +183,8 @@ fn run() -> Result<(), PluginError> {
             }
             ServerMessage::FrameDone => {
                 if !buffer_released {
-                    eprintln!("FrameDone before BufferReleased; deferring");
+                    // Common case post-commit-3 — see wallpaper plugin
+                    // for the explanation. Silent deferral is correct.
                     pending_frame = true;
                     continue;
                 }

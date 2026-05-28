@@ -60,6 +60,16 @@ struct LockSurface {
     lock_surface: SessionLockSurface,
     egl_window: Option<wayland_egl::WlEglSurface>,
     egl_surface: Option<egl::Surface>,
+    /// True when something has changed since the last paint: a plugin
+    /// imported a new texture, a keystroke moved the indicator. The
+    /// frame-callback handler checks this; if false it skips the paint
+    /// and does not request another callback, so a static lockscreen
+    /// stops burning 60Hz no-op repaints.
+    needs_paint: bool,
+    /// True after `wl_surface.frame()` was called and before the
+    /// matching `done` event came back. Prevents requesting a second
+    /// callback per commit.
+    frame_callback_pending: bool,
 }
 
 struct AppData {
@@ -881,39 +891,39 @@ impl SessionLockHandler for AppData {
             )
             .expect("eglMakeCurrent");
 
+        // Bootstrap paint: solid black, no plugin composition. Plugins
+        // typically haven't shipped a Buffer yet at this point, so
+        // sampling their (empty) slots here would show a frame with
+        // gaps that the next paint then fills in — visible as
+        // flicker / see-through against partially-transparent plugins
+        // (vignette especially). Keeping the bootstrap content-free
+        // means the *first* real paint is the one with all plugins,
+        // not the second.
+        //
+        // We still need to swap once so the compositor has a frame to
+        // show and our `wl_surface.frame` request has something to
+        // attach to.
         unsafe {
             gl::Viewport(0, 0, width as i32, height as i32);
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            // Straight-alpha blending: plugins emit non-pre-multiplied
-            // pixels (gl_FragColor = vec4(rgb, a) with rgb not scaled
-            // by a). State stays enabled across the per-plugin loop —
-            // every draw in this codebase wants blending on. If a
-            // future non-plugin draw needs it off, that site sets state
-            // explicitly. See docs/protocol.md §12.
-            gl::Enable(gl::BLEND);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         }
 
-        for slot_opt in &self.plugins[output_idx] {
-            if let Some(slot) = slot_opt {
-                let rect =
-                    region::region_to_clip_rect(slot.region.as_ref(), width as i32, height as i32);
-                slot.state.composite(
-                    self.compositor_program,
-                    self.compositor_vbo,
-                    self.compositor_sampler_loc,
-                    self.compositor_rect_loc,
-                    rect,
-                );
-            }
+        // Request a frame callback so the cadence loop starts from
+        // frame one. Without this, the surface only gets repainted
+        // when something else dirties it (first plugin Buffer, key
+        // press) — and until then the compositor double-buffer
+        // alternates between this bootstrap frame and whatever
+        // garbage was in the back buffer. Same ordering rule as
+        // repaint_lock_surface: request BEFORE swap_buffers, because
+        // swap commits.
+        let target_clone = target.clone();
+        target_clone.frame(&self.qh, target_clone.clone());
+        if let Some(entry) = self.lock_surfaces[output_idx].as_mut() {
+            entry.frame_callback_pending = true;
+            // Leave needs_paint = true so the first frame-callback
+            // firing immediately repaints with plugin content.
         }
-
-        // Indicator paints on top of any plugins — soft trust-region
-        // enforcement. Plugins can declare any region; the indicator
-        // is always painted last so it can't be obscured. See M9
-        // step 4 / docs/m9-plan.md Q1.
-        self.draw_password_indicator(width as i32, height as i32);
 
         self.egl
             .swap_buffers(self.egl_display, egl_surface)
@@ -957,6 +967,8 @@ impl AppData {
             lock_surface: session_lock.create_lock_surface(surface, output, &self.qh),
             egl_window: None,
             egl_surface: None,
+            needs_paint: true,
+            frame_callback_pending: false,
         };
         // Reuse the first None slot if one exists (hotplug-out leaves
         // sentinels; reusing keeps lock_surfaces.len() bounded under
@@ -1249,70 +1261,174 @@ impl AppData {
         // bug; surfaced with three plugins, where there's always a
         // Buffer event queued behind unlock — two plugins worked by
         // timing luck).
-        //
-        // TODO: this is a defensive bail-out at the GPU layer. The
-        // structural fix is to drop the plugin calloop sources at
-        // the start of teardown so Buffer events stop arriving at
-        // all. Leave both in place once that lands — the
-        // invariant "no compositing post-unlock" is worth enforcing
-        // at the GPU site regardless of who upstream might violate
-        // it.
         if !matches!(self.run, RunState::Running) {
             return;
         }
-        for (output_idx, entry) in self.lock_surfaces.iter().enumerate() {
-            let Some(entry) = entry else {
-                continue;
-            };
-            let Some(egl_surface) = entry.egl_surface.as_ref() else {
-                continue;
-            };
-            let Some(egl_window) = entry.egl_window.as_ref() else {
-                continue;
-            };
-            let (w, h) = egl_window.get_size();
+        for output_idx in 0..self.lock_surfaces.len() {
+            self.repaint_lock_surface(output_idx);
+        }
+    }
 
-            self.egl
-                .make_current(
-                    self.egl_display,
-                    Some(*egl_surface),
-                    Some(*egl_surface),
-                    Some(self.egl_context),
-                )
-                .expect("eglMakeCurrent (repaint)");
+    /// Paint one output's lock surface if it is dirty (`needs_paint`).
+    /// Requests the next `wl_surface.frame` callback before swap so the
+    /// compositor's repaint cadence keeps driving us. No-op if the
+    /// surface is not ready (no `egl_window` / `egl_surface`) or
+    /// `needs_paint` is false.
+    ///
+    /// Callers: the all-surfaces `repaint_lock_surfaces` loop, the
+    /// per-surface `CompositorHandler::frame` callback, and the kick-
+    /// a-paint path in the Buffer arrival handler.
+    fn repaint_lock_surface(&mut self, output_idx: usize) {
+        if !matches!(self.run, RunState::Running) {
+            return;
+        }
+        let Some(entry) = self.lock_surfaces.get(output_idx).and_then(|e| e.as_ref()) else {
+            return;
+        };
+        if !entry.needs_paint {
+            return;
+        }
+        let Some(egl_surface) = entry.egl_surface else {
+            return;
+        };
+        let Some(egl_window) = entry.egl_window.as_ref() else {
+            return;
+        };
+        let (w, h) = egl_window.get_size();
+        // Clone the WlSurface so we can call `.frame()` later without
+        // re-borrowing `self.lock_surfaces`. Wayland proxies are Arc-
+        // backed; the clone is cheap.
+        let wl_surface = entry.lock_surface.wl_surface().clone();
 
-            unsafe {
-                gl::Viewport(0, 0, w, h);
-                gl::ClearColor(0.0, 0.0, 0.0, 1.0);
-                gl::Clear(gl::COLOR_BUFFER_BIT);
-                // Straight-alpha blending. See the matching note in
-                // SessionLockHandler::configure for the why; the
-                // short version is "plugins emit non-pre-multiplied
-                // pixels and we don't toggle blend off after the
-                // loop because nothing else needs it off."
-                gl::Enable(gl::BLEND);
-                gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        self.egl
+            .make_current(
+                self.egl_display,
+                Some(egl_surface),
+                Some(egl_surface),
+                Some(self.egl_context),
+            )
+            .expect("eglMakeCurrent (repaint)");
+
+        unsafe {
+            gl::Viewport(0, 0, w, h);
+            gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            // Straight-alpha blending. See the matching note in
+            // SessionLockHandler::configure for the why; the
+            // short version is "plugins emit non-pre-multiplied
+            // pixels and we don't toggle blend off after the
+            // loop because nothing else needs it off."
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        }
+
+        for slot_opt in &self.plugins[output_idx] {
+            if let Some(slot) = slot_opt {
+                let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
+                slot.state.composite(
+                    self.compositor_program,
+                    self.compositor_vbo,
+                    self.compositor_sampler_loc,
+                    self.compositor_rect_loc,
+                    rect,
+                );
             }
-            for slot_opt in &self.plugins[output_idx] {
-                if let Some(slot) = slot_opt {
-                    let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
-                    slot.state.composite(
-                        self.compositor_program,
-                        self.compositor_vbo,
-                        self.compositor_sampler_loc,
-                        self.compositor_rect_loc,
-                        rect,
-                    );
-                }
+        }
+
+        // Indicator paints on top of any plugins — see the matching
+        // note in SessionLockHandler::configure.
+        self.draw_password_indicator(w, h);
+
+        // Request the next frame callback BEFORE swap. swap_buffers
+        // calls wl_surface.commit; if we requested .frame() after the
+        // commit it would attach to the next-after-this commit (which
+        // usually never happens) and the callback would never fire.
+        let should_request_callback = self
+            .lock_surfaces
+            .get(output_idx)
+            .and_then(|e| e.as_ref())
+            .is_some_and(|e| !e.frame_callback_pending);
+        if should_request_callback {
+            wl_surface.frame(&self.qh, wl_surface.clone());
+            if let Some(entry) = self.lock_surfaces[output_idx].as_mut() {
+                entry.frame_callback_pending = true;
             }
+        }
 
-            // Indicator paints on top of any plugins — see the
-            // matching note in SessionLockHandler::configure.
-            self.draw_password_indicator(w, h);
+        self.egl
+            .swap_buffers(self.egl_display, egl_surface)
+            .expect("eglSwapBuffers (repaint)");
 
-            self.egl
-                .swap_buffers(self.egl_display, *egl_surface)
-                .expect("eglSwapBuffers (repaint)");
+        // Egress fence + BufferReleased for every plugin in this
+        // output's row. Moved out of the Buffer-arrival path (M5
+        // location); the host has just sampled the slot textures
+        // into this lock surface, so it is now safe to tell plugins
+        // they can reuse their dmabufs.
+        self.release_sampled_buffers(output_idx);
+
+        if let Some(entry) = self.lock_surfaces[output_idx].as_mut() {
+            entry.needs_paint = false;
+        }
+    }
+
+    /// Egress-fence and release every plugin's currently-bound buffer
+    /// for one output. Called after `swap_buffers` on that output's
+    /// lock surface — at that point the host's GL has finished
+    /// submitting the sampling work and the fence guarantees the GPU
+    /// agrees before we tell the plugin to reuse its dmabuf.
+    fn release_sampled_buffers(&mut self, output_idx: usize) {
+        if self
+            .lock_surfaces
+            .get(output_idx)
+            .and_then(|e| e.as_ref())
+            .is_none()
+        {
+            return;
+        }
+
+        let fence = match plugin::create_host_fence(&self.egl, self.egl_display) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("egress fence create failed: {}", e);
+                return;
+            }
+        };
+        let wait_result = plugin::wait_fence(&self.egl, self.egl_display, &fence);
+        plugin::release_fence(&self.egl, self.egl_display, fence);
+        if let Err(e) = wait_result {
+            eprintln!("egress fence wait failed: {}", e);
+            return;
+        }
+
+        // One BufferReleased per Buffer received, not per paint.
+        // Clearing `current_buffer_id` after release means a slot whose
+        // plugin didn't ship a new Buffer since the last release just
+        // skips here — the host's paint still re-samples the cached
+        // EGLImage texture, which is fine because the plugin hasn't
+        // touched the underlying dmabuf either.
+        //
+        // Without this clear, static plugins (vignette, wallpaper)
+        // got a BufferReleased on every paint at compositor refresh
+        // rate. Harmless protocol-wise but wasteful, and depending on
+        // the plugin's loop shape it could cause stale-frame
+        // confusion (see the vignette flicker bug fixed alongside
+        // this).
+        let plugin_count = self.plugins[output_idx].len();
+        for p in 0..plugin_count {
+            let Some(slot) = self.plugins[output_idx][p].as_mut() else {
+                continue;
+            };
+            let Some(id) = slot.state.current_buffer_id.take() else {
+                continue;
+            };
+            if let Err(e) = slot.state.connection.send_buffer_released(id) {
+                let name = slot.name.clone();
+                eprintln!(
+                    "veiland-core: plugin {:?} send_buffer_released failed: {}",
+                    name, e
+                );
+                self.plugins[output_idx][p] = None;
+            }
         }
     }
 
@@ -1434,9 +1550,35 @@ impl CompositorHandler for AppData {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
+        // SCTK demuxes wl_callback.done events for every surface we
+        // requested .frame() on. We match the surface back to its
+        // output by linear scan — at most ≤8 outputs in practice, and
+        // the comparison style matches the M8 hotplug-rebind detection
+        // elsewhere in this file.
+        let output_idx = self.lock_surfaces.iter().position(|entry| {
+            entry
+                .as_ref()
+                .is_some_and(|e| e.lock_surface.wl_surface() == surface)
+        });
+        let Some(output_idx) = output_idx else {
+            // Stale callback for a destroyed lock surface (hotplug-out
+            // race). Not an error — drop it.
+            return;
+        };
+
+        // The callback we requested is consumed. repaint_lock_surface
+        // requests a fresh one if it actually paints.
+        if let Some(entry) = self.lock_surfaces[output_idx].as_mut() {
+            entry.frame_callback_pending = false;
+        }
+
+        // Paint only if dirty. When nothing is animating we don't
+        // request another callback — a static lockscreen stops
+        // burning 60Hz no-op repaints.
+        self.repaint_lock_surface(output_idx);
     }
 
     fn surface_enter(
@@ -1816,6 +1958,13 @@ impl AppData {
             // driven repaint because both run on the same loop. The
             // RunState guard inside repaint_lock_surfaces handles the
             // post-unlock case defensively.
+            //
+            // Mark every surface dirty first — repaint_lock_surface is
+            // gated on `needs_paint`, and a password keystroke is the
+            // host's own dirty event (no Buffer arrival precedes it).
+            for entry in self.lock_surfaces.iter_mut().flatten() {
+                entry.needs_paint = true;
+            }
             self.repaint_lock_surfaces();
         }
     }
@@ -1965,39 +2114,23 @@ impl AppData {
             return Ok(PostAction::Remove);
         }
 
-        // 3. Buffer post-processing: composite, egress fence,
-        //    BufferReleased, FrameDone. Each piece re-fetches the
-        //    slot as needed
+        // 3. Buffer post-processing.
+        //
+        //    The texture has already been imported (handle_message did
+        //    that above). Painting and BufferReleased now happen out of
+        //    band — `repaint_lock_surface` paints when the compositor
+        //    grants us a frame callback, then releases the sampled
+        //    buffers on its way out. Here we just:
+        //      a) mark the surface dirty so the next callback paints,
+        //      b) acknowledge FrameDone to the plugin,
+        //      c) kick a paint immediately if no callback is in flight
+        //         (the very first frame after spawn has no prior
+        //         commit to drive a callback; same for the case where
+        //         the compositor stopped sending callbacks because
+        //         nothing was dirty for a while).
         if is_buffer {
-            self.repaint_lock_surfaces();
-
-            // After 5a, lock_surfaces can be non-empty while every slot is
-            // None (hotplug-departed outputs leave sentinels behind). The
-            // egress fence has nothing to do unless at least one live
-            // surface was just composited into.
-            if self.lock_surfaces.iter().any(|s| s.is_some()) {
-                match plugin::create_host_fence(&self.egl, self.egl_display) {
-                    Ok(fence) => {
-                        let wait_result = plugin::wait_fence(&self.egl, self.egl_display, &fence);
-                        plugin::release_fence(&self.egl, self.egl_display, fence);
-                        if let Err(e) = wait_result {
-                            eprintln!("egress fence wait failed: {}", e);
-                        } else if let Some(slot) = self.slot_mut(o, p) {
-                            if let Some(id) = slot.state.current_buffer_id {
-                                if let Err(e) = slot.state.connection.send_buffer_released(id) {
-                                    let name = slot.name.clone();
-                                    eprintln!(
-                                        "veiland-core: plugin {:?} send_buffer_released failed: {}",
-                                        name, e
-                                    );
-                                    self.plugins[o][p] = None;
-                                    return Ok(PostAction::Remove);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!("egress fence create failed: {}", e),
-                }
+            if let Some(entry) = self.lock_surfaces.get_mut(o).and_then(|e| e.as_mut()) {
+                entry.needs_paint = true;
             }
 
             if let Some(slot) = self.slot_mut(o, p) {
@@ -2010,6 +2143,15 @@ impl AppData {
                     self.plugins[o][p] = None;
                     return Ok(PostAction::Remove);
                 }
+            }
+
+            let kick_paint = self
+                .lock_surfaces
+                .get(o)
+                .and_then(|e| e.as_ref())
+                .is_some_and(|e| !e.frame_callback_pending);
+            if kick_paint {
+                self.repaint_lock_surface(o);
             }
         }
         Ok(PostAction::Continue)
