@@ -630,8 +630,10 @@ fn try_spawn_one(
     // serde_json cleanly); we log and proceed with no config rather
     // than refusing to spawn the plugin, since the plugin may have
     // sensible defaults.
-    let config_json = entry.config.as_ref().and_then(|v| {
-        match serde_json::to_string(v) {
+    let config_json = entry
+        .config
+        .as_ref()
+        .and_then(|v| match serde_json::to_string(v) {
             Ok(s) => Some(s),
             Err(e) => {
                 eprintln!(
@@ -641,8 +643,7 @@ fn try_spawn_one(
                 );
                 None
             }
-        }
-    });
+        });
     let process = spawn_plugin(&entry.binary, &entry.name, config_json.as_deref())?;
     let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
     connection.handshake()?;

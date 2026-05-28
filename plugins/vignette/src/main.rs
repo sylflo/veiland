@@ -350,14 +350,18 @@ fn run() -> Result<(), PluginError> {
                     pending_frame = true;
                     continue;
                 }
-                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path)?;
+                render_and_send(
+                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                )?;
                 buffer_released = false;
             }
             ServerMessage::BufferReleased(_) => {
                 buffer_released = true;
                 if pending_frame {
                     pending_frame = false;
-                    render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path)?;
+                    render_and_send(
+                        &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                    )?;
                     buffer_released = false;
                 }
             }

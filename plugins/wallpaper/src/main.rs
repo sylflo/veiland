@@ -39,7 +39,9 @@ fn load_config() -> Config {
                      — falling back to black background",
                     PLUGIN_NAME, e
                 );
-                Config { path: String::new() }
+                Config {
+                    path: String::new(),
+                }
             }
         },
         Err(_) => {
@@ -47,7 +49,9 @@ fn load_config() -> Config {
                 "veiland-{}: VEILAND_PLUGIN_CONFIG unset — black background",
                 PLUGIN_NAME
             );
-            Config { path: String::new() }
+            Config {
+                path: String::new(),
+            }
         }
     }
 }

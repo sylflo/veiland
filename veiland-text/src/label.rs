@@ -240,11 +240,9 @@ impl LabelGl {
                 gl::GetUniformLocation(program, b"u_surface\0".as_ptr() as *const _);
             let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
             let u_atlas_loc = gl::GetUniformLocation(program, b"u_atlas\0".as_ptr() as *const _);
-            let u_anchor_loc =
-                gl::GetUniformLocation(program, b"u_anchor\0".as_ptr() as *const _);
+            let u_anchor_loc = gl::GetUniformLocation(program, b"u_anchor\0".as_ptr() as *const _);
             let u_rot_loc = gl::GetUniformLocation(program, b"u_rot\0".as_ptr() as *const _);
-            let u_offset_loc =
-                gl::GetUniformLocation(program, b"u_offset\0".as_ptr() as *const _);
+            let u_offset_loc = gl::GetUniformLocation(program, b"u_offset\0".as_ptr() as *const _);
 
             let mut vbo: u32 = 0;
             gl::GenBuffers(1, &mut vbo);
@@ -322,7 +320,11 @@ unsafe fn compile(kind: u32, src: &[u8]) -> Option<u32> {
             );
             eprintln!(
                 "veiland-text: label shader compile failed ({}): {}",
-                if kind == gl::VERTEX_SHADER { "vertex" } else { "fragment" },
+                if kind == gl::VERTEX_SHADER {
+                    "vertex"
+                } else {
+                    "fragment"
+                },
                 std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>"),
             );
             gl::DeleteShader(shader);
@@ -516,10 +518,30 @@ pub(crate) fn render_label(
         let y0 = g.screen_y + oy;
         let x1 = x0 + g.w;
         let y1 = y0 + g.h;
-        let tl = Vertex { x: x0, y: y0, u: g.u_min, v: g.v_min };
-        let tr = Vertex { x: x1, y: y0, u: g.u_max, v: g.v_min };
-        let bl = Vertex { x: x0, y: y1, u: g.u_min, v: g.v_max };
-        let br = Vertex { x: x1, y: y1, u: g.u_max, v: g.v_max };
+        let tl = Vertex {
+            x: x0,
+            y: y0,
+            u: g.u_min,
+            v: g.v_min,
+        };
+        let tr = Vertex {
+            x: x1,
+            y: y0,
+            u: g.u_max,
+            v: g.v_min,
+        };
+        let bl = Vertex {
+            x: x0,
+            y: y1,
+            u: g.u_min,
+            v: g.v_max,
+        };
+        let br = Vertex {
+            x: x1,
+            y: y1,
+            u: g.u_max,
+            v: g.v_max,
+        };
         vertices.extend_from_slice(&[tl, bl, tr, tr, bl, br]);
     }
 
@@ -584,7 +606,11 @@ pub(crate) fn render_label(
         );
 
         // Uniforms that don't change between the shadow and main passes.
-        gl::Uniform2f(label_gl.u_surface_loc, surface_size.0 as f32, surface_size.1 as f32);
+        gl::Uniform2f(
+            label_gl.u_surface_loc,
+            surface_size.0 as f32,
+            surface_size.1 as f32,
+        );
         gl::Uniform2f(label_gl.u_anchor_loc, label.position.0, label.position.1);
         gl::Uniform2f(label_gl.u_rot_loc, rot_cos, rot_sin);
         gl::ActiveTexture(gl::TEXTURE0);
@@ -658,7 +684,10 @@ mod tests {
 
     #[test]
     fn alignment_left_top_is_origin() {
-        assert_eq!(alignment_offset(HAlign::Left, VAlign::Top, 100.0, 50.0), (0.0, 0.0));
+        assert_eq!(
+            alignment_offset(HAlign::Left, VAlign::Top, 100.0, 50.0),
+            (0.0, 0.0)
+        );
     }
 
     #[test]

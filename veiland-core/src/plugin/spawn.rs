@@ -178,9 +178,12 @@ mod tests {
     /// fork return then a child that exited 127.
     #[test]
     fn spawn_nonexistent_exits_127() {
-        let process =
-            spawn_plugin(Path::new("/nonexistent/veiland-test-binary"), "nonexistent", None)
-                .expect("fork itself should succeed even if exec target is missing");
+        let process = spawn_plugin(
+            Path::new("/nonexistent/veiland-test-binary"),
+            "nonexistent",
+            None,
+        )
+        .expect("fork itself should succeed even if exec target is missing");
 
         let status = waitpid(process.child_pid, None).expect("waitpid should succeed");
 

@@ -354,7 +354,9 @@ mod tests {
     fn pack_taller_glyph_opens_a_new_shelf() {
         let mut a = fake_atlas();
         a.try_pack(40, 50).unwrap();
-        let r = a.try_pack(20, 80).expect("taller glyph must open new shelf");
+        let r = a
+            .try_pack(20, 80)
+            .expect("taller glyph must open new shelf");
         assert_eq!(r.y, 50);
         assert_eq!(a.shelves.len(), 2);
         assert_eq!(a.next_shelf_y, 130);

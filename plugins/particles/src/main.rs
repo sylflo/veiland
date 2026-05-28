@@ -110,8 +110,8 @@ fn seed_particles(count: u32) -> Vec<Particle> {
     let mut rng = Rng(0x9E3779B9); // golden-ratio seed
     (0..count)
         .map(|_| {
-            let cycle = CYCLE_MIN_SECONDS
-                + rng.next_f32() * (CYCLE_MAX_SECONDS - CYCLE_MIN_SECONDS);
+            let cycle =
+                CYCLE_MIN_SECONDS + rng.next_f32() * (CYCLE_MAX_SECONDS - CYCLE_MIN_SECONDS);
             Particle {
                 x_norm: rng.next_f32(),
                 t_offset: rng.next_f32() * cycle,
@@ -448,7 +448,9 @@ fn run() -> Result<(), PluginError> {
                 if !buffer_released {
                     continue;
                 }
-                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path)?;
+                render_and_send(
+                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                )?;
                 buffer_released = false;
             }
             ServerMessage::BufferReleased(_) => {
@@ -457,7 +459,9 @@ fn run() -> Result<(), PluginError> {
                 // buffer, draw a new one. The host's repaint cadence
                 // ends up driving us.
                 if got_first_frame_done {
-                    render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path)?;
+                    render_and_send(
+                        &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                    )?;
                     buffer_released = false;
                 }
             }
@@ -507,7 +511,14 @@ fn render_and_send(
 
         let stride = (4 * std::mem::size_of::<f32>()) as i32;
         gl::EnableVertexAttribArray(gpu.a_pos_loc);
-        gl::VertexAttribPointer(gpu.a_pos_loc, 2, gl::FLOAT, gl::FALSE, stride, std::ptr::null());
+        gl::VertexAttribPointer(
+            gpu.a_pos_loc,
+            2,
+            gl::FLOAT,
+            gl::FALSE,
+            stride,
+            std::ptr::null(),
+        );
         gl::EnableVertexAttribArray(gpu.a_local_loc);
         gl::VertexAttribPointer(
             gpu.a_local_loc,
