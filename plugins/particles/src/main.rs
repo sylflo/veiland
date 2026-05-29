@@ -29,16 +29,17 @@ const PLUGIN_NAME: &str = "particles";
 const CYCLE_MIN_SECONDS: f32 = 10.0;
 const CYCLE_MAX_SECONDS: f32 = 18.0;
 
-/// Particle dot radius, in logical pixels at scale=1. Multiplied by
-/// `Configure.scale` when sizing quads.
-const PARTICLE_RADIUS_PX: f32 = 1.5;
-
 #[derive(Debug, Clone, Deserialize)]
 struct Config {
     #[serde(default = "default_count")]
     count: u32,
     #[serde(default = "default_color")]
     color: [f32; 4],
+    /// Dot radius in logical pixels at scale=1. Multiplied by
+    /// `Configure.scale` at render time so a 3.0 radius shows the
+    /// same visual size on 1× and 2× displays.
+    #[serde(default = "default_radius_px")]
+    radius_px: f32,
 }
 
 fn default_count() -> u32 {
@@ -47,11 +48,15 @@ fn default_count() -> u32 {
 fn default_color() -> [f32; 4] {
     [1.0, 1.0, 1.0, 0.5]
 }
+fn default_radius_px() -> f32 {
+    3.0
+}
 
 fn default_config() -> Config {
     Config {
         count: default_count(),
         color: default_color(),
+        radius_px: default_radius_px(),
     }
 }
 
@@ -268,7 +273,7 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
     let now = state.start.elapsed().as_secs_f32();
     let w = surface_w as f32;
     let h = surface_h as f32;
-    let r = PARTICLE_RADIUS_PX * state.scale as f32;
+    let r = state.config.radius_px * state.scale as f32;
 
     // For each particle, compute its current pixel-space centre and
     // emit two triangles' worth of (a_pos, a_local) data into the
@@ -331,8 +336,8 @@ fn run() -> Result<(), PluginError> {
 
     let config = load_config();
     eprintln!(
-        "veiland-{}: config count={} color={:?}",
-        PLUGIN_NAME, config.count, config.color
+        "veiland-{}: config count={} color={:?} radius_px={}",
+        PLUGIN_NAME, config.count, config.color, config.radius_px
     );
 
     let gbm_egl = GbmEgl::new()?;

@@ -71,7 +71,7 @@ z_index = 20
 count = 40
 # Mockup uses translucent white; tune brighter if you want them to
 # read more clearly against this specific wallpaper.
-color = [1.0, 1.0, 1.0, 0.5]
+color = [1.0, 1.0, 1.0, 1.0]
 
 # --- Title (English) — small, dim, above the Japanese title --------
 [[plugin]]
