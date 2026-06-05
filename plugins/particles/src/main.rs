@@ -25,9 +25,27 @@ const PLUGIN_NAME: &str = "particles";
 /// Cycle-length range per particle, in seconds. Each particle picks
 /// a fixed cycle uniformly in this range at startup, so the field
 /// has a natural speed variance: fast particles overtake slow ones,
-/// wraps are fully desynchronised. Mockup uses 10-18s.
-const CYCLE_MIN_SECONDS: f32 = 10.0;
-const CYCLE_MAX_SECONDS: f32 = 18.0;
+/// wraps are fully desynchronised. The mockup's keyframe is 10-18s but
+/// over 120vh of travel; ours rises ~100vh, so we use a tighter 6-11s
+/// range to land at a comparable (livelier) on-screen speed.
+const CYCLE_MIN_SECONDS: f32 = 6.0;
+const CYCLE_MAX_SECONDS: f32 = 11.0;
+
+/// Max net horizontal drift over one rise, in logical px. The mockup
+/// drifts +50px; we randomise each particle in [-DRIFT, +DRIFT] so the
+/// field curves both ways rather than all leaning the same direction.
+const DRIFT_MAX_PX: f32 = 50.0;
+/// Amplitude of the gentle sideways sin-wobble layered on top of the net
+/// drift, in logical px. Small — just enough to feel alive, not jittery.
+const WOBBLE_PX: f32 = 8.0;
+/// Quad is drawn this much larger than the core radius so the soft glow
+/// halo has room to fall off inside the quad (the FS puts the visible
+/// core in the inner ~20% of the quad). Larger = wider, dreamier halo.
+const GLOW_SCALE: f32 = 3.5;
+/// Peak per-particle opacity (mockup tops out at 0.8, not full white).
+const PEAK_OPACITY: f32 = 0.8;
+/// Fraction of the rise spent fading in / out at each end.
+const FADE_FRACTION: f32 = 0.12;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Config {
@@ -49,7 +67,10 @@ fn default_color() -> [f32; 4] {
     [1.0, 1.0, 1.0, 0.5]
 }
 fn default_radius_px() -> f32 {
-    3.0
+    // Small, delicate core — the glow halo (GLOW_SCALE + the FS falloff)
+    // does most of the visible work, which reads dreamier than a solid
+    // dot. 1.2px radius core, big soft halo around it.
+    1.2
 }
 
 fn default_config() -> Config {
@@ -93,6 +114,13 @@ struct Particle {
     x_norm: f32,
     t_offset: f32,
     cycle: f32,
+    /// Net horizontal drift over one rise, in logical pixels (scaled at
+    /// render time). Randomised per particle and signed, so some curve
+    /// left and some right — kills the dead-straight 'snow' look.
+    drift_px: f32,
+    /// Phase offset for the gentle sideways sin-wobble, so particles
+    /// don't all sway in unison.
+    wobble_phase: f32,
 }
 
 /// Tiny deterministic PRNG. We don't depend on `rand` for a one-shot
@@ -121,6 +149,9 @@ fn seed_particles(count: u32) -> Vec<Particle> {
                 x_norm: rng.next_f32(),
                 t_offset: rng.next_f32() * cycle,
                 cycle,
+                // Signed drift in [-DRIFT_MAX_PX, +DRIFT_MAX_PX].
+                drift_px: (rng.next_f32() * 2.0 - 1.0) * DRIFT_MAX_PX,
+                wobble_phase: rng.next_f32() * std::f32::consts::TAU,
             }
         })
         .collect()
@@ -183,6 +214,7 @@ struct GpuState {
     vbo: gl::types::GLuint,
     a_pos_loc: gl::types::GLuint,
     a_local_loc: gl::types::GLuint,
+    a_fade_loc: gl::types::GLuint,
     u_color_loc: gl::types::GLint,
 }
 
@@ -191,36 +223,52 @@ struct GpuState {
 /// Each particle is 6 vertices (two triangles). Per vertex we send:
 ///   `a_pos`   — clip-space position of the corner.
 ///   `a_local` — local UV in [-1, 1] relative to the particle's
-///               centre, used by the fragment shader to discard
-///               pixels outside the disc.
+///               centre; the FS uses it for the core+glow falloff.
+///   `a_fade`  — the particle's current opacity (0 at the travel
+///               ends, peak in the middle), so dots fade in/out.
 ///
-/// Interleaved layout, 4 floats per vertex (px, py, lx, ly).
+/// Interleaved layout, 5 floats per vertex (px, py, lx, ly, fade).
 unsafe fn build_gpu_state() -> GpuState {
+    // a_fade is the per-particle opacity (0 at the travel ends, peak in
+    // the middle) — see update_vertices. Passed through to the FS so each
+    // dot can materialise and dissolve instead of popping at the edges.
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
         attribute vec2 a_local;\n\
+        attribute float a_fade;\n\
         varying vec2 v_local;\n\
+        varying float v_fade;\n\
         void main() {\n\
             v_local = a_local;\n\
+            v_fade = a_fade;\n\
             gl_Position = vec4(a_pos, 0.0, 1.0);\n\
         }\n\0";
 
-    // Smoothstep on the disc edge keeps the dot from aliasing at\n\
-    // small sizes — without it 3px particles look like little\n\
-    // squares with a half-eaten corner.
+    // Dreamy dot = small bright core + big soft glow halo, mimicking the
+    // mockup's `box-shadow: 0 0 8px`. The quad spans [-1,1] in a_local; the
+    // visible core lives in the inner ~20% and a wide, gentle falloff fills
+    // out to the edge. d is distance from centre.
+    //   core: solid out to 0.15, smoothstep edge to 0.28 (a tiny crisp dot)
+    //   glow: gentle falloff from centre to 1.0 (the halo). pow exponent
+    //         1.5 (vs 2.0) widens the halo; weight 0.6 (vs 0.35) brightens
+    //         it. The glow now dominates the dot — that's the dreamy look.
+    // total coverage = core + glow*0.6, capped at 1.
     let fs_src = b"#version 100\n\
         precision mediump float;\n\
         varying vec2 v_local;\n\
+        varying float v_fade;\n\
         uniform vec4 u_color;\n\
         void main() {\n\
             float d = length(v_local);\n\
-            float a = 1.0 - smoothstep(0.85, 1.0, d);\n\
+            float core = 1.0 - smoothstep(0.15, 0.28, d);\n\
+            float glow = pow(1.0 - clamp(d, 0.0, 1.0), 1.5);\n\
+            float cov = clamp(core + glow * 0.6, 0.0, 1.0);\n\
+            float a = u_color.a * cov * v_fade;\n\
             if (a <= 0.0) discard;\n\
             // Premultiplied alpha: the core composites this dmabuf with\n\
             // glBlendFunc(ONE, 1-SRC_ALPHA), so emit RGB pre-scaled by\n\
             // the final alpha.\n\
-            float pa = u_color.a * a;\n\
-            gl_FragColor = vec4(u_color.rgb * pa, pa);\n\
+            gl_FragColor = vec4(u_color.rgb * a, a);\n\
         }\n\0";
 
     unsafe {
@@ -237,6 +285,8 @@ unsafe fn build_gpu_state() -> GpuState {
             gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _) as gl::types::GLuint;
         let a_local_loc =
             gl::GetAttribLocation(program, b"a_local\0".as_ptr() as *const _) as gl::types::GLuint;
+        let a_fade_loc =
+            gl::GetAttribLocation(program, b"a_fade\0".as_ptr() as *const _) as gl::types::GLuint;
         let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
 
         GpuState {
@@ -244,6 +294,7 @@ unsafe fn build_gpu_state() -> GpuState {
             vbo,
             a_pos_loc,
             a_local_loc,
+            a_fade_loc,
             u_color_loc,
         }
     }
@@ -277,19 +328,40 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
     let now = state.start.elapsed().as_secs_f32();
     let w = surface_w as f32;
     let h = surface_h as f32;
-    let r = state.config.radius_px * state.scale as f32;
+    let scale = state.scale as f32;
+    // Visible core radius. The quad is GLOW_SCALE bigger so the halo has
+    // room; the FS keeps the bright core in the quad's inner ~40%.
+    let r_core = state.config.radius_px * scale;
+    let r = r_core * GLOW_SCALE;
 
-    // For each particle, compute its current pixel-space centre and
-    // emit two triangles' worth of (a_pos, a_local) data into the
+    // For each particle, compute its current pixel-space centre (with
+    // drift + wobble), its fade opacity, and emit two triangles into the
     // pre-allocated vertex buffer.
     for (i, p) in state.particles.iter().enumerate() {
         let phase = ((now + p.t_offset) % p.cycle) / p.cycle;
-        // phase 0 → just below the buffer (y = h + r), phase 1 → just
-        // above (y = -r). Linear rise, no easing.
+        // phase 0 → just below the buffer, phase 1 → just above.
         let cy_px = h + r - phase * (h + 2.0 * r);
-        let cx_px = p.x_norm * w;
 
-        // Four corners in pixel space.
+        // Horizontal: net drift accumulates with the rise, plus a gentle
+        // sin wobble so the path curves rather than slides straight. Both
+        // scaled to physical px.
+        let drift = p.drift_px * scale * phase;
+        let wobble = WOBBLE_PX * scale * (phase * std::f32::consts::TAU + p.wobble_phase).sin();
+        let cx_px = p.x_norm * w + drift + wobble;
+
+        // Fade: ramp 0→peak over the first FADE_FRACTION of the rise and
+        // peak→0 over the last FADE_FRACTION; flat peak in between. So
+        // particles materialise and dissolve instead of popping.
+        let fade = if phase < FADE_FRACTION {
+            phase / FADE_FRACTION
+        } else if phase > 1.0 - FADE_FRACTION {
+            (1.0 - phase) / FADE_FRACTION
+        } else {
+            1.0
+        };
+        let alpha = fade.clamp(0.0, 1.0) * PEAK_OPACITY;
+
+        // Four corners in pixel space (quad is r = core * GLOW_SCALE).
         let (x0, y0) = (cx_px - r, cy_px - r);
         let (x1, y1) = (cx_px + r, cy_px - r);
         let (x2, y2) = (cx_px - r, cy_px + r);
@@ -300,34 +372,41 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
         let (cx2, cy2) = px_to_clip(x2, y2, w, h);
         let (cx3, cy3) = px_to_clip(x3, y3, w, h);
 
-        let off = i * 6 * 4;
-        let verts = &mut state.cpu_verts[off..off + 24];
+        let off = i * 6 * 5;
+        let verts = &mut state.cpu_verts[off..off + 30];
+        // Each vertex: px, py, lx, ly, fade.
         // tri 1: 0, 1, 2
         verts[0] = cx0;
         verts[1] = cy0;
         verts[2] = -1.0;
         verts[3] = -1.0;
-        verts[4] = cx1;
-        verts[5] = cy1;
-        verts[6] = 1.0;
-        verts[7] = -1.0;
-        verts[8] = cx2;
-        verts[9] = cy2;
-        verts[10] = -1.0;
-        verts[11] = 1.0;
+        verts[4] = alpha;
+        verts[5] = cx1;
+        verts[6] = cy1;
+        verts[7] = 1.0;
+        verts[8] = -1.0;
+        verts[9] = alpha;
+        verts[10] = cx2;
+        verts[11] = cy2;
+        verts[12] = -1.0;
+        verts[13] = 1.0;
+        verts[14] = alpha;
         // tri 2: 1, 3, 2
-        verts[12] = cx1;
-        verts[13] = cy1;
-        verts[14] = 1.0;
-        verts[15] = -1.0;
-        verts[16] = cx3;
-        verts[17] = cy3;
-        verts[18] = 1.0;
-        verts[19] = 1.0;
-        verts[20] = cx2;
-        verts[21] = cy2;
-        verts[22] = -1.0;
+        verts[15] = cx1;
+        verts[16] = cy1;
+        verts[17] = 1.0;
+        verts[18] = -1.0;
+        verts[19] = alpha;
+        verts[20] = cx3;
+        verts[21] = cy3;
+        verts[22] = 1.0;
         verts[23] = 1.0;
+        verts[24] = alpha;
+        verts[25] = cx2;
+        verts[26] = cy2;
+        verts[27] = -1.0;
+        verts[28] = 1.0;
+        verts[29] = alpha;
     }
 }
 
@@ -402,7 +481,7 @@ fn run() -> Result<(), PluginError> {
     let gpu = unsafe { build_gpu_state() };
 
     let particles = seed_particles(config.count);
-    let cpu_verts = vec![0.0_f32; particles.len() * 6 * 4];
+    let cpu_verts = vec![0.0_f32; particles.len() * 6 * 5];
 
     let mut state = State {
         config,
@@ -519,7 +598,8 @@ fn render_and_send(
             gl::STREAM_DRAW,
         );
 
-        let stride = (4 * std::mem::size_of::<f32>()) as i32;
+        // 5 floats/vertex: px, py, lx, ly, fade.
+        let stride = (5 * std::mem::size_of::<f32>()) as i32;
         gl::EnableVertexAttribArray(gpu.a_pos_loc);
         gl::VertexAttribPointer(
             gpu.a_pos_loc,
@@ -537,6 +617,15 @@ fn render_and_send(
             gl::FALSE,
             stride,
             (2 * std::mem::size_of::<f32>()) as *const _,
+        );
+        gl::EnableVertexAttribArray(gpu.a_fade_loc);
+        gl::VertexAttribPointer(
+            gpu.a_fade_loc,
+            1,
+            gl::FLOAT,
+            gl::FALSE,
+            stride,
+            (4 * std::mem::size_of::<f32>()) as *const _,
         );
 
         gl::Uniform4f(
