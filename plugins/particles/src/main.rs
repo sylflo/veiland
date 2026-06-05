@@ -41,7 +41,7 @@ const WOBBLE_PX: f32 = 8.0;
 /// Quad is drawn this much larger than the core radius so the soft glow
 /// halo has room to fall off inside the quad (the FS puts the visible
 /// core in the inner ~20% of the quad). Larger = wider, dreamier halo.
-const GLOW_SCALE: f32 = 3.5;
+const GLOW_SCALE: f32 = 3.0;
 /// Peak per-particle opacity (mockup tops out at 0.8, not full white).
 const PEAK_OPACITY: f32 = 0.8;
 /// Fraction of the rise spent fading in / out at each end.
@@ -69,8 +69,8 @@ fn default_color() -> [f32; 4] {
 fn default_radius_px() -> f32 {
     // Small, delicate core — the glow halo (GLOW_SCALE + the FS falloff)
     // does most of the visible work, which reads dreamier than a solid
-    // dot. 1.2px radius core, big soft halo around it.
-    1.2
+    // dot. 0.4px radius core (near the sub-pixel AA floor), soft halo.
+    0.4
 }
 
 fn default_config() -> Config {
@@ -248,7 +248,7 @@ unsafe fn build_gpu_state() -> GpuState {
     // mockup's `box-shadow: 0 0 8px`. The quad spans [-1,1] in a_local; the
     // visible core lives in the inner ~20% and a wide, gentle falloff fills
     // out to the edge. d is distance from centre.
-    //   core: solid out to 0.15, smoothstep edge to 0.28 (a tiny crisp dot)
+    //   core: solid out to 0.10, smoothstep edge to 0.20 (a tiny crisp dot)
     //   glow: gentle falloff from centre to 1.0 (the halo). pow exponent
     //         1.5 (vs 2.0) widens the halo; weight 0.6 (vs 0.35) brightens
     //         it. The glow now dominates the dot — that's the dreamy look.
@@ -260,9 +260,9 @@ unsafe fn build_gpu_state() -> GpuState {
         uniform vec4 u_color;\n\
         void main() {\n\
             float d = length(v_local);\n\
-            float core = 1.0 - smoothstep(0.15, 0.28, d);\n\
-            float glow = pow(1.0 - clamp(d, 0.0, 1.0), 1.5);\n\
-            float cov = clamp(core + glow * 0.6, 0.0, 1.0);\n\
+            float core = 1.0 - smoothstep(0.10, 0.20, d);\n\
+            float glow = pow(1.0 - clamp(d, 0.0, 1.0), 1.2);\n\
+            float cov = clamp(core + glow * 0.8, 0.0, 1.0);\n\
             float a = u_color.a * cov * v_fade;\n\
             if (a <= 0.0) discard;\n\
             // Premultiplied alpha: the core composites this dmabuf with\n\
