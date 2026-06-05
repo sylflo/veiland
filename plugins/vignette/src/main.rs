@@ -192,7 +192,11 @@ unsafe fn build_gpu_state() -> GpuState {
             float bl = corner_coverage(vec2(0.0, 1.0)) * u_opacities.z;\n\
             float br = corner_coverage(vec2(1.0, 1.0)) * u_opacities.w;\n\
             float a = clamp(tl + tr + bl + br, 0.0, 1.0);\n\
-            gl_FragColor = vec4(u_color.rgb, a * u_color.a);\n\
+            // Premultiplied alpha: the core composites this dmabuf with\n\
+            // glBlendFunc(ONE, 1-SRC_ALPHA), so emit RGB pre-scaled by\n\
+            // the final alpha.\n\
+            float pa = a * u_color.a;\n\
+            gl_FragColor = vec4(u_color.rgb * pa, pa);\n\
         }\n\0";
 
     unsafe {
@@ -392,7 +396,8 @@ fn render_and_send(
         gl::Clear(gl::COLOR_BUFFER_BIT);
 
         gl::Enable(gl::BLEND);
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        // Premultiplied-alpha over operator; FS emits RGB*a. See fs_src.
+        gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
 
         gl::UseProgram(gpu.program);
         gl::Uniform4f(

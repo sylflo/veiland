@@ -185,8 +185,15 @@ const FS_SRC: &[u8] = b"#version 100\n\
         // Single-channel atlas (R8); the .r channel is coverage 0..1.\n\
         // Colour comes from the uniform, not the texture: same atlas\n\
         // entry can be drawn in any colour. See concept 1.\n\
+        //\n\
+        // Premultiplied alpha: RGB is scaled by the final alpha so the\n\
+        // pixel composes correctly through both the plugin's own blend\n\
+        // and the core compositor's second blend. Straight alpha here\n\
+        // double-applies coverage across the dmabuf boundary and halos\n\
+        // glyph edges. Matching blend is glBlendFunc(ONE, 1-SRC_ALPHA).\n\
         float coverage = texture2D(u_atlas, v_uv).r;\n\
-        gl_FragColor = vec4(u_color.rgb, u_color.a * coverage);\n\
+        float a = u_color.a * coverage;\n\
+        gl_FragColor = vec4(u_color.rgb * a, a);\n\
     }\n\0";
 
 impl LabelGl {
@@ -555,7 +562,7 @@ pub(crate) fn render_label(
     //    sin=0) so the non-rotated case pays nothing visible.
     //    If there's a shadow, draw it first (lower colour, offset
     //    position) so the main text composites on top with the
-    //    existing SRC_ALPHA / ONE_MINUS_SRC_ALPHA blend.
+    //    premultiplied ONE / ONE_MINUS_SRC_ALPHA blend set below.
     let rot_rad = label.rotation.to_radians();
     let (rot_sin, rot_cos) = rot_rad.sin_cos();
 
@@ -618,7 +625,9 @@ pub(crate) fn render_label(
         gl::Uniform1i(label_gl.u_atlas_loc, 0);
 
         gl::Enable(gl::BLEND);
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        // Premultiplied-alpha over operator: the FS emits RGB*a, so the
+        // source factor is ONE, not SRC_ALPHA. See FS_SRC for why.
+        gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
 
         // Shadow pass first (if any) — drawn underneath the main text.
         if let Some(s) = label.shadow.as_ref() {

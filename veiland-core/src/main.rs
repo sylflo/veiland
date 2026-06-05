@@ -294,7 +294,13 @@ unsafe fn build_indicator_program() -> (
             // be more correct but isn't in GLES 2 core.\n\
             float a = 1.0 - smoothstep(0.92, 1.0, d);\n\
             if (a <= 0.0) discard;\n\
-            gl_FragColor = vec4(u_color.rgb, u_color.a * a);\n\
+            // Premultiplied alpha: the indicator paints after the plugin\n\
+            // loop under the same ONE / 1-SRC_ALPHA blend, so emit RGB\n\
+            // pre-scaled by the final alpha. Straight alpha here would\n\
+            // fade the dots, and the dots are the trusted 'still locked'\n\
+            // signal, so they must stay solid.\n\
+            float pa = u_color.a * a;\n\
+            gl_FragColor = vec4(u_color.rgb * pa, pa);\n\
         }\n\0";
 
     unsafe {
@@ -1313,13 +1319,15 @@ impl AppData {
             gl::Viewport(0, 0, w, h);
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            // Straight-alpha blending. See the matching note in
-            // SessionLockHandler::configure for the why; the
-            // short version is "plugins emit non-pre-multiplied
-            // pixels and we don't toggle blend off after the
-            // loop because nothing else needs it off."
+            // Premultiplied-alpha blending. Plugins emit premultiplied
+            // pixels (RGB already scaled by alpha) so glyph coverage and
+            // shader alpha compose exactly once across the dmabuf
+            // boundary; straight alpha here double-applied coverage and
+            // haloed text edges. The password indicator (drawn after the
+            // loop) emits premultiplied too. We don't toggle blend off
+            // after the loop because nothing else needs it off.
             gl::Enable(gl::BLEND);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
         }
 
         for slot_opt in &self.plugins[output_idx] {
