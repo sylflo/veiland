@@ -246,6 +246,7 @@ fn build_labels(state: &State) -> (Label, Label) {
         shadow: shadow.clone(),
         letter_spacing: state.config.time_letter_spacing * s,
         font_weight: state.config.font_weight,
+        italic: false,
     };
 
     let date_label = Label {
@@ -263,6 +264,7 @@ fn build_labels(state: &State) -> (Label, Label) {
         shadow,
         letter_spacing: state.config.date_letter_spacing * s,
         font_weight: state.config.font_weight,
+        italic: false,
     };
 
     (time_label, date_label)

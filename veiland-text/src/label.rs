@@ -21,7 +21,8 @@
 #![allow(unsafe_code)]
 
 use cosmic_text::{
-    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Weight, fontdb,
+    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style, SwashCache, SwashContent, Weight,
+    fontdb,
 };
 
 use crate::atlas::{Atlas, GlyphKey};
@@ -99,6 +100,12 @@ pub struct Label {
     /// 700 Bold. Selects the matching face at shape time. NOT scaled by
     /// `Configure.scale` — it's a face selector, not a pixel measure.
     pub font_weight: u16,
+    /// Render with the family's italic face. Like weight, this *selects* a
+    /// face at shape time — it does not synthesize a slant. If the chosen
+    /// `font_family` has no italic face installed (e.g. Noto Sans CJK JP),
+    /// the text renders upright. Use a family with a real italic (e.g.
+    /// "Liberation Sans") for Latin italic text.
+    pub italic: bool,
 }
 
 impl Label {
@@ -118,6 +125,7 @@ impl Label {
             shadow: None,
             letter_spacing: 0.0,
             font_weight: 400,
+            italic: false,
         }
     }
 }
@@ -426,10 +434,21 @@ pub(crate) fn render_label(
     } else {
         0.0
     };
+    // Style selects the italic face at shape time (no synthetic slant). It
+    // resolves to a different fontdb face — i.e. a different cache_key.font_id
+    // — than the upright face, so the atlas GlyphKey (which already keys on
+    // font_id) disambiguates upright vs italic for free; no new key field
+    // needed, unlike font_weight which is a distinct CacheKey axis.
+    let style = if label.italic {
+        Style::Italic
+    } else {
+        Style::Normal
+    };
     let attrs = Attrs::new()
         .family(family)
         .letter_spacing(cosmic_spacing)
-        .weight(Weight(label.font_weight));
+        .weight(Weight(label.font_weight))
+        .style(style);
     buffer.set_size(Some(f32::MAX), Some(f32::MAX));
     buffer.set_text(&label.text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);

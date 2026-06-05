@@ -77,6 +77,12 @@ struct Config {
     /// 700 Bold). NOT scaled — it's a face selector, not a pixel measure.
     #[serde(default = "default_font_weight")]
     font_weight: u16,
+    /// Render with the family's italic face. Selects a face; does not
+    /// synthesize a slant. Requires an italic face installed for
+    /// `font_family` (e.g. "Liberation Sans"); CJK families like
+    /// "Noto Sans CJK JP" have none and render upright.
+    #[serde(default)]
+    italic: bool,
 }
 
 fn default_text() -> String {
@@ -181,6 +187,7 @@ fn default_config() -> Config {
         shadow_blur: 0.0,
         letter_spacing: 0.0,
         font_weight: default_font_weight(),
+        italic: false,
     }
 }
 
@@ -205,6 +212,7 @@ fn build_label(config: &Config, scale: u32) -> Label {
         }),
         letter_spacing: config.letter_spacing * s,
         font_weight: config.font_weight,
+        italic: config.italic,
     }
 }
 

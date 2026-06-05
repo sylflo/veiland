@@ -32,14 +32,14 @@
 #
 # Visible-vs-mockup differences:
 #
-# * Quote not italic (`veiland-label` doesn't expose italics) — the only
-#   remaining typographic gap; the line stays upright.
 # * Particle motion is ~10 fps not ~60 fps (host pacing limitation;
 #   see improvements.md "Per-plugin frame rate").
 #
-# Letter-spacing and font-weight now match the mockup (M12 commit c/d):
-# the labels carry `letter_spacing` + `font_weight`, the clock carries
-# `time/date_letter_spacing` + a shared `font_weight`.
+# Letter-spacing, font-weight, and italics now match the mockup: the
+# labels carry `letter_spacing` + `font_weight` + `italic`, the clock
+# carries `time/date_letter_spacing` + a shared `font_weight`. The
+# English quote is italic via "Liberation Sans" (a family with a real
+# italic face — CJK Noto has none).
 
 # --- Wallpaper: edge-to-edge image ---------------------------------
 [[plugin]]
@@ -124,11 +124,14 @@ z_index = 40
 
 [plugin.config]
 text = "Once in a while when I wake up, I find myself crying."
-font_family = "Noto Sans CJK JP"
+# Italic to match the mockup. cosmic-text selects a real italic FACE (it
+# doesn't synthesize a slant), and "Noto Sans CJK JP" ships no italic, so
+# this Latin-only line uses "Liberation Sans" which has one. Swap to any
+# family with an installed italic face if you prefer.
+font_family = "Liberation Sans"
 font_size = 28
-# Mockup renders this line italic; veiland-label doesn't expose italics,
-# so it stays upright. Weight 300 keeps the airy feel.
 font_weight = 300
+italic = true
 color = [0.91, 0.96, 0.97, 0.9]
 halign = "center"
 valign = "middle"
