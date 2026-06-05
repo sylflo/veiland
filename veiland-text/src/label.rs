@@ -21,7 +21,7 @@
 #![allow(unsafe_code)]
 
 use cosmic_text::{
-    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, fontdb,
+    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Weight, fontdb,
 };
 
 use crate::atlas::{Atlas, GlyphKey};
@@ -87,6 +87,18 @@ pub struct Label {
     /// Optional drop shadow. `None` draws a single pass; `Some(_)`
     /// draws a shadow pass first and the main text on top.
     pub shadow: Option<Shadow>,
+    /// Extra inter-glyph spacing (tracking) in PIXELS, the same
+    /// logical-pixel space as `font_size`. `0.0` is the font's natural
+    /// spacing. The plugin multiplies by `Configure.scale` before
+    /// constructing the Label, matching `font_size`. Applies per-cluster,
+    /// so CJK respects it. (Internally `render_label` divides by
+    /// `font_size` because cosmic-text's letter_spacing is em-relative;
+    /// callers always think in pixels.)
+    pub letter_spacing: f32,
+    /// CSS-style numeric font weight: 100 Thin, 300 Light, 400 Normal,
+    /// 700 Bold. Selects the matching face at shape time. NOT scaled by
+    /// `Configure.scale` — it's a face selector, not a pixel measure.
+    pub font_weight: u16,
 }
 
 impl Label {
@@ -104,6 +116,8 @@ impl Label {
             position: (0.0, 0.0),
             rotation: 0.0,
             shadow: None,
+            letter_spacing: 0.0,
+            font_weight: 400,
         }
     }
 }
@@ -395,7 +409,27 @@ pub(crate) fn render_label(
         "Monospace" | "monospace" => Family::Monospace,
         other => Family::Name(other),
     };
-    let attrs = Attrs::new().family(family);
+    // letter_spacing(0.0) is a no-op (natural tracking); weight 400 is
+    // Normal, so both are safe to apply unconditionally. Weight selects
+    // the matching face at shape time and is stamped into each glyph's
+    // cache_key, which the atlas key carries (see GlyphKey).
+    //
+    // Unit conversion: `Label.letter_spacing` is in PIXELS (the documented,
+    // intuitive unit), but cosmic-text's letter_spacing is em-relative — it
+    // adds the value to the pre-scale glyph advance, which layout then
+    // multiplies by font_size (cosmic-text 0.19 shape.rs:217 + layout
+    // x_advance * font_size). So `pixels = font_size * cosmic_spacing`, and
+    // we pass `pixels / font_size`. Guard the divide against a zero
+    // font_size (a plugin could send one; never crash on plugin input).
+    let cosmic_spacing = if label.font_size > 0.0 {
+        label.letter_spacing / label.font_size
+    } else {
+        0.0
+    };
+    let attrs = Attrs::new()
+        .family(family)
+        .letter_spacing(cosmic_spacing)
+        .weight(Weight(label.font_weight));
     buffer.set_size(Some(f32::MAX), Some(f32::MAX));
     buffer.set_text(&label.text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);
@@ -433,6 +467,7 @@ pub(crate) fn render_label(
             let key = GlyphKey {
                 font_id: hash_font_id(physical.cache_key.font_id),
                 glyph_id: physical.cache_key.glyph_id,
+                font_weight: physical.cache_key.font_weight.0,
                 size_px,
                 subpixel_bin: 0,
             };

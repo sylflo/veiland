@@ -78,6 +78,18 @@ struct Config {
     shadow_color: [f32; 4],
     #[serde(default)]
     shadow_blur: f32,
+    /// Extra inter-glyph spacing in logical pixels (scaled like font_size).
+    /// 0.0 is natural tracking. Separate per label so the big time and the
+    /// small date can track independently.
+    #[serde(default)]
+    time_letter_spacing: f32,
+    #[serde(default)]
+    date_letter_spacing: f32,
+    /// CSS-style numeric weight (100 Thin … 300 Light … 400 Normal …
+    /// 700 Bold), applied to both labels. NOT scaled — it's a face
+    /// selector, not a pixel measure.
+    #[serde(default = "default_font_weight")]
+    font_weight: u16,
 }
 
 fn default_time_format() -> String {
@@ -109,6 +121,9 @@ fn default_date_position() -> [f32; 2] {
 }
 fn default_shadow_color() -> [f32; 4] {
     [0.0, 0.0, 0.0, 0.9]
+}
+fn default_font_weight() -> u16 {
+    400
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -165,6 +180,9 @@ fn default_config() -> Config {
         shadow_offset: None,
         shadow_color: default_shadow_color(),
         shadow_blur: 0.0,
+        time_letter_spacing: 0.0,
+        date_letter_spacing: 0.0,
+        font_weight: default_font_weight(),
     }
 }
 
@@ -226,6 +244,8 @@ fn build_labels(state: &State) -> (Label, Label) {
         ),
         rotation: 0.0,
         shadow: shadow.clone(),
+        letter_spacing: state.config.time_letter_spacing * s,
+        font_weight: state.config.font_weight,
     };
 
     let date_label = Label {
@@ -241,6 +261,8 @@ fn build_labels(state: &State) -> (Label, Label) {
         ),
         rotation: 0.0,
         shadow,
+        letter_spacing: state.config.date_letter_spacing * s,
+        font_weight: state.config.font_weight,
     };
 
     (time_label, date_label)

@@ -69,6 +69,14 @@ struct Config {
     shadow_color: [f32; 4],
     #[serde(default)]
     shadow_blur: f32,
+    /// Extra inter-glyph spacing in logical pixels (scaled like font_size).
+    /// 0.0 is natural tracking.
+    #[serde(default)]
+    letter_spacing: f32,
+    /// CSS-style numeric weight (100 Thin … 300 Light … 400 Normal …
+    /// 700 Bold). NOT scaled — it's a face selector, not a pixel measure.
+    #[serde(default = "default_font_weight")]
+    font_weight: u16,
 }
 
 fn default_text() -> String {
@@ -88,6 +96,9 @@ fn default_position() -> [f32; 2] {
 }
 fn default_shadow_color() -> [f32; 4] {
     [0.0, 0.0, 0.0, 0.6]
+}
+fn default_font_weight() -> u16 {
+    400
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -168,6 +179,8 @@ fn default_config() -> Config {
         shadow_offset: None,
         shadow_color: default_shadow_color(),
         shadow_blur: 0.0,
+        letter_spacing: 0.0,
+        font_weight: default_font_weight(),
     }
 }
 
@@ -190,6 +203,8 @@ fn build_label(config: &Config, scale: u32) -> Label {
             color: config.shadow_color,
             blur: config.shadow_blur,
         }),
+        letter_spacing: config.letter_spacing * s,
+        font_weight: config.font_weight,
     }
 }
 

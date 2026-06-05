@@ -4,7 +4,7 @@
 //!
 //! One `R8` GL texture (1024×1024 by default) holds every rasterized
 //! glyph the plugin has drawn this session. A hash map keyed on
-//! `(font_id, glyph_id, size_bin, subpixel_bin)` maps to the glyph's
+//! `(font_id, glyph_id, font_weight, size_bin, subpixel_bin)` maps to the glyph's
 //! `(u, v, w, h)` rect inside that texture. Drawing text is then
 //! "compute one quad per glyph, sample the shared atlas, one draw call."
 //!
@@ -39,12 +39,18 @@ const ATLAS_SIZE: u32 = 1024;
 
 /// Identifier for a glyph in the atlas. The tuple discretizes everything
 /// that affects rasterization output: which font face, which glyph
-/// within it, what pixel size, and (for future use) what subpixel
-/// offset. In M10 the subpixel bin is always 0 — see module docs.
+/// within it, what numeric weight, what pixel size, and (for future use)
+/// what subpixel offset. In M10 the subpixel bin is always 0 — see module
+/// docs.
+///
+/// `font_weight` is part of the key because a single `font_id` can resolve
+/// to different faces at shape time depending on the requested weight; the
+/// same `glyph_id` at the same size in two weights must not collide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct GlyphKey {
     pub font_id: u64,
     pub glyph_id: u16,
+    pub font_weight: u16,
     pub size_px: u16,
     pub subpixel_bin: u8,
 }
@@ -144,7 +150,7 @@ impl Atlas {
     }
 
     /// Look up a previously-uploaded glyph. Returns `None` if the glyph
-    /// has never been seen at these (font, glyph_id, size, subpixel) bins.
+    /// has never been seen at these (font, glyph_id, weight, size, subpixel) bins.
     pub(crate) fn lookup(&self, key: GlyphKey) -> Option<AtlasEntry> {
         self.entries.get(&key).copied()
     }
