@@ -40,6 +40,12 @@ struct Config {
     /// the centre. Smaller → only the very corners darken.
     #[serde(default = "default_radius")]
     radius: f32,
+    /// Uniform dim applied across the WHOLE image, under the corner
+    /// gradient. `0.0` = classic corners-only vignette; small values
+    /// (e.g. 0.15-0.3) give a soft, dreamy haze over everything. Clamped
+    /// with the corners so it never exceeds full `color` opacity.
+    #[serde(default = "default_base_opacity")]
+    base_opacity: f32,
 }
 
 fn default_color() -> [f32; 4] {
@@ -54,6 +60,11 @@ fn default_bottom_corner_opacity() -> f32 {
 fn default_radius() -> f32 {
     0.7
 }
+fn default_base_opacity() -> f32 {
+    // Off by default — preserves the classic corners-only vignette for
+    // configs that don't ask for the haze.
+    0.0
+}
 
 fn default_config() -> Config {
     Config {
@@ -63,6 +74,7 @@ fn default_config() -> Config {
         opacity_bottom_left: default_bottom_corner_opacity(),
         opacity_bottom_right: default_bottom_corner_opacity(),
         radius: default_radius(),
+        base_opacity: default_base_opacity(),
     }
 }
 
@@ -145,6 +157,7 @@ struct GpuState {
     program: gl::types::GLuint,
     u_color_loc: gl::types::GLint,
     u_opacities_loc: gl::types::GLint,
+    u_base_loc: gl::types::GLint,
     u_radius_loc: gl::types::GLint,
     u_aspect_loc: gl::types::GLint,
 }
@@ -167,6 +180,10 @@ unsafe fn build_gpu_state() -> GpuState {
         uniform vec4 u_color;\n\
         // Per-corner opacities. xyzw = TL, TR, BL, BR.\n\
         uniform vec4 u_opacities;\n\
+        // Uniform whole-image dim added under the corner gradient. 0.0 =\n\
+        // corners only (classic vignette); >0 darkens the entire image\n\
+        // evenly for a soft, dreamy haze.\n\
+        uniform float u_base;\n\
         uniform float u_radius;\n\
         // Buffer aspect ratio (w/h). Applied to U so a `radius` of\n\
         // 0.7 reads as 70% of the half-diagonal in physical pixels,\n\
@@ -191,7 +208,8 @@ unsafe fn build_gpu_state() -> GpuState {
             float tr = corner_coverage(vec2(1.0, 0.0)) * u_opacities.y;\n\
             float bl = corner_coverage(vec2(0.0, 1.0)) * u_opacities.z;\n\
             float br = corner_coverage(vec2(1.0, 1.0)) * u_opacities.w;\n\
-            float a = clamp(tl + tr + bl + br, 0.0, 1.0);\n\
+            // Base dim everywhere, then the corner gradient on top.\n\
+            float a = clamp(u_base + tl + tr + bl + br, 0.0, 1.0);\n\
             // Premultiplied alpha: the core composites this dmabuf with\n\
             // glBlendFunc(ONE, 1-SRC_ALPHA), so emit RGB pre-scaled by\n\
             // the final alpha.\n\
@@ -226,6 +244,7 @@ unsafe fn build_gpu_state() -> GpuState {
         let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
         let u_opacities_loc =
             gl::GetUniformLocation(program, b"u_opacities\0".as_ptr() as *const _);
+        let u_base_loc = gl::GetUniformLocation(program, b"u_base\0".as_ptr() as *const _);
         let u_radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
         let u_aspect_loc = gl::GetUniformLocation(program, b"u_aspect\0".as_ptr() as *const _);
 
@@ -233,6 +252,7 @@ unsafe fn build_gpu_state() -> GpuState {
             program,
             u_color_loc,
             u_opacities_loc,
+            u_base_loc,
             u_radius_loc,
             u_aspect_loc,
         }
@@ -414,6 +434,7 @@ fn render_and_send(
             state.config.opacity_bottom_left,
             state.config.opacity_bottom_right,
         );
+        gl::Uniform1f(gpu.u_base_loc, state.config.base_opacity);
         gl::Uniform1f(gpu.u_radius_loc, state.config.radius);
         gl::Uniform1f(gpu.u_aspect_loc, aspect);
 
