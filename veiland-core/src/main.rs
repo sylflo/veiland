@@ -4,6 +4,9 @@ mod auth;
 mod config;
 mod plugin;
 mod region;
+mod renderer;
+
+use renderer::Renderer;
 
 use std::{process::ExitCode, time::Duration};
 
@@ -83,20 +86,11 @@ struct AppData {
     session_lock: Option<SessionLock>,
     lock_surfaces: Vec<Option<LockSurface>>,
     run: RunState,
-    egl: egl::Instance<egl::Static>,
-    egl_display: egl::Display,
-    egl_config: egl::Config,
-    egl_context: egl::Context,
+    /// All host-side EGL + GL state (the shared context plus the two
+    /// draw programs). Lives behind one field; access is
+    /// `self.renderer.*`.
+    renderer: Renderer,
     plugins: Vec<Vec<Option<PluginSlot>>>,
-    compositor_program: gl::types::GLuint,
-    compositor_vbo: gl::types::GLuint,
-    compositor_sampler_loc: gl::types::GLint,
-    compositor_rect_loc: gl::types::GLint,
-    indicator_program: gl::types::GLuint,
-    indicator_vbo: gl::types::GLuint,
-    indicator_centre_loc: gl::types::GLint,
-    indicator_radius_loc: gl::types::GLint,
-    indicator_color_loc: gl::types::GLint,
     auth: auth::Session,
     modifiers: Modifiers,
     /// Calloop handle for registering new plugin sockets on hotplug.
@@ -133,204 +127,6 @@ struct AppData {
     /// what keeps the clock plugin's display current — every Configure
     /// carries a fresh `time_unix_seconds`.
     last_time_tick: std::time::Instant,
-}
-
-unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
-    unsafe {
-        let shader = gl::CreateShader(kind);
-        let src_ptr = src.as_ptr() as *const _;
-        gl::ShaderSource(shader, 1, &src_ptr, std::ptr::null());
-        gl::CompileShader(shader);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(
-                shader,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "shader compile failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        shader
-    }
-}
-
-unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::types::GLuint {
-    unsafe {
-        let program = gl::CreateProgram();
-        gl::AttachShader(program, vs);
-        gl::AttachShader(program, fs);
-        gl::LinkProgram(program);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetProgramiv(program, gl::LINK_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(
-                program,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "program link failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        program
-    }
-}
-
-unsafe fn build_compositor_program() -> (
-    gl::types::GLuint,
-    gl::types::GLuint,
-    gl::types::GLint,
-    gl::types::GLint,
-) {
-    let vs_src = b"#version 100\n\
-        attribute vec2 a_pos;\n\
-        uniform vec4 u_rect;\n\
-        varying vec2 v_uv;\n\
-        void main() {\n\
-            // a_pos is the unit quad in [-1, 1]\xB2. Remap to [0, 1]\n\
-            // (= 'normalised quad'), then place inside the target\n\
-            // clip-space rect u_rect = (x, y, w, h).\n\
-            vec2 unit01 = a_pos * 0.5 + 0.5;\n\
-            vec2 clip = u_rect.xy + unit01 * u_rect.zw;\n\
-            gl_Position = vec4(clip.x, clip.y, 0.0, 1.0);\n\
-    \n\
-            // UV samples the plugin's dmabuf edge-to-edge regardless\n\
-            // of where the quad lands on screen. Y is flipped because\n\
-            // the dmabuf is top-down but GL samples bottom-up.\n\
-            v_uv = vec2(unit01.x, 1.0 - unit01.y);\n\
-        }\n\0";
-
-    let fs_src = b"#version 100\n\
-        precision mediump float;\n\
-        varying vec2 v_uv;\n\
-        uniform sampler2D u_tex;\n\
-        void main() {\n\
-            gl_FragColor = texture2D(u_tex, v_uv);\n\
-        }\n\0";
-
-    unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
-
-        let quad: [f32; 12] = [
-            -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
-        ];
-
-        let mut vbo: gl::types::GLuint = 0;
-        gl::GenBuffers(1, &mut vbo);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            std::mem::size_of_val(&quad) as isize,
-            quad.as_ptr() as *const _,
-            gl::STATIC_DRAW,
-        );
-
-        let sampler_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
-        let rect_loc = gl::GetUniformLocation(program, b"u_rect\0".as_ptr() as *const _);
-
-        (program, vbo, sampler_loc, rect_loc)
-    }
-}
-
-/// Build the password-indicator GL program.
-///
-/// One filled circle per draw call. The "circle" is a unit quad whose
-/// fragment shader discards anything outside radius 1 from the quad
-/// centre — standard procedural-shape trick, no geometry library
-/// needed. The caller issues N draws (N = dot count) with `u_centre`
-/// updated between each; `u_radius` and `u_color` stay constant
-/// across the row.
-///
-/// `u_centre` and `u_radius` are in clip space (so per-frame the
-/// caller converts surface-px → clip-space). Y is flipped at
-/// conversion time, not in the shader, because there's no UV here.
-unsafe fn build_indicator_program() -> (
-    gl::types::GLuint,
-    gl::types::GLuint,
-    gl::types::GLint,
-    gl::types::GLint,
-    gl::types::GLint,
-) {
-    let vs_src = b"#version 100\n\
-        attribute vec2 a_pos;\n\
-        uniform vec2 u_centre;\n\
-        uniform vec2 u_radius;\n\
-        varying vec2 v_local;\n\
-        void main() {\n\
-            v_local = a_pos;\n\
-            vec2 clip = u_centre + a_pos * u_radius;\n\
-            gl_Position = vec4(clip, 0.0, 1.0);\n\
-        }\n\0";
-
-    // highp on the fragment shader: GLES 2 defaults to mediump,
-    // which some Mesa drivers honour as fp16 and bands the circle
-    // edge visibly at 12-px diameter. NVIDIA defaults to fp32
-    // either way. highp is portable and cheap at this scale.
-    //
-    // smoothstep gives a one-fragment-wide antialias ramp on the
-    // edge instead of a hard discard. Without it the dot looks
-    // pixelated on both vendors at small sizes.
-    let fs_src = b"#version 100\n\
-        precision highp float;\n\
-        varying vec2 v_local;\n\
-        uniform vec4 u_color;\n\
-        void main() {\n\
-            float d = length(v_local);\n\
-            // 1.0 inside, 0.0 outside, smooth across the last\n\
-            // ~1.5/radius_px fraction of the radius. fwidth would\n\
-            // be more correct but isn't in GLES 2 core.\n\
-            float a = 1.0 - smoothstep(0.92, 1.0, d);\n\
-            if (a <= 0.0) discard;\n\
-            // Premultiplied alpha: the indicator paints after the plugin\n\
-            // loop under the same ONE / 1-SRC_ALPHA blend, so emit RGB\n\
-            // pre-scaled by the final alpha. Straight alpha here would\n\
-            // fade the dots, and the dots are the trusted 'still locked'\n\
-            // signal, so they must stay solid.\n\
-            float pa = u_color.a * a;\n\
-            gl_FragColor = vec4(u_color.rgb * pa, pa);\n\
-        }\n\0";
-
-    unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
-
-        // Same unit quad as the compositor. Allocated separately so
-        // the two programs stay independent — no shared-VBO coupling
-        // to worry about. 48 bytes is free.
-        let quad: [f32; 12] = [
-            -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
-        ];
-
-        let mut vbo: gl::types::GLuint = 0;
-        gl::GenBuffers(1, &mut vbo);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            std::mem::size_of_val(&quad) as isize,
-            quad.as_ptr() as *const _,
-            gl::STATIC_DRAW,
-        );
-
-        let centre_loc = gl::GetUniformLocation(program, b"u_centre\0".as_ptr() as *const _);
-        let radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
-        let color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
-
-        (program, vbo, centre_loc, radius_loc, color_loc)
-    }
 }
 
 fn main() -> ExitCode {
@@ -421,18 +217,10 @@ fn main() -> ExitCode {
     egl.make_current(egl_display, None, None, Some(egl_context))
         .expect("eglMakeCurrent (surfaceless)");
 
-    let (compositor_program, compositor_vbo, compositor_sampler_loc, compositor_rect_loc) =
-        unsafe { build_compositor_program() };
-    eprintln!("built compositor program id={}", compositor_program);
-
-    let (
-        indicator_program,
-        indicator_vbo,
-        indicator_centre_loc,
-        indicator_radius_loc,
-        indicator_color_loc,
-    ) = unsafe { build_indicator_program() };
-    eprintln!("built indicator program id={}", indicator_program);
+    // Build both GL programs and bundle all EGL/GL handles into the
+    // Renderer. The context is already current (surfaceless) above,
+    // which the program build requires.
+    let renderer = Renderer::new(egl, egl_display, egl_config, egl_context);
 
     let auth = match auth::Session::new() {
         Ok(s) => s,
@@ -456,20 +244,8 @@ fn main() -> ExitCode {
         session_lock: None,
         lock_surfaces: Vec::new(),
         run: RunState::Running,
-        egl,
-        egl_display,
-        egl_config,
-        egl_context,
+        renderer,
         plugins: Vec::new(),
-        compositor_program,
-        compositor_vbo,
-        compositor_sampler_loc,
-        compositor_rect_loc,
-        indicator_program,
-        indicator_vbo,
-        indicator_centre_loc,
-        indicator_radius_loc,
-        indicator_color_loc,
         auth,
         loop_handle: event_loop.handle(),
         qh: qh.clone(),
@@ -857,9 +633,9 @@ impl SessionLockHandler for AppData {
                     .expect("WlEglSurface::new");
 
             let egl_surface = unsafe {
-                self.egl.create_window_surface(
-                    self.egl_display,
-                    self.egl_config,
+                self.renderer.egl.create_window_surface(
+                    self.renderer.egl_display,
+                    self.renderer.egl_config,
                     egl_window.ptr() as egl::NativeWindowType,
                     None,
                 )
@@ -888,12 +664,12 @@ impl SessionLockHandler for AppData {
         // draw_password_indicator. egl::Surface is Copy (the rest
         // of this function already deref-copies it via *egl_surface).
         let egl_surface = *entry.egl_surface.as_ref().unwrap();
-        self.egl
+        self.renderer.egl
             .make_current(
-                self.egl_display,
+                self.renderer.egl_display,
                 Some(egl_surface),
                 Some(egl_surface),
-                Some(self.egl_context),
+                Some(self.renderer.egl_context),
             )
             .expect("eglMakeCurrent");
 
@@ -931,8 +707,8 @@ impl SessionLockHandler for AppData {
             // firing immediately repaints with plugin content.
         }
 
-        self.egl
-            .swap_buffers(self.egl_display, egl_surface)
+        self.renderer.egl
+            .swap_buffers(self.renderer.egl_display, egl_surface)
             .expect("eglSwapBuffers");
     }
 }
@@ -1036,8 +812,8 @@ impl AppData {
                 output_name,
                 scale,
                 self.host_capabilities,
-                &self.egl,
-                self.egl_display,
+                &self.renderer.egl,
+                self.renderer.egl_display,
             ) {
                 Ok(slot) => {
                     eprintln!(
@@ -1177,7 +953,7 @@ impl AppData {
             // Phase 3 — keep EGL from sending commits to a dying surface).
             if let Some(surface_ref) = self.lock_surfaces[idx].as_mut() {
                 if let Some(egl_surface) = surface_ref.egl_surface.take() {
-                    if let Err(e) = self.egl.destroy_surface(self.egl_display, egl_surface) {
+                    if let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface) {
                         eprintln!(
                             "veiland-core: eglDestroySurface for {:?} (rebind) failed: \
                             {:?} (continuing)",
@@ -1306,12 +1082,12 @@ impl AppData {
         // backed; the clone is cheap.
         let wl_surface = entry.lock_surface.wl_surface().clone();
 
-        self.egl
+        self.renderer.egl
             .make_current(
-                self.egl_display,
+                self.renderer.egl_display,
                 Some(egl_surface),
                 Some(egl_surface),
-                Some(self.egl_context),
+                Some(self.renderer.egl_context),
             )
             .expect("eglMakeCurrent (repaint)");
 
@@ -1334,10 +1110,10 @@ impl AppData {
             if let Some(slot) = slot_opt {
                 let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
                 slot.state.composite(
-                    self.compositor_program,
-                    self.compositor_vbo,
-                    self.compositor_sampler_loc,
-                    self.compositor_rect_loc,
+                    self.renderer.compositor_program,
+                    self.renderer.compositor_vbo,
+                    self.renderer.compositor_sampler_loc,
+                    self.renderer.compositor_rect_loc,
                     rect,
                 );
             }
@@ -1345,7 +1121,12 @@ impl AppData {
 
         // Indicator paints on top of any plugins — see the matching
         // note in SessionLockHandler::configure.
-        self.draw_password_indicator(w, h);
+        self.renderer.draw_password_indicator(
+            &self.config.password,
+            self.auth.char_count(),
+            w,
+            h,
+        );
 
         // Request the next frame callback BEFORE swap. swap_buffers
         // calls wl_surface.commit; if we requested .frame() after the
@@ -1363,8 +1144,8 @@ impl AppData {
             }
         }
 
-        self.egl
-            .swap_buffers(self.egl_display, egl_surface)
+        self.renderer.egl
+            .swap_buffers(self.renderer.egl_display, egl_surface)
             .expect("eglSwapBuffers (repaint)");
 
         // Egress fence + BufferReleased for every plugin in this
@@ -1394,15 +1175,15 @@ impl AppData {
             return;
         }
 
-        let fence = match plugin::create_host_fence(&self.egl, self.egl_display) {
+        let fence = match plugin::create_host_fence(&self.renderer.egl, self.renderer.egl_display) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("egress fence create failed: {}", e);
                 return;
             }
         };
-        let wait_result = plugin::wait_fence(&self.egl, self.egl_display, &fence);
-        plugin::release_fence(&self.egl, self.egl_display, fence);
+        let wait_result = plugin::wait_fence(&self.renderer.egl, self.renderer.egl_display, &fence);
+        plugin::release_fence(&self.renderer.egl, self.renderer.egl_display, fence);
         if let Err(e) = wait_result {
             eprintln!("egress fence wait failed: {}", e);
             return;
@@ -1440,99 +1221,6 @@ impl AppData {
         }
     }
 
-    /// Draw the password indicator on the currently-bound EGL surface.
-    ///
-    /// `width` and `height` are the surface's pixel dimensions. The
-    /// caller is responsible for making the right EGL context current
-    /// and clearing the framebuffer; this method only issues the
-    /// indicator draws. Designed to be called *last* in the per-
-    /// surface paint sequence so the indicator appears on top of any
-    /// plugins (the soft trust-region — plugins can declare any
-    /// region, the indicator always wins on paint order).
-    ///
-    /// One draw call per dot (N ≤ 32). Cheap enough that loop-vs-
-    /// instancing doesn't matter at this scale.
-    ///
-    /// Sizing / position / colour are hardcoded in M9 step 3; step 5
-    /// replaces them with the `[password]` config table.
-    fn draw_password_indicator(&self, width: i32, height: i32) {
-        let pw = &self.config.password;
-
-        // Cap at max_dots (config-driven; clamped at load to [1, 256]).
-        // The row freezes at this value — the user keeps typing but
-        // the dot count stops growing.
-        let n = self.auth.char_count().min(pw.max_dots as usize);
-        if n == 0 || width <= 0 || height <= 0 {
-            return;
-        }
-
-        // Colours are not configurable in v1; see docs/m9-plan.md
-        // "Deferred to post-M9".
-        let color: [f32; 4] = [220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 1.0];
-
-        let diameter = pw.dot_diameter as f32;
-        let spacing = pw.dot_spacing as f32;
-
-        // `x` default is surface-relative (centred), so it can't be
-        // baked into the config struct — resolved per-surface here.
-        // Same for `y_percent` default of 75. Both pass through their
-        // clamp ranges at load if explicitly set.
-        let centre_x_px = pw.x.map(|v| v as f32).unwrap_or(width as f32 / 2.0);
-        let y_percent = pw.y_percent.unwrap_or(75) as f32;
-
-        let w = width as f32;
-        let h = height as f32;
-
-        // Leftmost dot centre in surface pixels. total_width is the
-        // row's extent edge-to-edge; centring it on centre_x_px puts
-        // the leftmost *edge* at centre_x_px - total/2, so the
-        // leftmost *centre* is half a diameter further right.
-        let total_width = (n as f32 - 1.0) * spacing + diameter;
-        let start_x = centre_x_px - total_width / 2.0 + diameter / 2.0;
-        let centre_y_px = h * y_percent / 100.0;
-
-        // Clip-space radius: surface-px / (surface-px / 2) = 2 * px /
-        // surface, per axis. Width and height differ for non-square
-        // surfaces, so the dot stays circular on screen.
-        let rx = diameter / w;
-        let ry = diameter / h;
-
-        unsafe {
-            gl::UseProgram(self.indicator_program);
-
-            // Vertex attribute setup — same shape as plugin/state.rs's
-            // composite(). Re-binding per call is cheap and keeps this
-            // method self-contained (no assumed GL state from the
-            // previous program).
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.indicator_vbo);
-            let a_pos =
-                gl::GetAttribLocation(self.indicator_program, b"a_pos\0".as_ptr() as *const _);
-            gl::EnableVertexAttribArray(a_pos as u32);
-            gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
-
-            // Uniforms that don't change between dots.
-            gl::Uniform2f(self.indicator_radius_loc, rx, ry);
-            gl::Uniform4f(
-                self.indicator_color_loc,
-                color[0],
-                color[1],
-                color[2],
-                color[3],
-            );
-
-            for i in 0..n {
-                let centre_x = start_x + i as f32 * spacing;
-                // Surface-px → clip space. Y is flipped: surface y=0
-                // is top, clip y=+1 is top. (The compositor shader
-                // flips at the UV instead; the indicator has no UV,
-                // so we flip here.)
-                let cx = (centre_x / w) * 2.0 - 1.0;
-                let cy = -((centre_y_px / h) * 2.0 - 1.0);
-                gl::Uniform2f(self.indicator_centre_loc, cx, cy);
-                gl::DrawArrays(gl::TRIANGLES, 0, 6);
-            }
-        }
-    }
 }
 
 impl CompositorHandler for AppData {
@@ -1807,7 +1495,7 @@ impl OutputHandler for AppData {
         // commits to a dying surface.
         if let Some(surface_ref) = self.lock_surfaces[output_idx].as_mut() {
             if let Some(egl_surface) = surface_ref.egl_surface.take() {
-                if let Err(e) = self.egl.destroy_surface(self.egl_display, egl_surface) {
+                if let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface) {
                     eprintln!(
                         "veiland-core: eglDestroySurface for {:?} failed: {:?} (continuing)",
                         surface_ref.name, e
@@ -2092,13 +1780,13 @@ impl AppData {
         // 2. Dispatch. The block produces an owned outcome
         //    (Result<(), (name, err)>) so the slot borrow ends before
         //    we touch `self.plugins[i] = None` on the failure path.
-        //    `&self.egl` and `self.egl_display` are captured *before*
+        //    `&self.renderer.egl` and `self.renderer.egl_display` are captured *before*
         //    the slot borrow because handle_message needs them while
         //    we hold the slot; the borrow checker won't let us reach
         //    into self after slot_mut has taken &mut self.
         let dispatch_result: Result<(), (String, plugin::HostError)> = {
-            let egl = &self.egl;
-            let display = self.egl_display;
+            let egl = &self.renderer.egl;
+            let display = self.renderer.egl_display;
             let Some(slot) = self
                 .plugins
                 .get_mut(o)
