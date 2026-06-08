@@ -8,9 +8,14 @@
 //! everything. This module holds the cross-cutting inherent methods
 //! (lock-surface creation, plugin spawning, the hotplug drain, the
 //! periodic Configure tick, repaint/compositing, and the plugin-socket
-//! driver). The Wayland trait impls and the struct definition stay in
-//! the crate root for now; later steps move the trait impls into
-//! sibling modules under `app/`.
+//! driver). The Wayland trait impls live in sibling modules
+//! (`lock`, `compositor`, `output`, `input`); the `AppData` struct
+//! definition and `main()` stay in the crate root.
+
+mod compositor;
+mod input;
+mod lock;
+mod output;
 
 use std::time::Duration;
 
