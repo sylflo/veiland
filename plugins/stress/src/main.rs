@@ -17,8 +17,8 @@
 
 use std::time::Instant;
 
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::{Buffer, ServerMessage};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_protocol::Buffer;
 
 /// Render-target size. 1920×1080 covers the common-desktop case; the
 /// host will scale to fit if your display is smaller. Tune down for
@@ -215,10 +215,8 @@ fn run() -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let (_program, u_time_loc) = unsafe { build_stress_program(ITERATIONS) };
 
-    // 3. Protocol bootstrap: connect, handshake, Hello.
-    let mut conn = Connection::from_env()?;
-    conn.handshake()?;
-    conn.send_hello("stress", env!("CARGO_PKG_VERSION"))?;
+    // 3. Protocol bootstrap: connect, handshake, Hello — one call.
+    let mut conn = Connection::connect("stress", env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
     // 3b. Decide fast/slow path once. The whole point of this plugin is
@@ -253,44 +251,36 @@ fn run() -> Result<(), PluginError> {
 
     let start = Instant::now();
 
-    // Frame timing state. `last_frame_done` records the start of the
-    // most recently handled FrameDone; `frame_count` and
-    // `accumulated_dt` build the rolling average we print every
-    // LOG_EVERY_N_FRAMES.
-    let mut last_frame_done: Option<Instant> = None;
+    // Frame timing state. `last_render` records the start of the most
+    // recently rendered frame; `frame_count` and `accumulated_dt` build
+    // the rolling average we print every LOG_EVERY_N_FRAMES.
+    //
+    // Migration note: this used to time FrameDone-to-FrameDone (every
+    // FrameDone, including deferred ones). FramePacer absorbs deferred
+    // FrameDones and only surfaces Frame::Render, so we now time
+    // render-to-render. Under the host's current strict ordering
+    // (BufferReleased before the next FrameDone) deferral never fires,
+    // so the two are 1:1 and the numbers are unchanged in practice. If
+    // a future host relaxes that ordering, deferred FrameDones would no
+    // longer be counted here. See docs/plugin-primitive-migration-plan.md.
+    let mut last_render: Option<Instant> = None;
     let mut frame_count: u32 = 0;
     let mut accumulated_dt: f64 = 0.0;
 
-    // Buffer-lifecycle flags (see gradient plugin for full explanation).
-    // The dmabuf is shared; don't overwrite it while the host is still
-    // sampling. With the host's current strict ordering, pending_frame
-    // never fires in practice — it documents the contract and guards
-    // against future host changes.
-    let mut buffer_released = true;
-    let mut pending_frame = false;
-
-    // 5. Event loop. Same shape as the gradient plugin.
+    // 5. Canonical event loop. FramePacer owns the pacing state machine;
+    //    self_paced renders on every BufferReleased after the first
+    //    FrameDone, so the round-trip runs back-to-back — exactly the
+    //    cadence this plugin is measuring.
+    let mut pacer = FramePacer::self_paced();
     loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => {
-                eprintln!(
-                    "configure: region=({},{}) {}x{} scale={}",
-                    c.region_x, c.region_y, c.region_w, c.region_h, c.scale
-                );
-            }
-            ServerMessage::FrameDone => {
+        match pacer.next(&mut conn)? {
+            Frame::Render => {
                 let now = Instant::now();
 
-                // Roll the frame-time average. Skip the first FrameDone
-                // (no previous timestamp to diff against); from frame 2
-                // onward, accumulate dt and print every Nth frame.
-                //
-                // We log the dt for *every* FrameDone — including the
-                // ones we defer — because that captures the round-trip
-                // wall-clock the plugin actually experiences. A deferred
-                // render makes the next dt larger, which is the correct
-                // signal.
-                if let Some(prev) = last_frame_done {
+                // Roll the frame-time average. Skip the first render (no
+                // previous timestamp to diff against); from the second
+                // render onward, accumulate dt and print every Nth frame.
+                if let Some(prev) = last_render {
                     let dt_ms = now.duration_since(prev).as_secs_f64() * 1000.0;
                     accumulated_dt += dt_ms;
                     frame_count += 1;
@@ -308,13 +298,8 @@ fn run() -> Result<(), PluginError> {
                         frame_count = 0;
                     }
                 }
-                last_frame_done = Some(now);
+                last_render = Some(now);
 
-                if !buffer_released {
-                    eprintln!("FrameDone arrived before BufferReleased; deferring render");
-                    pending_frame = true;
-                    continue;
-                }
                 render_and_send(
                     &dma,
                     &gbm_egl,
@@ -324,25 +309,15 @@ fn run() -> Result<(), PluginError> {
                     start.elapsed().as_secs_f32(),
                     fast_path,
                 )?;
-                buffer_released = false;
+                pacer.submitted();
             }
-            ServerMessage::BufferReleased(_) => {
-                buffer_released = true;
-                if pending_frame {
-                    pending_frame = false;
-                    render_and_send(
-                        &dma,
-                        &gbm_egl,
-                        &mut conn,
-                        &buf_msg,
-                        u_time_loc,
-                        start.elapsed().as_secs_f32(),
-                        fast_path,
-                    )?;
-                    buffer_released = false;
-                }
+            Frame::Reconfigure(c) => {
+                eprintln!(
+                    "configure: region=({},{}) {}x{} scale={}",
+                    c.region_x, c.region_y, c.region_w, c.region_h, c.scale
+                );
             }
-            ServerMessage::Shutdown => {
+            Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
             }
