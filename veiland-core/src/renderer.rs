@@ -48,6 +48,37 @@ pub struct Renderer {
     pub box_inner_loc: gl::types::GLint,
     /// Outline colour (straight RGBA; shader premultiplies).
     pub box_outer_loc: gl::types::GLint,
+    /// Font/glyph cache for the password placeholder text. The core's
+    /// only text renderer. `&mut` because rendering populates the glyph
+    /// atlas, which is why `draw_password_field` takes `&mut self`.
+    ///
+    /// Lazily constructed on the first placeholder render — `None` until
+    /// then. `FontContext::new()` scans system fonts (fontconfig XML,
+    /// mmaps font files; ~30-100ms), so deferring it means a config with
+    /// no placeholder (`placeholder_text = ""`) never touches the font
+    /// stack at all, matching the docs' opt-out promise.
+    font_ctx: Option<veiland_text::FontContext>,
+    /// Offscreen render targets for the placeholder text, one per distinct
+    /// surface size. veiland-text's label shader has no Y-flip — it's
+    /// built for the plugin path where the compositor re-samples the
+    /// dmabuf with a flip. The core draws the lock surface directly, so we
+    /// mimic that path: render the placeholder into a texture, then
+    /// composite it back with the (Y-flipping) compositor program. See
+    /// `draw_placeholder`.
+    ///
+    /// Keyed by `(width, height)` so a mixed-resolution multi-monitor
+    /// setup keeps one target per output size instead of thrashing a
+    /// single shared one (realistically 1-2 entries).
+    placeholder_fbos: Vec<PlaceholderTarget>,
+}
+
+/// An offscreen FBO + colour texture sized to a lock surface, used to
+/// flip the placeholder text right-side-up (see `Renderer::placeholder_fbo`).
+struct PlaceholderTarget {
+    fbo: gl::types::GLuint,
+    texture: gl::types::GLuint,
+    width: i32,
+    height: i32,
 }
 
 impl Renderer {
@@ -100,6 +131,8 @@ impl Renderer {
             box_outline_loc: box_p.outline_loc,
             box_inner_loc: box_p.inner_loc,
             box_outer_loc: box_p.outer_loc,
+            font_ctx: None,
+            placeholder_fbos: Vec::new(),
         }
     }
 
@@ -118,10 +151,14 @@ impl Renderer {
     /// region, the field always wins on paint order).
     ///
     /// Paint order within the field: box first (so it sits behind), then
-    /// one draw call per dot. The box draws whenever `show_box` is set,
-    /// even with zero characters typed, so the user sees where to type.
+    /// either the placeholder text (nothing typed) or one draw call per
+    /// dot. The box draws whenever `show_box` is set, even with zero
+    /// characters typed, so the user sees where to type.
+    ///
+    /// `&mut self` because the placeholder path populates the glyph atlas
+    /// in `font_ctx`.
     pub fn draw_password_field(
-        &self,
+        &mut self,
         password: &config::Password,
         char_count: usize,
         width: i32,
@@ -154,6 +191,12 @@ impl Renderer {
         // box still renders.
         let n = char_count.min(pw.max_dots as usize);
         if n == 0 {
+            // Nothing typed yet: show the placeholder hint centred in the
+            // box (if configured). Once the user types, the dots below
+            // replace it.
+            if !pw.placeholder_text.is_empty() {
+                self.draw_placeholder(pw, centre_x_px, centre_y_px, width, height);
+            }
             return;
         }
 
@@ -259,6 +302,174 @@ impl Renderer {
             gl::Uniform4f(self.box_outer_loc, outer[0], outer[1], outer[2], outer[3]);
 
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
+        }
+    }
+
+    /// Draw the placeholder hint centred on `(centre_x_px, centre_y_px)`
+    /// (surface pixels) via `veiland-text`. Called only when nothing has
+    /// been typed and `placeholder_text` is non-empty.
+    ///
+    /// WHY THIS RENDERS TO A TEXTURE AND COMPOSITES IT BACK
+    /// ----------------------------------------------------
+    /// `veiland-text`'s label shader maps a top-left-origin pixel Y
+    /// straight to clip with NO flip (`clip.y = (py/h)*2 - 1`). That's
+    /// correct for *plugins*, which render into a dmabuf-backed FBO and
+    /// then hand it to the host, whose compositor samples it with a
+    /// Y-flip (`v = 1 - unit01.y`) — the flip cancels out and text lands
+    /// upright. The core, by contrast, paints the lock surface *directly*
+    /// (no compositor re-sample), so drawing the label straight onto it
+    /// renders the glyphs upside-down (the box and dots avoid this by
+    /// baking a flip into their own coordinate math; the label shader
+    /// can't be told to).
+    ///
+    /// So we mimic the plugin path exactly: render the label into an
+    /// offscreen colour texture (an FBO, same as `bind_for_rendering`
+    /// gives a plugin), then composite that texture back onto the lock
+    /// surface with the host's own (Y-flipping) `compositor_program` —
+    /// the same shader that un-mirrors every plugin's output. The label
+    /// uses real surface coordinates throughout; the round-trip through
+    /// the texture supplies the missing flip.
+    fn draw_placeholder(
+        &mut self,
+        pw: &config::Password,
+        centre_x_px: f32,
+        centre_y_px: f32,
+        width: i32,
+        height: i32,
+    ) {
+        use veiland_text::{HAlign, Label, VAlign};
+
+        // Ensure the offscreen target for this surface size exists.
+        let Some((fbo, texture)) = self.ensure_placeholder_target(width, height) else {
+            // FBO allocation failed (logged once); skip the placeholder
+            // rather than crash the locker. The empty box still shows.
+            return;
+        };
+
+        let mut label = Label::new(pw.placeholder_text.clone());
+        label.font_family = pw.placeholder_font_family.clone();
+        label.font_size = pw.placeholder_font_size as f32;
+        label.color = pw.placeholder_color.0;
+        label.halign = HAlign::Center;
+        label.valign = VAlign::Middle;
+        // Real surface coords — no manual flip. The texture round-trip
+        // below supplies the flip the compositor would.
+        label.position = (centre_x_px, centre_y_px);
+
+        // Lazily build the font context on first use (it scans system
+        // fonts). Deferring it here means a config that never shows a
+        // placeholder never pays the fontdb scan.
+        let font_ctx = self
+            .font_ctx
+            .get_or_insert_with(veiland_text::FontContext::new);
+
+        unsafe {
+            // 1. Render the label into the offscreen texture.
+            gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+            gl::Viewport(0, 0, width, height);
+            // Transparent clear: only the glyph coverage should composite
+            // back over the box; the rest of the texture is see-through.
+            gl::ClearColor(0.0, 0.0, 0.0, 0.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            // veiland-text emits premultiplied alpha under ONE/1-SRC_ALPHA,
+            // which the caller's repaint already has enabled — leave it.
+            font_ctx.render(&label, (width as u32, height as u32));
+
+            // 2. Back to the lock surface (default framebuffer = FBO 0)
+            //    and composite the whole texture edge-to-edge. The
+            //    compositor's `v = 1 - unit01.y` flip lands the text
+            //    upright. Full-surface clip rect: origin (-1,-1), size 2x2.
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl::Viewport(0, 0, width, height);
+            gl::UseProgram(self.compositor_program);
+            gl::Uniform4f(self.compositor_rect_loc, -1.0, -1.0, 2.0, 2.0);
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, texture);
+            gl::Uniform1i(self.compositor_sampler_loc, 0);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.compositor_vbo);
+            let a_pos =
+                gl::GetAttribLocation(self.compositor_program, b"a_pos\0".as_ptr() as *const _);
+            gl::EnableVertexAttribArray(a_pos as u32);
+            gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+            gl::DrawArrays(gl::TRIANGLES, 0, 6);
+
+            // Leave texture unit 0 unbound so a later sampler doesn't
+            // accidentally read our placeholder texture.
+            gl::BindTexture(gl::TEXTURE_2D, 0);
+        }
+    }
+
+    /// Return the offscreen placeholder render target for `(width,
+    /// height)`, creating it on first use. Targets are cached per size in
+    /// `placeholder_fbos`, so a mixed-resolution multi-monitor setup
+    /// reuses one per output instead of reallocating every frame. Returns
+    /// `(fbo, texture)` GL names, or `None` if allocation failed (logged)
+    /// — the caller then skips the placeholder.
+    fn ensure_placeholder_target(&mut self, width: i32, height: i32) -> Option<(u32, u32)> {
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        if let Some(t) = self
+            .placeholder_fbos
+            .iter()
+            .find(|t| t.width == width && t.height == height)
+        {
+            return Some((t.fbo, t.texture));
+        }
+
+        unsafe {
+            let mut texture: gl::types::GLuint = 0;
+            gl::GenTextures(1, &mut texture);
+            gl::BindTexture(gl::TEXTURE_2D, texture);
+            gl::TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGBA as i32,
+                width,
+                height,
+                0,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                std::ptr::null(),
+            );
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+            let mut fbo: gl::types::GLuint = 0;
+            gl::GenFramebuffers(1, &mut fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+            gl::FramebufferTexture2D(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                texture,
+                0,
+            );
+            let status = gl::CheckFramebufferStatus(gl::FRAMEBUFFER);
+            // Always restore the default framebuffer before returning, so
+            // we don't strand the FBO bound on an error path.
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl::BindTexture(gl::TEXTURE_2D, 0);
+            if status != gl::FRAMEBUFFER_COMPLETE {
+                eprintln!(
+                    "veiland-core: placeholder FBO incomplete (status {:#x}); \
+                    drawing the box without placeholder text",
+                    status
+                );
+                gl::DeleteFramebuffers(1, &fbo);
+                gl::DeleteTextures(1, &texture);
+                return None;
+            }
+
+            self.placeholder_fbos.push(PlaceholderTarget {
+                fbo,
+                texture,
+                width,
+                height,
+            });
+            Some((fbo, texture))
         }
     }
 }

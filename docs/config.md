@@ -191,6 +191,12 @@ dot_diameter = 12                          # surface px; clamped [1, 100]
 dot_spacing = 20                           # centre-to-centre px; clamped [1, 200]
 max_dots = 32                              # row caps here; clamped [1, 256]
 dot_color = "rgba(220, 220, 220, 1.0)"     # dot fill
+
+# The placeholder (shown centred in the box when nothing is typed)
+placeholder_text = "Enter to remember..."  # "" disables it
+placeholder_color = "rgba(200, 205, 215, 0.6)"
+placeholder_font_family = "Sans"           # CSS-style family name
+placeholder_font_size = 18                 # surface px; clamped [1, 512]
 ```
 
 **Colours** use a Hyprlock-style `rgba(r, g, b, a)` string: `r`/`g`/`b`
@@ -249,12 +255,32 @@ The dots:
 - **`dot_color`** (colour, optional, default `rgba(220, 220, 220, 1.0)`).
   Dot fill.
 
-**Not yet configurable** (v2+, several need text rendering in the
-core): placeholder text in the empty box, fade-on-empty, the
-authentication-state colour flashes (`check`/`fail`/`capslock`/
-`numlock`), gradient colours, per-monitor positioning, and
-scale-factor support. The same `[password]` config applies to every
-monitor's lock surface.
+The placeholder:
+
+- **`placeholder_text`** (string, optional, default
+  `"Enter to remember..."`). Shown centred in the box before anything
+  is typed; the dots replace it on the first keystroke. Set to `""`
+  to disable it (the box stays empty). Rendered by the core via
+  `veiland-text` — this is the one piece of text the trusted core draws
+  itself, which pulls a font stack (cosmic-text + fontdb) into the core
+  process. fontdb scans the system fonts at startup (a few tens of ms).
+  Low-risk (fonts are static data, parsed by a library, never executed),
+  but it is more attack surface than a text-free core; disable the
+  placeholder if you'd rather the core touch no fonts.
+- **`placeholder_color`** (colour, optional, default
+  `rgba(200, 205, 215, 0.6)`). A dim translucent grey reads as a hint
+  rather than a typed value.
+- **`placeholder_font_family`** (string, optional, default `"Sans"`).
+  CSS-style family name (e.g. `"Liberation Sans"`); falls back to the
+  system sans-serif if the name doesn't resolve.
+- **`placeholder_font_size`** (integer, optional, default `18`).
+  Surface pixels. Clamped to `[1, 512]`. Not scaled by output DPI yet
+  (same as the box dimensions).
+
+**Not yet configurable** (v2+): fade-on-empty, the authentication-state
+colour flashes (`check`/`fail`/`capslock`/`numlock`), gradient colours,
+per-monitor positioning, and scale-factor support. The same `[password]`
+config applies to every monitor's lock surface.
 
 ### `[plugin.config]` (table, optional)
 
@@ -428,11 +454,10 @@ By design:
   path if `EGL_ANDROID_native_fence_sync` is available, slow path
   otherwise.
 - **The password field's animation and auth-state feedback.**
-  Position, sizing, the box (fill/outline/rounding), and all three
-  colours are configurable via `[password]` (see §3). What's *not*
-  configurable: animation, the failure-flash / capslock / numlock
-  colour changes, placeholder text, and gradient colours. Those are
-  deferred (several need text rendering in the core).
+  Position, sizing, the box (fill/outline/rounding), the placeholder
+  text, and all the colours are configurable via `[password]` (see §3).
+  What's *not* configurable: animation, the failure-flash / capslock /
+  numlock colour changes, and gradient colours. Those are deferred.
 
 ## 7. Pitfalls
 

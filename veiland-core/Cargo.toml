@@ -26,6 +26,12 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1"
 toml = "1.1.2"
 veiland-protocol = { path = "../veiland-protocol" }
+# Text rendering for the password field's placeholder. The same crate
+# the reference plugins use; it pulls in cosmic-text + fontdb. Adding it
+# here puts a font stack inside the trusted core, which scans system
+# fonts at startup — see docs/config.md's [password] notes for the
+# threat-model tradeoff (low risk: fonts are static data, never executed).
+veiland-text = { path = "../veiland-text" }
 zeroize = "1.8.2"
 
 [dev-dependencies]

@@ -214,3 +214,9 @@ outer_color = "rgba(150, 170, 200, 0.45)"
 dot_color = "rgba(235, 238, 245, 1.0)"
 dot_diameter = 10
 dot_spacing = 22
+# Placeholder hint shown until the first keystroke. Italic-leaning
+# family for the dreamy vibe; "" would leave the box empty.
+placeholder_text = "Enter to remember..."
+placeholder_color = "rgba(220, 225, 235, 0.55)"
+placeholder_font_family = "Liberation Sans"
+placeholder_font_size = 17

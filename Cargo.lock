@@ -1189,6 +1189,7 @@ dependencies = [
  "smithay-client-toolkit",
  "toml",
  "veiland-protocol",
+ "veiland-text",
  "wayland-client",
  "wayland-egl",
  "zeroize",

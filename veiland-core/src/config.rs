@@ -270,6 +270,29 @@ pub struct Password {
     /// dots were hardcoded to before colours were configurable.
     #[serde(default = "default_dot_color")]
     pub dot_color: Color,
+
+    /// Placeholder text shown centred in the box when nothing has been
+    /// typed yet. Default `"Enter to remember..."`. An empty string
+    /// disables the placeholder (empty box). Rendered by the core via
+    /// `veiland-text`; once the user types, the dots replace it.
+    #[serde(default = "default_placeholder_text")]
+    pub placeholder_text: String,
+
+    /// Placeholder text colour. Default a dim translucent light grey
+    /// `rgba(200, 205, 215, 0.6)` so it reads as a hint, not a value.
+    #[serde(default = "default_placeholder_color")]
+    pub placeholder_color: Color,
+
+    /// Placeholder font family (CSS-style name; falls back to system
+    /// Sans). Default `"Sans"`.
+    #[serde(default = "default_placeholder_font_family")]
+    pub placeholder_font_family: String,
+
+    /// Placeholder font size in surface pixels. Default 18; clamped to
+    /// [1, 512]. (Surface pixels, not scaled — the core has no per-output
+    /// scale plumbed into the field yet, matching the box dimensions.)
+    #[serde(default = "default_placeholder_font_size")]
+    pub placeholder_font_size: u32,
 }
 
 impl Default for Password {
@@ -288,6 +311,10 @@ impl Default for Password {
             inner_color: default_inner_color(),
             outer_color: default_outer_color(),
             dot_color: default_dot_color(),
+            placeholder_text: default_placeholder_text(),
+            placeholder_color: default_placeholder_color(),
+            placeholder_font_family: default_placeholder_font_family(),
+            placeholder_font_size: default_placeholder_font_size(),
         }
     }
 }
@@ -329,6 +356,19 @@ fn default_outer_color() -> Color {
 /// The dots' pre-config hardcoded colour.
 fn default_dot_color() -> Color {
     Color::new(220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 1.0)
+}
+fn default_placeholder_text() -> String {
+    "Enter to remember...".to_string()
+}
+/// Dim translucent light grey — reads as a hint, not a typed value.
+fn default_placeholder_color() -> Color {
+    Color::new(200.0 / 255.0, 205.0 / 255.0, 215.0 / 255.0, 0.6)
+}
+fn default_placeholder_font_family() -> String {
+    "Sans".to_string()
+}
+fn default_placeholder_font_size() -> u32 {
+    18
 }
 
 #[derive(Debug)]
@@ -562,6 +602,19 @@ fn validate_password(p: &mut Password) {
             );
             p.rounding = clamped_r;
         }
+    }
+
+    // Placeholder font size: a sane pixel range. Text isn't clamped or
+    // validated beyond this — any string is fine; an empty one just
+    // disables the placeholder at draw time.
+    let clamped_ph = p.placeholder_font_size.clamp(1, 512);
+    if clamped_ph != p.placeholder_font_size {
+        eprintln!(
+            "veiland-core: [password] placeholder_font_size = {} out of range [1, 512]; \
+            clamped to {}",
+            p.placeholder_font_size, clamped_ph
+        );
+        p.placeholder_font_size = clamped_ph;
     }
 }
 
@@ -839,6 +892,9 @@ mod tests {
         assert_eq!(p.outline_thickness, 2);
         assert_eq!(p.rounding, -1, "full-pill sentinel");
         assert_eq!(p.dot_color, Color::new(220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 1.0));
+        assert_eq!(p.placeholder_text, "Enter to remember...");
+        assert_eq!(p.placeholder_font_family, "Sans");
+        assert_eq!(p.placeholder_font_size, 18);
     }
 
     #[test]
@@ -874,6 +930,10 @@ mod tests {
             inner_color = "rgba(10, 20, 30, 0.5)"
             outer_color = "rgba(200, 210, 220, 0.8)"
             dot_color = "rgb(255, 255, 255)"
+            placeholder_text = "Type here"
+            placeholder_color = "rgba(100, 110, 120, 0.5)"
+            placeholder_font_family = "Liberation Sans"
+            placeholder_font_size = 22
         "#;
         let config = parse(text).expect("full password parses");
         let p = &config.password;
@@ -890,6 +950,22 @@ mod tests {
         assert_eq!(p.inner_color, Color::new(10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 0.5));
         assert_eq!(p.outer_color, Color::new(200.0 / 255.0, 210.0 / 255.0, 220.0 / 255.0, 0.8));
         assert_eq!(p.dot_color, Color::new(1.0, 1.0, 1.0, 1.0));
+        assert_eq!(p.placeholder_text, "Type here");
+        assert_eq!(p.placeholder_color, Color::new(100.0 / 255.0, 110.0 / 255.0, 120.0 / 255.0, 0.5));
+        assert_eq!(p.placeholder_font_family, "Liberation Sans");
+        assert_eq!(p.placeholder_font_size, 22);
+    }
+
+    #[test]
+    fn password_placeholder_empty_disables() {
+        // An empty string is the documented "no placeholder" signal; it
+        // must round-trip as empty (the renderer skips drawing it).
+        let text = r#"
+            [password]
+            placeholder_text = ""
+        "#;
+        let config = parse(text).expect("empty placeholder parses");
+        assert_eq!(config.password.placeholder_text, "");
     }
 
     #[test]
