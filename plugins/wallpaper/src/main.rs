@@ -371,19 +371,14 @@ fn run() -> Result<(), PluginError> {
         dma.stride(),
     );
 
+    let mut dma = dma;
     dma.bind_for_rendering()?;
     let mut gpu = unsafe { build_gpu_state() };
     let mut decode_rx: Option<Receiver<Option<DecodedImage>>> = Some(decode_rx);
 
-    let buf_msg = Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    };
+    // Rebuilt whenever `dma` is reallocated (on a region change), since the
+    // buffer carries the fd/stride/modifier the host needs to import it.
+    let mut buf_msg = buffer_msg_for(&dma);
 
     // On-demand: the wallpaper redraws only when the host asks (and once
     // more when the worker thread's decode lands, via FrameDone). FramePacer
@@ -406,14 +401,54 @@ fn run() -> Result<(), PluginError> {
             Frame::Reconfigure(c) => {
                 if c.region_w != dma.width() || c.region_h != dma.height() {
                     eprintln!(
-                        "veiland-{}: configure region {}x{} differs from initial {}x{}; \
-                         keeping initial buffer size, wallpaper may stretch",
+                        "veiland-{}: configure region {}x{} differs from current buffer {}x{}; \
+                         reallocating at native size",
                         PLUGIN_NAME,
                         c.region_w,
                         c.region_h,
                         dma.width(),
                         dma.height(),
                     );
+                    // Reallocate the dmabuf at the new region size and rebuild
+                    // the Buffer message that describes it. `region_w/region_h`
+                    // are already physical pixels (the host multiplied by
+                    // scale), so they go straight into the allocation.
+                    //
+                    // Safe to drop the old buffer here: FramePacer::on_demand
+                    // only surfaces a Reconfigure between frames, after the
+                    // host has released the in-flight buffer, and the host
+                    // imports each buffer into its own EGLImage on receipt
+                    // (it holds no reference to our fd past that). The decoded
+                    // image lives in a GL texture in this context's namespace,
+                    // not in the FBO, so it survives the swap untouched — the
+                    // next render redraws it into the larger buffer.
+                    match DmaBuffer::new(&gbm_egl, c.region_w, c.region_h) {
+                        Ok(new_dma) => {
+                            dma = new_dma;
+                            dma.bind_for_rendering()?;
+                            buf_msg = buffer_msg_for(&dma);
+                            eprintln!(
+                                "veiland-{}: reallocated {}x{} {:?}, \
+                                 modifier=0x{:016x}, stride={}",
+                                PLUGIN_NAME,
+                                dma.width(),
+                                dma.height(),
+                                dma.format(),
+                                u64::from(dma.modifier()),
+                                dma.stride(),
+                            );
+                        }
+                        Err(e) => {
+                            // Reallocation failed: keep the old buffer and let
+                            // the wallpaper stretch rather than take the locker
+                            // down. A bad realloc must never be fatal.
+                            eprintln!(
+                                "veiland-{}: reallocation to {}x{} failed: {} — \
+                                 keeping current buffer, wallpaper may stretch",
+                                PLUGIN_NAME, c.region_w, c.region_h, e
+                            );
+                        }
+                    }
                 }
             }
             Frame::Shutdown => {
@@ -421,6 +456,23 @@ fn run() -> Result<(), PluginError> {
                 return Ok(());
             }
         }
+    }
+}
+
+/// Build the wire `Buffer` message describing `dma`. Called once at startup
+/// and again after every reallocation, since the fd/stride/modifier the host
+/// imports all move with the underlying GBM bo. `id` stays 0 across the
+/// plugin's life — v1 is single-buffer, and a fresh `Buffer` with id 0
+/// cleanly replaces the host's prior import.
+fn buffer_msg_for(dma: &DmaBuffer) -> Buffer {
+    Buffer {
+        id: 0,
+        width: dma.width(),
+        height: dma.height(),
+        format: dma.format(),
+        modifier: dma.modifier(),
+        stride: dma.stride(),
+        offset: 0,
     }
 }
 
