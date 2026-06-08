@@ -8,9 +8,9 @@ A Wayland screen locker with process-isolated, GPU-accelerated plugins. Veiland-
 
 ## Status
 
-Starting from scratch. Nothing is implemented yet. The architecture in this document is the plan; building it is the work ahead.
+M0 through M11 have shipped. The locker works: it takes an `ext-session-lock-v1` surface, authenticates via PAM, handles keyboard input and the password indicator, and composites process-isolated GPU plugins over DMA-BUF, including multi-monitor and hotplug. Eleven plugins exist (the reference set — wallpaper, clock, particles, vignette — plus text and test plugins). See the milestone list below for the per-milestone detail; the M11 entry and `docs/improvements.md` record the known limitations and deferred work (multi-buffer pool, per-plugin frame rate, wallpaper decode on the main thread). The architecture in this document is now mostly built, not just planned — treat it as describing the system that exists.
 
-The architecturally critical mechanism is cross-process DMA-BUF buffer sharing (a plugin's GPU-rendered buffer being sampled by the core's GL context, with no CPU readback). This is well-established on Mesa with `EGL_EXT_image_dma_buf_import`, but it should be validated on the target hardware before committing to the rest of the system. M0 below exists for that purpose.
+The architecturally critical mechanism is cross-process DMA-BUF buffer sharing (a plugin's GPU-rendered buffer being sampled by the core's GL context, with no CPU readback). It was validated in M0 and is the foundation everything else builds on, well-supported on Mesa via `EGL_EXT_image_dma_buf_import`. It remains the most subtle part of the system; changes touching the dmabuf import/sampling path warrant the same care as the auth path.
 
 ## Decisions already made — do not re-litigate
 
