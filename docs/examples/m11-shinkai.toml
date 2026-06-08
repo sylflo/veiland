@@ -66,16 +66,28 @@ radius = 1.3
 # Soft whole-image dim under the corner gradient — the dreamy haze.
 base_opacity = 0.2
 
-# --- Particles: drifting motes -------------------------------------
+# --- Particles: drifting motes (DISABLED) --------------------------
+# [[plugin]]
+# name = "particles"
+# binary = "target/debug/veiland-particles"
+# z_index = 20
+#
+# [plugin.config]
+# count = 40
+# # Mockup uses translucent white; tune brighter if you want them to
+# # read more clearly against this specific wallpaper.
+# color = [1.0, 1.0, 1.0, 1.0]
+
+# --- Sakura: falling cherry-blossom petals (DISABLED) --------------
 [[plugin]]
-name = "particles"
-binary = "target/debug/veiland-particles"
-z_index = 20
+name = "sakura"
+binary = "target/debug/veiland-sakura"
+z_index = 25
 
 [plugin.config]
-count = 40
-# Mockup uses translucent white; tune brighter if you want them to
-# read more clearly against this specific wallpaper.
+count = 25
+size_px = 22
+# White tint = use the petal PNG's own pink. Lower alpha to soften.
 color = [1.0, 1.0, 1.0, 1.0]
 
 # --- Title (English) — small, dim, above the Japanese title --------

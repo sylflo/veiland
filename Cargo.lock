@@ -1260,6 +1260,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "veiland-sakura"
+version = "0.1.0"
+dependencies = [
+ "gl",
+ "image",
+ "serde",
+ "serde_json",
+ "veiland-plugin",
+ "veiland-protocol",
+]
+
+[[package]]
 name = "veiland-stress"
 version = "0.1.0"
 dependencies = [
