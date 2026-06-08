@@ -11,8 +11,8 @@
 //! All three share the same shape; only the colour constants and
 //! the name strings differ.
 
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::{Buffer, ServerMessage};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_protocol::Buffer;
 
 const PLUGIN_NAME: &str = "green-box";
 
@@ -142,9 +142,7 @@ fn run() -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let _program = unsafe { build_solid_program() };
 
-    let mut conn = Connection::from_env()?;
-    conn.handshake()?;
-    conn.send_hello(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
+    let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
     let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
@@ -169,36 +167,22 @@ fn run() -> Result<(), PluginError> {
         offset: 0,
     };
 
-    let mut buffer_released = true;
-    let mut pending_frame = false;
-
+    // On-demand: a static box only needs to repaint when the host asks
+    // (FrameDone). FramePacer owns the FrameDone/BufferReleased pacing.
+    let mut pacer = FramePacer::on_demand();
     loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => {
+        match pacer.next(&mut conn)? {
+            Frame::Render => {
+                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, fast_path)?;
+                pacer.submitted();
+            }
+            Frame::Reconfigure(c) => {
                 eprintln!(
                     "configure: region=({},{}) {}x{} scale={}",
                     c.region_x, c.region_y, c.region_w, c.region_h, c.scale
                 );
             }
-            ServerMessage::FrameDone => {
-                if !buffer_released {
-                    // Common case post-commit-3 — see wallpaper plugin
-                    // for the explanation. Silent deferral is correct.
-                    pending_frame = true;
-                    continue;
-                }
-                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, fast_path)?;
-                buffer_released = false;
-            }
-            ServerMessage::BufferReleased(_) => {
-                buffer_released = true;
-                if pending_frame {
-                    pending_frame = false;
-                    render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, fast_path)?;
-                    buffer_released = false;
-                }
-            }
-            ServerMessage::Shutdown => {
+            Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
             }
