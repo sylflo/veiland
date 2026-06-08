@@ -7,8 +7,8 @@
 
 use std::time::Instant;
 
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::{Buffer, ServerMessage};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_protocol::Buffer;
 
 const BUFFER_WIDTH: u32 = 512;
 const BUFFER_HEIGHT: u32 = 512;
@@ -140,10 +140,8 @@ fn run() -> Result<(), PluginError> {
     let (_program, u_time_loc) = unsafe { build_gradient_program() };
 
     // 3. Connect to host. Reads fd from VEILAND_PLUGIN_SOCKET=3,
-    //    negotiates protocol version, sends Hello.
-    let mut conn = Connection::from_env()?;
-    conn.handshake()?;
-    conn.send_hello("gradient", env!("CARGO_PKG_VERSION"))?;
+    //    negotiates protocol version, sends Hello — all in one call.
+    let mut conn = Connection::connect("gradient", env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
     // 3b. Decide fast/slow path once, after the handshake. Both sides must
@@ -176,55 +174,20 @@ fn run() -> Result<(), PluginError> {
 
     let start = Instant::now();
 
-    // Buffer-lifecycle flags. The dmabuf is shared between us and the
-    // host; we MUST NOT overwrite it while the host is still sampling.
+    // 5. Canonical event loop. veiland-plugin gives us primitives, not a
+    //    callback runner: FramePacer owns the FrameDone/BufferReleased
+    //    pacing state machine, and we drive our own three-arm match.
     //
-    // - `buffer_released`: true means the host has confirmed it's done
-    //   sampling the last frame we sent (BufferReleased arrived) or
-    //   we haven't sent anything yet. False means a send is in flight.
-    //
-    // - `pending_frame`: true means a FrameDone arrived while
-    //   buffer_released was false — defer the render until release
-    //   arrives. With the host's current strict ordering (BufferReleased
-    //   before next FrameDone) this never fires in practice, but it
-    //   documents the contract and absorbs out-of-order delivery if a
-    //   future host ever relaxes it.
-    let mut buffer_released = true;
-    let mut pending_frame = false;
-
-    // Closure-like macro: actually render + send. Used from both the
-    // FrameDone arm (when buffer_released) and the BufferReleased arm
-    // (when pending_frame was set). Inlined as a labelled block to
-    // avoid hoisting it into a function that would have to capture
-    // half the local environment.
-    //
-    // Both branches set buffer_released = false on send.
-
-    // 5. Canonical event loop: receive a ServerMessage, react. We
-    //    drive our own match — veiland-plugin gives us primitives,
-    //    not a callback runner.
+    //    Self-paced: render again on every BufferReleased (after the
+    //    first FrameDone), so the compositor's repaint rate drives the
+    //    drift instead of the host's input-event cadence. The region in
+    //    Configure is still ignored — we render at our fixed 512×512 and
+    //    the host stretches; making this region-aware is a separate
+    //    change (see docs/plugin-primitive-migration-plan.md).
+    let mut pacer = FramePacer::self_paced();
     loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => {
-                eprintln!(
-                    "configure: region=({},{}) {}x{} scale={}",
-                    c.region_x, c.region_y, c.region_w, c.region_h, c.scale
-                );
-                // For M3 single-buffer we ignore the region — we render
-                // at our fixed 512×512 and the host stretches. M6 lets
-                // us actually respond to region changes.
-            }
-            ServerMessage::FrameDone => {
-                if !buffer_released {
-                    // Host cued us before releasing the previous buffer.
-                    // Defer until BufferReleased arrives. The host's
-                    // current ordering doesn't produce this, so log it
-                    // — if you see this line, the host's ordering may
-                    // have regressed.
-                    eprintln!("FrameDone arrived before BufferReleased; deferring render");
-                    pending_frame = true;
-                    continue;
-                }
+        match pacer.next(&mut conn)? {
+            Frame::Render => {
                 render_and_send(
                     &dma,
                     &gbm_egl,
@@ -234,26 +197,15 @@ fn run() -> Result<(), PluginError> {
                     start.elapsed().as_secs_f32(),
                     fast_path,
                 )?;
-                buffer_released = false;
+                pacer.submitted();
             }
-            ServerMessage::BufferReleased(_) => {
-                buffer_released = true;
-                if pending_frame {
-                    // FrameDone was queued earlier; consume it now.
-                    pending_frame = false;
-                    render_and_send(
-                        &dma,
-                        &gbm_egl,
-                        &mut conn,
-                        &buf_msg,
-                        u_time_loc,
-                        start.elapsed().as_secs_f32(),
-                        fast_path,
-                    )?;
-                    buffer_released = false;
-                }
+            Frame::Reconfigure(c) => {
+                eprintln!(
+                    "configure: region=({},{}) {}x{} scale={}",
+                    c.region_x, c.region_y, c.region_w, c.region_h, c.scale
+                );
             }
-            ServerMessage::Shutdown => {
+            Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
             }
