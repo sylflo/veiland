@@ -118,7 +118,7 @@ impl SessionLockHandler for AppData {
 
         // Copy the egl::Surface out so `entry`'s mutable borrow
         // ends here; we need an immutable self borrow later for
-        // draw_password_indicator. egl::Surface is Copy (the rest
+        // draw_password_field. egl::Surface is Copy (the rest
         // of this function already deref-copies it via *egl_surface).
         let egl_surface = *entry.egl_surface.as_ref().unwrap();
         self.renderer.egl

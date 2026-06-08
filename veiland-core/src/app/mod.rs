@@ -545,9 +545,9 @@ impl AppData {
             }
         }
 
-        // Indicator paints on top of any plugins — see the matching
-        // note in SessionLockHandler::configure.
-        self.renderer.draw_password_indicator(
+        // The password field (box + dots) paints on top of any plugins —
+        // see the matching note in SessionLockHandler::configure.
+        self.renderer.draw_password_field(
             &self.config.password,
             self.auth.char_count(),
             w,

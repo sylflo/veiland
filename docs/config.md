@@ -161,31 +161,80 @@ Rules:
 
 ### `[password]` (table, optional)
 
-Controls the password-indicator dots that appear as the user types.
-The indicator is one filled grey circle per buffered character,
-painted by the core on top of any plugins (soft trust-region — see
-`docs/m9-plan.md` Q1 for the threat-model discussion).
+Controls the password field that appears as the user types: a rounded
+input **box** with one filled dot per buffered character centred inside
+it. The whole field is painted by the core on top of any plugins (soft
+trust-region — see `docs/m9-plan.md` Q1 for the threat-model discussion);
+plugins never see keystrokes or the character count, so the field's
+appearance is the only thing config can touch.
 
-Every field is optional; missing `[password]` table → all defaults.
+Every field is optional; missing `[password]` table → all defaults,
+which render the box-and-dots field shown below.
 
 ```toml
 [password]
-x = 960          # surface px; omit → centred per surface
-y_percent = 75   # % of surface height (0..=100); omit → 75
-dot_diameter = 12   # surface px; clamped [1, 100]
-dot_spacing = 20    # surface px, centre-to-centre stride; clamped [1, 200]
-max_dots = 32       # row caps here; clamped [1, 256]
+# Position (the box, and the dots auto-centre inside it)
+x = 960            # surface px; omit → centred per surface
+y_percent = 75     # % of surface height (0..=100); omit → 75
+
+# The input box
+show_box = true             # draw the box at all; false → bare dots
+box_width = 400             # surface px; clamped [1, 8192]
+box_height = 90             # surface px; clamped [1, 8192]
+outline_thickness = 2       # surface px; clamped [0, box_height/2]
+rounding = -1               # corner radius px; -1 = full pill
+inner_color = "rgba(34, 41, 56, 0.55)"    # box fill
+outer_color = "rgba(180, 190, 210, 0.55)" # box outline
+
+# The dots
+dot_diameter = 12                          # surface px; clamped [1, 100]
+dot_spacing = 20                           # centre-to-centre px; clamped [1, 200]
+max_dots = 32                              # row caps here; clamped [1, 256]
+dot_color = "rgba(220, 220, 220, 1.0)"     # dot fill
 ```
 
-- **`x`** (integer, optional). Horizontal centre of the dot row in
-  surface-pixel coordinates. If omitted, the row is centred on each
+**Colours** use a Hyprlock-style `rgba(r, g, b, a)` string: `r`/`g`/`b`
+are integers `0..=255`, `a` is a float `0.0..=1.0`. `rgb(r, g, b)`
+(alpha implied `1.0`) is also accepted. Out-of-range channels are a
+load error (a typo worth surfacing); alpha outside `0..=1` is clamped.
+Gradients are not supported — one flat colour per field.
+
+Position:
+
+- **`x`** (integer, optional). Horizontal centre of the field in
+  surface-pixel coordinates. If omitted, the field is centred on each
   surface's `width / 2` — different absolute pixel positions on
   different-width monitors, same surface-relative position. No clamp:
-  values that put the row off-screen are user error but not unsafe.
+  values that put the field off-screen are user error but not unsafe.
 - **`y_percent`** (integer, optional, default `75`). Vertical position
   as a percentage of surface height. `0` is the top edge; `100` is
   the bottom. Clamped to `[0, 100]` at load time with a warning if
   out of range — out-of-range values don't fail the locker start.
+
+The box:
+
+- **`show_box`** (bool, optional, default `true`). Draw the input box.
+  Set `false` for the pre-box look: bare dots floating on the
+  wallpaper, positioned directly by `x`/`y_percent`. When `true`, the
+  dots auto-centre inside the box, so `x`/`y_percent` position the box
+  and the dots follow.
+- **`box_width`** / **`box_height`** (integer, optional, defaults `400`
+  / `90`). Box size in surface pixels. Each clamped to `[1, 8192]`.
+- **`outline_thickness`** (integer, optional, default `2`). Outline
+  width in surface pixels. `0` draws fill only (no outline). Clamped to
+  `[0, box_height/2]` — a thicker outline would consume the box.
+- **`rounding`** (integer, optional, default `-1`). Corner radius in
+  surface pixels. The sentinel `-1` means a **full pill** (radius =
+  `box_height / 2`, fully rounded ends — the default look). Any other
+  value is clamped to `[0, min(box_width, box_height) / 2]`; `0` is a
+  sharp rectangle.
+- **`inner_color`** (colour, optional, default `rgba(34, 41, 56, 0.55)`).
+  Box fill. A translucent fill lets the wallpaper show through.
+- **`outer_color`** (colour, optional, default
+  `rgba(180, 190, 210, 0.55)`). Box outline.
+
+The dots:
+
 - **`dot_diameter`** (integer, optional, default `12`). Diameter of
   each dot in surface pixels. Clamped to `[1, 100]`.
 - **`dot_spacing`** (integer, optional, default `20`). **Centre-to-
@@ -195,16 +244,17 @@ max_dots = 32       # row caps here; clamped [1, 256]
 - **`max_dots`** (integer, optional, default `32`). Cap on the number
   of visible dots. Beyond this, the row freezes — the user keeps
   typing (the password buffer keeps filling) but the indicator stops
-  growing. Clamped to `[1, 256]`. Keeps the row from running off the
-  screen on long passwords.
+  growing. Clamped to `[1, 256]`. Keeps the row from overflowing the
+  box on long passwords.
+- **`dot_color`** (colour, optional, default `rgba(220, 220, 220, 1.0)`).
+  Dot fill.
 
-Colours, animations, failure-flash, per-monitor positioning, and
-scale-factor support are **not** configurable in v1; all tracked
-for M11+ in `docs/m9-plan.md`'s "Deferred to post-M9" section.
-
-The same `[password]` config applies to every monitor's lock
-surface. If you need DP-1 to show its dots top-left while HDMI-A-1
-shows them centred, that's M11+.
+**Not yet configurable** (v2+, several need text rendering in the
+core): placeholder text in the empty box, fade-on-empty, the
+authentication-state colour flashes (`check`/`fail`/`capslock`/
+`numlock`), gradient colours, per-monitor positioning, and
+scale-factor support. The same `[password]` config applies to every
+monitor's lock surface.
 
 ### `[plugin.config]` (table, optional)
 
@@ -280,7 +330,7 @@ red/blue/green test plugins used during M6 development. That
 fixture exercises region clipping, z-index ordering, and alpha
 blending end-to-end.
 
-### Password indicator overrides
+### Password field overrides
 
 Defaults are usually what you want; the table exists for when
 they're not. A minimal repositioning:
@@ -291,20 +341,31 @@ y_percent = 50    # halfway down instead of 75%
 dot_diameter = 16 # larger dots
 ```
 
-A no-op example (all defaults made explicit), useful as a starting
-point to tweak:
+The bare-dots look (no box), matching the pre-box behaviour:
 
 ```toml
 [password]
-# x omitted = centred per surface (different absolute pixel on
-# different-width monitors, same surface-relative position)
-y_percent = 75
-dot_diameter = 12
-dot_spacing = 20
-max_dots = 32
+show_box = false
 ```
 
-A live fixture exercising the indicator over a plugin (the soft
+Recreating the reference "Your Name" mockup — a dark translucent pill
+with a faint light outline and white dots, sitting low on the scene:
+
+```toml
+[password]
+y_percent = 72
+box_width = 440
+box_height = 70
+outline_thickness = 2
+rounding = -1                              # full pill
+inner_color = "rgba(28, 36, 52, 0.45)"
+outer_color = "rgba(150, 170, 200, 0.45)"
+dot_color = "rgba(235, 238, 245, 1.0)"
+dot_diameter = 10
+dot_spacing = 22
+```
+
+A live fixture exercising the field over a plugin (the soft
 trust-region paint order) is at `docs/examples/m9-password.toml`.
 
 ## 5. Multi-monitor
@@ -366,10 +427,12 @@ By design:
 - **Which fence-sync extension to use.** Detected at startup; fast
   path if `EGL_ANDROID_native_fence_sync` is available, slow path
   otherwise.
-- **The password-indicator colour, shape, and animation.** Hardcoded
-  to filled light-grey circles (`RGB(220, 220, 220)`), no animation,
-  no failure-flash. Position and sizing are configurable via
-  `[password]` (see §3); the rest is deferred to M11+.
+- **The password field's animation and auth-state feedback.**
+  Position, sizing, the box (fill/outline/rounding), and all three
+  colours are configurable via `[password]` (see §3). What's *not*
+  configurable: animation, the failure-flash / capslock / numlock
+  colour changes, placeholder text, and gradient colours. Those are
+  deferred (several need text rendering in the core).
 
 ## 7. Pitfalls
 
