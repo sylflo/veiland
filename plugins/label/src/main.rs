@@ -271,7 +271,7 @@ fn run() -> Result<(), PluginError> {
         first_configure.scale,
     );
 
-    let dma = DmaBuffer::new(&gbm_egl, first_configure.region_w, first_configure.region_h)?;
+    let mut dma = DmaBuffer::new(&gbm_egl, first_configure.region_w, first_configure.region_h)?;
     eprintln!(
         "allocated {}x{} {:?}, modifier=0x{:016x}, stride={}",
         dma.width(),
@@ -292,15 +292,9 @@ fn run() -> Result<(), PluginError> {
         scale: first_configure.scale,
     };
 
-    let buf_msg = Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    };
+    // Rebuilt whenever `dma` is reallocated (on a region change), since the
+    // buffer carries the fd/stride/modifier the host needs to import it.
+    let mut buf_msg = buffer_msg_for(&dma);
 
     // On-demand: a static label only redraws when the host asks
     // (FrameDone). FramePacer owns the deferral state machine.
@@ -312,21 +306,30 @@ fn run() -> Result<(), PluginError> {
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
-                if c.region_w != dma.width() || c.region_h != dma.height() {
-                    // We don't reallocate the dmabuf in M10. Log so the
-                    // user sees the mismatch; the host will stretch our
-                    // output and text will be slightly off-scale until
-                    // the plugin is restarted. M11+ may add live
-                    // realloc on region change.
-                    eprintln!(
-                        "veiland-{}: configure region {}x{} differs from initial {}x{}; \
-                         keeping initial buffer size, text may stretch",
-                        PLUGIN_NAME,
-                        c.region_w,
-                        c.region_h,
-                        dma.width(),
-                        dma.height(),
-                    );
+                // Reallocate the dmabuf to the output's true size so text is
+                // laid out at native resolution (render_and_send reads
+                // surface_size from the buffer each frame) and the host's
+                // composite is 1:1 instead of a stretch. Glyph atlas lives in
+                // FontContext, untouched by the swap. Non-fatal on failure.
+                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
+                    Ok(true) => {
+                        buf_msg = buffer_msg_for(&dma);
+                        eprintln!(
+                            "veiland-{}: reallocated to {}x{}, stride={}",
+                            PLUGIN_NAME,
+                            dma.width(),
+                            dma.height(),
+                            dma.stride(),
+                        );
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        eprintln!(
+                            "veiland-{}: reallocation to {}x{} failed: {} — \
+                             keeping current buffer, text may stretch",
+                            PLUGIN_NAME, c.region_w, c.region_h, e
+                        );
+                    }
                 }
                 state.scale = c.scale;
             }
@@ -335,6 +338,23 @@ fn run() -> Result<(), PluginError> {
                 return Ok(());
             }
         }
+    }
+}
+
+/// Build the wire `Buffer` message describing `dma`. Called at startup and
+/// again after every reallocation, since the fd/stride/modifier the host
+/// imports all move with the underlying GBM bo. `id` stays 0 across the
+/// plugin's life — v1 is single-buffer, and a fresh `Buffer` with id 0
+/// cleanly replaces the host's prior import.
+fn buffer_msg_for(dma: &DmaBuffer) -> Buffer {
+    Buffer {
+        id: 0,
+        width: dma.width(),
+        height: dma.height(),
+        format: dma.format(),
+        modifier: dma.modifier(),
+        stride: dma.stride(),
+        offset: 0,
     }
 }
 

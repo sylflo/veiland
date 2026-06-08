@@ -478,7 +478,7 @@ fn run() -> Result<(), PluginError> {
         first_configure.scale,
     );
 
-    let dma = DmaBuffer::new(&gbm_egl, first_configure.region_w, first_configure.region_h)?;
+    let mut dma = DmaBuffer::new(&gbm_egl, first_configure.region_w, first_configure.region_h)?;
     eprintln!(
         "allocated {}x{} {:?}, modifier=0x{:016x}, stride={}",
         dma.width(),
@@ -502,15 +502,9 @@ fn run() -> Result<(), PluginError> {
         start: Instant::now(),
     };
 
-    let buf_msg = Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    };
+    // Rebuilt whenever `dma` is reallocated (on a region change), since the
+    // buffer carries the fd/stride/modifier the host needs to import it.
+    let mut buf_msg = buffer_msg_for(&dma);
 
     // Self-pacing handled by FramePacer: render on BufferReleased so the
     // compositor's repaint rate drives the fall. We just react to the
@@ -523,16 +517,30 @@ fn run() -> Result<(), PluginError> {
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
-                if c.region_w != dma.width() || c.region_h != dma.height() {
-                    eprintln!(
-                        "veiland-{}: configure region {}x{} differs from initial {}x{}; \
-                         keeping initial buffer size",
-                        PLUGIN_NAME,
-                        c.region_w,
-                        c.region_h,
-                        dma.width(),
-                        dma.height(),
-                    );
+                // Reallocate the dmabuf to the output's true size. Petal math
+                // is already resolution-independent (x_norm * w, size * scale,
+                // read fresh each frame), so native-size buffer = correctly
+                // sized, crisp petals — no geometry change. Non-fatal on
+                // failure.
+                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
+                    Ok(true) => {
+                        buf_msg = buffer_msg_for(&dma);
+                        eprintln!(
+                            "veiland-{}: reallocated to {}x{}, stride={}",
+                            PLUGIN_NAME,
+                            dma.width(),
+                            dma.height(),
+                            dma.stride(),
+                        );
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        eprintln!(
+                            "veiland-{}: reallocation to {}x{} failed: {} — \
+                             keeping current buffer, petals may scale wrong",
+                            PLUGIN_NAME, c.region_w, c.region_h, e
+                        );
+                    }
                 }
                 state.scale = c.scale;
             }
@@ -541,6 +549,21 @@ fn run() -> Result<(), PluginError> {
                 return Ok(());
             }
         }
+    }
+}
+
+/// Build the wire `Buffer` message describing `dma`. Rebuilt after any
+/// reallocation, since the fd/stride/modifier move with the GBM bo. `id`
+/// stays 0 — v1 is single-buffer.
+fn buffer_msg_for(dma: &DmaBuffer) -> Buffer {
+    Buffer {
+        id: 0,
+        width: dma.width(),
+        height: dma.height(),
+        format: dma.format(),
+        modifier: dma.modifier(),
+        stride: dma.stride(),
+        offset: 0,
     }
 }
 

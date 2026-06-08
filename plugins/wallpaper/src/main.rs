@@ -399,55 +399,31 @@ fn run() -> Result<(), PluginError> {
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
-                if c.region_w != dma.width() || c.region_h != dma.height() {
-                    eprintln!(
-                        "veiland-{}: configure region {}x{} differs from current buffer {}x{}; \
-                         reallocating at native size",
-                        PLUGIN_NAME,
-                        c.region_w,
-                        c.region_h,
-                        dma.width(),
-                        dma.height(),
-                    );
-                    // Reallocate the dmabuf at the new region size and rebuild
-                    // the Buffer message that describes it. `region_w/region_h`
-                    // are already physical pixels (the host multiplied by
-                    // scale), so they go straight into the allocation.
-                    //
-                    // Safe to drop the old buffer here: FramePacer::on_demand
-                    // only surfaces a Reconfigure between frames, after the
-                    // host has released the in-flight buffer, and the host
-                    // imports each buffer into its own EGLImage on receipt
-                    // (it holds no reference to our fd past that). The decoded
-                    // image lives in a GL texture in this context's namespace,
-                    // not in the FBO, so it survives the swap untouched — the
-                    // next render redraws it into the larger buffer.
-                    match DmaBuffer::new(&gbm_egl, c.region_w, c.region_h) {
-                        Ok(new_dma) => {
-                            dma = new_dma;
-                            dma.bind_for_rendering()?;
-                            buf_msg = buffer_msg_for(&dma);
-                            eprintln!(
-                                "veiland-{}: reallocated {}x{} {:?}, \
-                                 modifier=0x{:016x}, stride={}",
-                                PLUGIN_NAME,
-                                dma.width(),
-                                dma.height(),
-                                dma.format(),
-                                u64::from(dma.modifier()),
-                                dma.stride(),
-                            );
-                        }
-                        Err(e) => {
-                            // Reallocation failed: keep the old buffer and let
-                            // the wallpaper stretch rather than take the locker
-                            // down. A bad realloc must never be fatal.
-                            eprintln!(
-                                "veiland-{}: reallocation to {}x{} failed: {} — \
-                                 keeping current buffer, wallpaper may stretch",
-                                PLUGIN_NAME, c.region_w, c.region_h, e
-                            );
-                        }
+                // Reallocate the dmabuf to the output's true size (the host
+                // resends Configure after the 1080p spawn fallback). The
+                // decoded image lives in a GL texture in this context's
+                // namespace, not the FBO, so it survives the swap untouched —
+                // the next render redraws it into the new buffer. A failed
+                // realloc is non-fatal: keep the old buffer and stretch rather
+                // than take the locker down.
+                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
+                    Ok(true) => {
+                        buf_msg = buffer_msg_for(&dma);
+                        eprintln!(
+                            "veiland-{}: reallocated to {}x{}, stride={}",
+                            PLUGIN_NAME,
+                            dma.width(),
+                            dma.height(),
+                            dma.stride(),
+                        );
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        eprintln!(
+                            "veiland-{}: reallocation to {}x{} failed: {} — \
+                             keeping current buffer, wallpaper may stretch",
+                            PLUGIN_NAME, c.region_w, c.region_h, e
+                        );
                     }
                 }
             }
