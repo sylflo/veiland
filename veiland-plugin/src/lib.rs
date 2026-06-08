@@ -6,12 +6,14 @@
 
 mod buffer;
 mod error;
+mod lifecycle;
 mod render;
 mod socket;
 mod sync;
 
 pub use buffer::DmaBuffer;
 pub use error::PluginError;
+pub use lifecycle::{Frame, FramePacer};
 pub use render::GbmEgl;
 pub use socket::Connection;
 pub use sync::SyncFence;
