@@ -182,6 +182,49 @@ impl DmaBuffer {
         })
     }
 
+    /// Reallocate this buffer to `width × height` if it differs from the
+    /// current size, replacing the backing GBM bo / EGLImage / FBO in place
+    /// and leaving the **new** buffer bound for rendering. Returns `true` if a
+    /// reallocation happened (the caller must then rebuild any cached
+    /// `veiland_protocol::Buffer` wire message, since fd/stride/modifier move
+    /// with the bo), `false` if the size was unchanged and nothing was done.
+    ///
+    /// This is the host-resize response every plugin needs: on a cold lock the
+    /// host spawns plugins at a 1080p fallback, then resends `Configure` with
+    /// the output's true size (e.g. 4K). A plugin that keeps its first buffer
+    /// has its output stretched by the compositor — soft for images, distorted
+    /// for text. Calling this from the `Frame::Reconfigure` arm keeps the
+    /// buffer at native resolution so the host's composite is 1:1.
+    ///
+    /// **Errors are returned, not fatal by policy** — but callers should treat
+    /// a failed realloc as non-fatal (keep the old buffer, log, carry on)
+    /// rather than `?`-propagating out of the render loop: a transient GBM
+    /// allocation failure must not take down the locker. The old buffer is
+    /// only dropped once the new one is fully constructed, so on error `self`
+    /// is left untouched and still valid.
+    ///
+    /// Safe to call from `Frame::Reconfigure`: `FramePacer` only surfaces a
+    /// reconfigure between frames, after the host has released the in-flight
+    /// buffer and imported it into its own EGLImage (the host holds no
+    /// reference to our fd past import), so dropping the old bo here cannot
+    /// free a buffer the host is still sampling.
+    pub fn resize_to(
+        &mut self,
+        gbm_egl: &GbmEgl,
+        width: u32,
+        height: u32,
+    ) -> Result<bool, PluginError> {
+        if width == self.width && height == self.height {
+            return Ok(false);
+        }
+        // Construct the replacement first; only on success do we drop the old
+        // one (via the move-assign below), so a failure leaves `self` intact.
+        let new = DmaBuffer::new(gbm_egl, width, height)?;
+        *self = new;
+        self.bind_for_rendering()?;
+        Ok(true)
+    }
+
     /// Bind the buffer as the active GL framebuffer and set the viewport.
     /// Plugin's draw calls after this land in the dmabuf.
     pub fn bind_for_rendering(&self) -> Result<(), PluginError> {
