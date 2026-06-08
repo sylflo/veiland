@@ -100,16 +100,16 @@ z_index = 30
 [plugin.config]
 text = "YOUR NAME"
 font_family = "Noto Sans CJK JP"
-font_size = 11
+font_size = 10
 font_weight = 300
 letter_spacing = 6
 color = [0.91, 0.96, 0.97, 0.6]
 halign = "center"
 valign = "middle"
 # position is a FRACTION of the surface ([0.5, 0.5] = centre), so it tracks
-# any resolution. Title block sits a bit above centre; the English line sits
-# just above the Japanese title.
-position = [0.5, 0.415]
+# any resolution. Title block sits above centre (matched to the mockup's
+# vertical layout); the English line sits just above the Japanese title.
+position = [0.5, 0.347]
 shadow_offset = [0, 2]
 shadow_color = [0.0, 0.0, 0.0, 0.8]
 
@@ -122,13 +122,13 @@ z_index = 31
 [plugin.config]
 text = "君の名は。"
 font_family = "Noto Sans CJK JP"
-font_size = 23
+font_size = 20
 font_weight = 300
 letter_spacing = 8
 color = [0.91, 0.96, 0.97, 0.95]
 halign = "center"
 valign = "middle"
-position = [0.5, 0.455]
+position = [0.5, 0.387]
 shadow_offset = [0, 4]
 shadow_color = [0.0, 0.0, 0.0, 0.9]
 
@@ -145,13 +145,13 @@ text = "Once in a while when I wake up, I find myself crying."
 # this Latin-only line uses "Liberation Sans" which has one. Swap to any
 # family with an installed italic face if you prefer.
 font_family = "Liberation Sans"
-font_size = 19
+font_size = 16
 font_weight = 300
 italic = true
 color = [0.91, 0.96, 0.97, 0.9]
 halign = "center"
 valign = "middle"
-position = [0.5, 0.555]
+position = [0.5, 0.505]
 shadow_offset = [0, 2]
 shadow_color = [0.0, 0.0, 0.0, 0.9]
 
@@ -164,12 +164,12 @@ z_index = 41
 [plugin.config]
 text = "たまに、目が覚めると泣いている"
 font_family = "Noto Sans CJK JP"
-font_size = 14
+font_size = 12
 letter_spacing = 2
 color = [0.91, 0.96, 0.97, 0.7]
 halign = "center"
 valign = "middle"
-position = [0.5, 0.605]
+position = [0.5, 0.559]
 shadow_offset = [0, 2]
 shadow_color = [0.0, 0.0, 0.0, 0.8]
 
@@ -186,8 +186,8 @@ font_family = "Noto Sans CJK JP"
 font_weight = 100
 time_letter_spacing = 4
 date_letter_spacing = 2
-time_font_size = 40
-date_font_size = 8
+time_font_size = 34
+date_font_size = 7
 time_color = [0.91, 0.96, 0.97, 0.9]
 date_color = [1.0, 1.0, 1.0, 0.9]
 # Fractions of the surface — upper-left, resolution-independent.
@@ -204,7 +204,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.9]
 # box auto-centres the dots, so y_percent positions both. Painted by
 # the core on top of every plugin above.
 [password]
-y_percent = 72
+y_percent = 63
 box_width = 440
 box_height = 70
 outline_thickness = 2
