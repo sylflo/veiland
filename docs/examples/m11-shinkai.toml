@@ -48,7 +48,7 @@ binary = "target/debug/veiland-wallpaper"
 z_index = 0
 
 [plugin.config]
-path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/938805-3840x2160-desktop-4k-makoto-shinkai-wallpaper-photo.jpg"
+path = "/home/sylflo/Projects/personnel/system_config/dotfiles/wallpapers/938805-3840x2160-desktop-4k-makoto-shinkai-wallpaper-photo.jpg"
 
 # --- Vignette: soft corner darkening -------------------------------
 [[plugin]]
@@ -105,9 +105,10 @@ letter_spacing = 6
 color = [0.91, 0.96, 0.97, 0.6]
 halign = "center"
 valign = "middle"
-# Surface is 1920x1080; centre is (960, 540). Title block sits a bit
-# above centre. English sits ~80px above the Japanese title.
-position = [960, 420]
+# position is a FRACTION of the surface ([0.5, 0.5] = centre), so it tracks
+# any resolution. Title block sits a bit above centre; the English line sits
+# just above the Japanese title.
+position = [0.5, 0.389]
 shadow_offset = [0, 2]
 shadow_color = [0.0, 0.0, 0.0, 0.8]
 
@@ -126,7 +127,7 @@ letter_spacing = 8
 color = [0.91, 0.96, 0.97, 0.95]
 halign = "center"
 valign = "middle"
-position = [960, 480]
+position = [0.5, 0.444]
 shadow_offset = [0, 4]
 shadow_color = [0.0, 0.0, 0.0, 0.9]
 
@@ -149,7 +150,7 @@ italic = true
 color = [0.91, 0.96, 0.97, 0.9]
 halign = "center"
 valign = "middle"
-position = [960, 620]
+position = [0.5, 0.574]
 shadow_offset = [0, 2]
 shadow_color = [0.0, 0.0, 0.0, 0.9]
 
@@ -167,7 +168,7 @@ letter_spacing = 2
 color = [0.91, 0.96, 0.97, 0.7]
 halign = "center"
 valign = "middle"
-position = [960, 680]
+position = [0.5, 0.630]
 shadow_offset = [0, 2]
 shadow_color = [0.0, 0.0, 0.0, 0.8]
 
@@ -188,8 +189,9 @@ time_font_size = 72
 date_font_size = 14
 time_color = [0.91, 0.96, 0.97, 0.9]
 date_color = [1.0, 1.0, 1.0, 0.9]
-time_position = [50, 50]
-date_position = [50, 130]
+# Fractions of the surface — upper-left, resolution-independent.
+time_position = [0.026, 0.046]
+date_position = [0.026, 0.150]
 halign = "left"
 valign = "top"
 shadow_offset = [0, 2]

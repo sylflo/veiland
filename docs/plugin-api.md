@@ -69,7 +69,8 @@ GL context exists.
 
 A label is plain data describing one piece of styled text.
 Build a new one each frame from your config + the current
-output scale:
+output scale (`scale`) and surface size (`surface_w`, `surface_h`,
+i.e. `dma.width()` / `dma.height()`):
 
 ```rust
 use veiland_text::{HAlign, Label, Shadow, VAlign};
@@ -81,7 +82,12 @@ let label = Label {
     color: [0.95, 0.95, 0.95, 1.0],                  // straight-alpha RGBA
     halign: HAlign::Center,
     valign: VAlign::Middle,
-    position: (960.0 * scale as f32, 540.0 * scale as f32),
+    // `Label.position` is in surface pixels. To stay resolution-independent,
+    // express position as a fraction in your *config* and multiply by the
+    // surface size here — e.g. centre = (0.5 * surface_w, 0.5 * surface_h).
+    // (Do NOT multiply position by scale — a fraction already tracks the
+    // surface growing with resolution; the reference plugins do exactly this.)
+    position: (0.5 * surface_w as f32, 0.5 * surface_h as f32),
     rotation: 0.0,
     shadow: Some(Shadow {
         offset: (3.0 * scale as f32, 3.0 * scale as f32),
@@ -101,7 +107,7 @@ Field reference:
 | `color`       | `[f32; 4]`      | Straight-alpha RGBA, each component in `[0, 1]`.                       |
 | `halign`      | `HAlign`        | `Left` / `Center` / `Right` — which edge of the text sits at `position.x`. |
 | `valign`      | `VAlign`        | `Top` / `Middle` / `Bottom` — same for `position.y`.                   |
-| `position`    | `(f32, f32)`    | Anchor in surface pixels, top-left origin. Multiply by scale.          |
+| `position`    | `(f32, f32)`    | Anchor in surface pixels, top-left origin. For resolution-independence, derive it from a config *fraction* × surface size (see note below) rather than absolute pixels. Not scale-multiplied. |
 | `rotation`    | `f32`           | Degrees, counter-clockwise around `position`. 0.0 = axis-aligned.      |
 | `shadow`      | `Option<Shadow>`| `None` = single pass. `Some` = shadow first, text on top.              |
 
@@ -133,9 +139,24 @@ afterwards. Subsequent draws in the same frame composite on top.
 The host sends `Configure.scale: u32` carrying the output's
 `wl_output.scale` (1, 2, or 3). Store it on your plugin state at
 every `Configure` and use the current value when building each
-`Label`. The convention is: every logical-pixel field
-(`font_size`, `position`, `shadow.offset`) gets multiplied by
+`Label`. The convention is: every logical-pixel *size* field
+(`font_size`, `letter_spacing`, `shadow.offset`) gets multiplied by
 `scale`; non-pixel fields (`color`, `rotation`) do not.
+
+`position` is the exception: don't scale it. A label's place on screen
+should be a *fraction of the surface* (`[0.5, 0.5]` = centre), multiplied
+by the surface size when building the `Label`. Fractions are
+resolution-independent — `0.5` is the middle of a 1080p and a 4K buffer
+alike — so a label stays put when the host resizes the surface (the
+1080p-spawn-fallback → native-4K resend, or a mid-lock mode change). The
+reference plugins (`veiland-clock`, `veiland-label`) take `position` as a
+`[0.0..=1.0]` fraction in their TOML config for this reason. Absolute
+pixels would silently mean "centre" only at one specific resolution.
+
+When the surface is resized, reallocate your dmabuf to the new size with
+`DmaBuffer::resize_to(&gbm_egl, w, h)` in your `Frame::Reconfigure` arm
+(returns `true` if it reallocated → rebuild your cached `Buffer` message);
+otherwise the host stretches your old buffer and text goes soft.
 
 See [`plugins/label`](../plugins/label/src/main.rs)'s
 `build_label` for the reference shape.

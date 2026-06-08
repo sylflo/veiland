@@ -62,8 +62,13 @@ struct Config {
     time_color: [f32; 4],
     #[serde(default = "default_date_color")]
     date_color: [f32; 4],
+    /// Anchor as a **fraction of the surface**, `[x, y]` in `0.0..=1.0`
+    /// (`[0.0, 0.0]` top-left, `[0.5, 0.5]` centre). Multiplied by the surface
+    /// size at render time, so the clock keeps its place across resolutions
+    /// and HiDPI scales. `halign`/`valign` pick which edge sits on the anchor.
     #[serde(default = "default_time_position")]
     time_position: [f32; 2],
+    /// Date anchor, same fraction-of-surface semantics as `time_position`.
     #[serde(default = "default_date_position")]
     date_position: [f32; 2],
     #[serde(default)]
@@ -113,11 +118,14 @@ fn default_time_color() -> [f32; 4] {
 fn default_date_color() -> [f32; 4] {
     [0.66, 0.84, 0.91, 0.6]
 }
+// Fractions of the surface (see the field docs). These keep the old
+// top-left placement: ~2.6% in from the left, ~4.6%/12% down — i.e. the
+// former [50,50]/[50,130] pixels on a 1080p reference, now resolution-free.
 fn default_time_position() -> [f32; 2] {
-    [50.0, 50.0]
+    [0.026, 0.046]
 }
 fn default_date_position() -> [f32; 2] {
-    [50.0, 130.0]
+    [0.026, 0.150]
 }
 fn default_shadow_color() -> [f32; 4] {
     [0.0, 0.0, 0.0, 0.9]
@@ -216,11 +224,14 @@ struct State {
     time: CurrentTime,
 }
 
-/// Build the two Labels for this frame. Same logical→physical-pixel
-/// scaling pattern as `veiland-label` (font sizes and positions are
-/// in logical pixels in the user's config; multiply by `scale`).
-fn build_labels(state: &State) -> (Label, Label) {
+/// Build the two Labels for this frame. Same unit model as `veiland-label`:
+/// `time_position`/`date_position` are **fractions of the surface** (`[0.5,
+/// 0.5]` = centre), multiplied by `surface_size` so they track resolution;
+/// font sizes, letter spacing and shadow offsets are *logical pixels*,
+/// multiplied by `scale`.
+fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
     let s = state.scale as f32;
+    let (sw, sh) = (surface_size.0 as f32, surface_size.1 as f32);
     let dt = state.time.as_datetime();
     let time_text = format!("{}", dt.format(&state.config.time_format));
     let date_text = format!("{}", dt.format(&state.config.date_format));
@@ -239,8 +250,8 @@ fn build_labels(state: &State) -> (Label, Label) {
         halign: state.config.halign.into(),
         valign: state.config.valign.into(),
         position: (
-            state.config.time_position[0] * s,
-            state.config.time_position[1] * s,
+            state.config.time_position[0] * sw,
+            state.config.time_position[1] * sh,
         ),
         rotation: 0.0,
         shadow: shadow.clone(),
@@ -257,8 +268,8 @@ fn build_labels(state: &State) -> (Label, Label) {
         halign: state.config.halign.into(),
         valign: state.config.valign.into(),
         position: (
-            state.config.date_position[0] * s,
-            state.config.date_position[1] * s,
+            state.config.date_position[0] * sw,
+            state.config.date_position[1] * sh,
         ),
         rotation: 0.0,
         shadow,
@@ -423,7 +434,7 @@ fn render_and_send(
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let surface_size = (dma.width(), dma.height());
-    let (time_label, date_label) = build_labels(state);
+    let (time_label, date_label) = build_labels(state, surface_size);
 
     unsafe {
         gl::Viewport(0, 0, surface_size.0 as i32, surface_size.1 as i32);

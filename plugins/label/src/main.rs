@@ -57,6 +57,12 @@ struct Config {
     halign: HAlignCfg,
     #[serde(default)]
     valign: VAlignCfg,
+    /// Anchor position as a **fraction of the surface**, `[x, y]` in `0.0..=1.0`:
+    /// `[0.0, 0.0]` is the top-left corner, `[0.5, 0.5]` the centre, `[1.0, 1.0]`
+    /// the bottom-right. Multiplied by the surface size at render time, so a
+    /// label keeps its place across resolutions (1080p, 4K) and HiDPI scales —
+    /// unlike absolute pixels, which assume one surface size. `halign`/`valign`
+    /// then decide which edge of the text sits on this anchor.
     #[serde(default = "default_position")]
     position: [f32; 2],
     #[serde(default)]
@@ -98,7 +104,9 @@ fn default_color() -> [f32; 4] {
     [1.0, 1.0, 1.0, 1.0]
 }
 fn default_position() -> [f32; 2] {
-    [960.0, 540.0]
+    // Centre of the surface. Fractions, not pixels — see the `position`
+    // field doc.
+    [0.5, 0.5]
 }
 fn default_shadow_color() -> [f32; 4] {
     [0.0, 0.0, 0.0, 0.6]
@@ -191,11 +199,23 @@ fn default_config() -> Config {
     }
 }
 
-/// Build a `veiland_text::Label` for the current frame. Every field
-/// that is in *logical pixels* in the user's config gets multiplied by
-/// `scale` here so the rendered output is in physical pixels.
-fn build_label(config: &Config, scale: u32) -> Label {
+/// Build a `veiland_text::Label` for the current frame.
+///
+/// Two different unit conversions happen here:
+///
+///   * `position` is a **fraction of the surface** (`[0.5, 0.5]` = centre),
+///     multiplied by `surface_size` to get a physical-pixel anchor. Fractions
+///     are resolution-independent: `0.5` is the middle of a 1080p *and* a 4K
+///     buffer, so a label stays put when the dmabuf is reallocated to native
+///     size. It is **not** multiplied by `scale` — a fraction already tracks
+///     the surface growing with resolution.
+///
+///   * `font_size`, `letter_spacing`, and `shadow.offset` are *logical
+///     pixels* and get multiplied by `scale` so they render at the right
+///     physical size on a HiDPI output.
+fn build_label(config: &Config, scale: u32, surface_size: (u32, u32)) -> Label {
     let s = scale as f32;
+    let (sw, sh) = (surface_size.0 as f32, surface_size.1 as f32);
     Label {
         text: config.text.clone(),
         font_family: config.font_family.clone(),
@@ -203,7 +223,7 @@ fn build_label(config: &Config, scale: u32) -> Label {
         color: config.color,
         halign: config.halign.into(),
         valign: config.valign.into(),
-        position: (config.position[0] * s, config.position[1] * s),
+        position: (config.position[0] * sw, config.position[1] * sh),
         rotation: config.rotation,
         shadow: config.shadow_offset.map(|off| Shadow {
             offset: (off[0] * s, off[1] * s),
@@ -368,7 +388,7 @@ fn render_and_send(
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let surface_size = (dma.width(), dma.height());
-    let label = build_label(&state.config, state.scale);
+    let label = build_label(&state.config, state.scale, surface_size);
 
     // SAFETY: bind_for_rendering left an FBO current on this thread;
     // the gl crate's function pointers were loaded by GbmEgl::new.
