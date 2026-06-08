@@ -35,6 +35,7 @@ pub fn try_spawn_one(
     entry: &config::PluginEntry,
     output_name: &str,
     scale: u32,
+    surface_size: Option<(u32, u32)>,
     host_capabilities: HostCapabilities,
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
@@ -92,14 +93,22 @@ pub fn try_spawn_one(
         display,
     )?;
 
-    // Initial Configure. Region is still hardcoded full-screen
-    // 1920x1080 here; step 3 makes this region-aware.
+    // Initial Configure. Use the real surface size if the compositor
+    // has reported it; otherwise fall back to 1080p. On a fresh lock
+    // the size is not known at spawn time (the compositor sends it
+    // asynchronously, after this), so the fallback covers the brief
+    // window before the host resends Configure with the true size.
+    // Picking 1080p for the fallback means a 4K plugin briefly renders
+    // at 1080p-upscaled for ~one frame, then snaps to native on the
+    // resend — visually the same as before this change until the
+    // resend lands.
+    let (region_w, region_h) = surface_size.unwrap_or((1920, 1080));
     let (time_unix_seconds, time_tz_offset_seconds) = current_time_for_configure();
     let initial_configure = Configure {
         region_x: 0,
         region_y: 0,
-        region_w: 1920,
-        region_h: 1080,
+        region_w,
+        region_h,
         scale,
         time_unix_seconds,
         time_tz_offset_seconds,

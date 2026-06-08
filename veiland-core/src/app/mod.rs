@@ -64,6 +64,15 @@ pub(crate) struct LockSurface {
     /// matching `done` event came back. Prevents requesting a second
     /// callback per commit.
     pub(crate) frame_callback_pending: bool,
+    /// Surface size in physical pixels, as last reported by the
+    /// compositor's `configure` (`SessionLockHandler::configure`'s
+    /// `new_size`). `None` until the first `configure` fires — at
+    /// spawn time the size is genuinely not known yet, since the
+    /// compositor sends it asynchronously after the surface is
+    /// created. This is the size plugins should render at; later
+    /// commits feed it into the plugin `Configure` so a 4K monitor
+    /// gets a 4K buffer instead of an upscaled 1080p one.
+    pub(crate) surface_size: Option<(u32, u32)>,
 }
 
 impl AppData {
@@ -104,6 +113,7 @@ impl AppData {
             egl_surface: None,
             needs_paint: true,
             frame_callback_pending: false,
+            surface_size: None,
         };
         // Reuse the first None slot if one exists (hotplug-out leaves
         // sentinels; reusing keeps lock_surfaces.len() bounded under
@@ -154,6 +164,18 @@ impl AppData {
             }
         };
 
+        // The surface size in physical pixels, if the compositor has
+        // reported it yet. On a fresh lock this is usually `None` here:
+        // spawn runs before the compositor's first `configure`, so the
+        // size only lands afterwards (commit 3 resends Configure when it
+        // does). `try_spawn_one` falls back to 1080p for the brief
+        // initial window. On hotplug-in of an output that already has a
+        // size cached it will be `Some`, so those plugins start at the
+        // right size immediately.
+        let surface_size = self.lock_surfaces[output_idx]
+            .as_ref()
+            .and_then(|s| s.surface_size);
+
         let mut per_output: Vec<Option<PluginSlot>> = Vec::with_capacity(self.config.plugins.len());
         for entry in &self.config.plugins {
             if !entry_matches_output(entry, output_name) {
@@ -164,6 +186,7 @@ impl AppData {
                 entry,
                 output_name,
                 scale,
+                surface_size,
                 self.host_capabilities,
                 &self.renderer.egl,
                 self.renderer.egl_display,
@@ -377,6 +400,58 @@ impl AppData {
                 }
                 slot.last_configure = Some(next);
             }
+        }
+    }
+
+    /// Re-send `Configure` to every live plugin on a single output with
+    /// an updated render region. Called from `SessionLockHandler::
+    /// configure` when the compositor reports a surface size that
+    /// differs from what plugins were last told (the common cause: the
+    /// first `configure` after spawn, where plugins were started with
+    /// the 1080p fallback and now learn the true size — so a 4K monitor
+    /// gets a 4K buffer instead of an upscaled 1080p one).
+    ///
+    /// Mirrors `process_periodic_tick`'s clone-override-send-store
+    /// shape, but scoped to one output (a resize is per-output, unlike
+    /// the time tick which advances everywhere) and overriding region
+    /// instead of time. `region_x/y` stay 0 — full-surface placement is
+    /// unchanged; only the size moves. The next periodic tick refreshes
+    /// the time field as usual.
+    ///
+    /// Plugin-input rule applies: a dead socket logs and is skipped, it
+    /// never panics. `drive_plugin`'s EOF path cleans the slot up later.
+    pub(crate) fn resend_configure_region_for_output(
+        &mut self,
+        output_idx: usize,
+        region_w: u32,
+        region_h: u32,
+    ) {
+        let Some(per_output) = self.plugins.get_mut(output_idx) else {
+            return;
+        };
+        for slot_opt in per_output.iter_mut() {
+            let Some(slot) = slot_opt.as_mut() else {
+                continue;
+            };
+            let Some(prev) = slot.last_configure.clone() else {
+                continue;
+            };
+            let next = Configure {
+                region_x: 0,
+                region_y: 0,
+                region_w,
+                region_h,
+                ..prev
+            };
+            if let Err(e) = slot.state.connection.send_configure(next.clone()) {
+                eprintln!(
+                    "veiland-core: resize resend: send_configure to plugin {:?} failed: {} \
+                     (will be cleaned up on next read)",
+                    slot.name, e
+                );
+                continue;
+            }
+            slot.last_configure = Some(next);
         }
     }
 

@@ -72,6 +72,18 @@ impl SessionLockHandler for AppData {
         let entry = self.lock_surfaces[output_idx]
             .as_mut()
             .expect("just matched Some");
+        // Record the compositor-reported size in physical pixels and
+        // note whether it changed. `size_changed` is true on the first
+        // `configure` (None -> Some) and on any later resolution change
+        // (mode switch mid-lock). We compare against the *old* value
+        // before overwriting it, then — once the borrow on `entry` has
+        // ended — resend Configure to this output's plugins so they
+        // render at the true size instead of the 1080p spawn fallback.
+        // Guarding on change means the steady state (same size every
+        // frame callback) sends nothing.
+        let new_size = (width, height);
+        let size_changed = entry.surface_size != Some(new_size);
+        entry.surface_size = Some(new_size);
         if entry.egl_window.is_none() {
             let egl_window =
                 wayland_egl::WlEglSurface::new(target.id(), width as i32, height as i32)
@@ -155,5 +167,16 @@ impl SessionLockHandler for AppData {
         self.renderer.egl
             .swap_buffers(self.renderer.egl_display, egl_surface)
             .expect("eglSwapBuffers");
+
+        // If the surface size is new or changed, tell this output's
+        // plugins to render at it. Done last, after every borrow on
+        // `self.lock_surfaces[output_idx]` above has ended, so the
+        // `&mut self` resend is free of borrow conflicts. On a cold 4K
+        // lock this is what upgrades plugins from the 1080p spawn
+        // fallback to native resolution; on an unchanged size it is
+        // skipped entirely.
+        if size_changed {
+            self.resend_configure_region_for_output(output_idx, width, height);
+        }
     }
 }
