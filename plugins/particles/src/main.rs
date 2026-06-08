@@ -17,8 +17,8 @@
 
 use serde::Deserialize;
 use std::time::Instant;
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::{Buffer, ServerMessage};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_protocol::Buffer;
 
 const PLUGIN_NAME: &str = "particles";
 
@@ -425,9 +425,8 @@ fn run() -> Result<(), PluginError> {
 
     let gbm_egl = GbmEgl::new()?;
 
-    let mut conn = Connection::from_env()?;
-    conn.handshake()?;
-    conn.send_hello(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
+    // Connect preamble (from_env + handshake + hello) in one call.
+    let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
     let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
@@ -442,19 +441,11 @@ fn run() -> Result<(), PluginError> {
         gbm_egl.supports_fence_fd(),
     );
 
-    let first_configure = loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => break c,
-            ServerMessage::Shutdown => {
-                eprintln!("veiland-{}: shutdown before first configure", PLUGIN_NAME);
-                return Ok(());
-            }
-            other => {
-                eprintln!(
-                    "veiland-{}: unexpected pre-configure message {:?}, ignoring",
-                    PLUGIN_NAME, other
-                );
-            }
+    let first_configure = match conn.wait_for_configure()? {
+        Some(c) => c,
+        None => {
+            eprintln!("veiland-{}: shutdown before first configure", PLUGIN_NAME);
+            return Ok(());
         }
     };
     eprintln!(
@@ -501,23 +492,20 @@ fn run() -> Result<(), PluginError> {
         offset: 0,
     };
 
-    // Particle pacing: render on BufferReleased (not FrameDone) so the
-    // animation runs at the compositor's repaint rate, not the host's
-    // input-event cadence. See module docs / m11-plan Q2.
-    //
-    // Same flag pair as label/wallpaper plugins, but used differently:
-    // - On FrameDone: render if we can (first frame after spawn does
-    //   arrive via FrameDone — the host sends one alongside the first
-    //   Configure).
-    // - On BufferReleased: render *again* immediately. This is what
-    //   keeps the loop turning without waiting for the host to opt us
-    //   into another FrameDone.
-    let mut buffer_released = true;
-    let mut got_first_frame_done = false;
-
+    // Self-paced: render on every BufferReleased so the compositor's
+    // repaint rate drives the animation, not the host's input-event
+    // cadence. See module docs / m11-plan Q2. FramePacer owns the pacing
+    // state machine.
+    let mut pacer = FramePacer::self_paced();
     loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => {
+        match pacer.next(&mut conn)? {
+            Frame::Render => {
+                render_and_send(
+                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                )?;
+                pacer.submitted();
+            }
+            Frame::Reconfigure(c) => {
                 if c.region_w != dma.width() || c.region_h != dma.height() {
                     eprintln!(
                         "veiland-{}: configure region {}x{} differs from initial {}x{}; \
@@ -531,29 +519,7 @@ fn run() -> Result<(), PluginError> {
                 }
                 state.scale = c.scale;
             }
-            ServerMessage::FrameDone => {
-                got_first_frame_done = true;
-                if !buffer_released {
-                    continue;
-                }
-                render_and_send(
-                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
-                )?;
-                buffer_released = false;
-            }
-            ServerMessage::BufferReleased(_) => {
-                buffer_released = true;
-                // Self-pacing: as soon as the host releases our last
-                // buffer, draw a new one. The host's repaint cadence
-                // ends up driving us.
-                if got_first_frame_done {
-                    render_and_send(
-                        &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
-                    )?;
-                    buffer_released = false;
-                }
-            }
-            ServerMessage::Shutdown => {
+            Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
             }

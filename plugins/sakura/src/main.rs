@@ -515,7 +515,7 @@ fn run() -> Result<(), PluginError> {
     // Self-pacing handled by FramePacer: render on BufferReleased so the
     // compositor's repaint rate drives the fall. We just react to the
     // outcomes it hands back.
-    let mut pacer = FramePacer::new();
+    let mut pacer = FramePacer::self_paced();
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {

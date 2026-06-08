@@ -100,14 +100,29 @@ pub enum Frame {
     Shutdown,
 }
 
-/// Encapsulates the FrameDone/BufferReleased self-pacing the animated plugins
-/// share: render on `BufferReleased` so the compositor's repaint rate drives
-/// the animation, but only after the first `FrameDone` has arrived.
-///
-/// The state machine (two bools) is the part that was easy to get subtly
-/// wrong when copy-pasted; this owns it. The caller drives it:
+/// Which cadence a [`FramePacer`] drives. The two modes capture the two
+/// patterns the plugins actually use; they differ only in what happens when
+/// the host releases a buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Animated plugins (particles, sakura): redraw continuously. As soon as
+    /// the host releases our buffer, render the next frame — the compositor's
+    /// repaint rate ends up driving the animation. Gated on the first
+    /// FrameDone so we don't draw before the loop is opened.
+    SelfPaced,
+    /// Mostly-static plugins (clock, wallpaper, label, vignette): redraw only
+    /// when the host asks (FrameDone). If a FrameDone arrives while a buffer
+    /// is still in flight, the request is remembered and serviced when the
+    /// buffer is released. No continuous redraw.
+    OnDemand,
+}
+
+/// Encapsulates the FrameDone/BufferReleased pacing state machine the plugins
+/// share — the part that was easy to get subtly wrong when copy-pasted. The
+/// caller drives it; it just hands back actionable [`Frame`] outcomes:
 ///
 /// ```ignore
+/// let mut pacer = FramePacer::self_paced(); // or ::on_demand()
 /// loop {
 ///     match pacer.next(&mut conn)? {
 ///         Frame::Render => { /* draw + submit */ pacer.submitted(); }
@@ -117,26 +132,43 @@ pub enum Frame {
 /// }
 /// ```
 pub struct FramePacer {
+    mode: Mode,
     /// True once the host has released our last buffer (or we've never sent
     /// one). Gate: don't render again until the previous buffer is released.
     buffer_released: bool,
-    /// True once the first FrameDone has arrived. Before that, BufferReleased
-    /// alone must not trigger a render (the host opens the loop with a
-    /// FrameDone alongside the first Configure).
-    got_first_frame_done: bool,
+    /// `SelfPaced`: set once the first FrameDone has arrived, after which a
+    /// BufferReleased triggers the next render. `OnDemand`: set when a
+    /// FrameDone arrives while a buffer is still in flight, so the deferred
+    /// render fires on the next BufferReleased. Same bool, two readings.
+    frame_pending: bool,
 }
 
 impl Default for FramePacer {
     fn default() -> Self {
-        Self::new()
+        Self::self_paced()
     }
 }
 
 impl FramePacer {
-    pub fn new() -> Self {
+    /// Continuous-redraw pacing for animated plugins. Renders again every time
+    /// the host releases a buffer (after the first FrameDone), so the loop
+    /// runs at the compositor's repaint rate.
+    pub fn self_paced() -> Self {
         Self {
+            mode: Mode::SelfPaced,
             buffer_released: true,
-            got_first_frame_done: false,
+            frame_pending: false,
+        }
+    }
+
+    /// Event-driven pacing for mostly-static plugins. Renders only on
+    /// FrameDone (deferring to the next BufferReleased if a buffer is still in
+    /// flight); does not redraw on its own.
+    pub fn on_demand() -> Self {
+        Self {
+            mode: Mode::OnDemand,
+            buffer_released: true,
+            frame_pending: false,
         }
     }
 
@@ -163,17 +195,27 @@ impl FramePacer {
             match event {
                 ServerMessage::Configure(c) => return Ok(Frame::Reconfigure(c)),
                 ServerMessage::FrameDone => {
-                    self.got_first_frame_done = true;
                     if self.buffer_released {
+                        // Free to draw now. In SelfPaced this also records that
+                        // the loop has been opened (so future BufferReleased
+                        // self-paces); the flag is harmless in OnDemand since
+                        // it's only consulted while a buffer is in flight.
+                        self.frame_pending = self.mode == Mode::SelfPaced;
                         return Ok(Frame::Render);
                     }
-                    // Buffer still in flight; nothing to do — keep waiting.
+                    // Buffer in flight: defer the request to the next release.
+                    self.frame_pending = true;
                 }
                 ServerMessage::BufferReleased(_) => {
                     self.buffer_released = true;
-                    // Self-pacing: redraw as soon as our buffer comes back,
-                    // but only once the loop has been opened by a FrameDone.
-                    if self.got_first_frame_done {
+                    // Both modes: render now iff a frame is "pending". For
+                    // SelfPaced `frame_pending` is latched true after the first
+                    // FrameDone (continuous); for OnDemand it's true only when
+                    // a FrameDone was deferred.
+                    if self.frame_pending {
+                        if self.mode == Mode::OnDemand {
+                            self.frame_pending = false;
+                        }
                         return Ok(Frame::Render);
                     }
                 }

@@ -17,8 +17,8 @@
 //! the smoothstep sum at low gradient values (per m11-plan.md Risks).
 
 use serde::Deserialize;
-use veiland_plugin::{Connection, DmaBuffer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::{Buffer, ServerMessage};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_protocol::Buffer;
 
 const PLUGIN_NAME: &str = "vignette";
 
@@ -284,9 +284,8 @@ fn run() -> Result<(), PluginError> {
 
     let gbm_egl = GbmEgl::new()?;
 
-    let mut conn = Connection::from_env()?;
-    conn.handshake()?;
-    conn.send_hello(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
+    // Connect preamble (from_env + handshake + hello) in one call.
+    let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
     let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
@@ -301,19 +300,11 @@ fn run() -> Result<(), PluginError> {
         gbm_egl.supports_fence_fd(),
     );
 
-    let first_configure = loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => break c,
-            ServerMessage::Shutdown => {
-                eprintln!("veiland-{}: shutdown before first configure", PLUGIN_NAME);
-                return Ok(());
-            }
-            other => {
-                eprintln!(
-                    "veiland-{}: unexpected pre-configure message {:?}, ignoring",
-                    PLUGIN_NAME, other
-                );
-            }
+    let first_configure = match conn.wait_for_configure()? {
+        Some(c) => c,
+        None => {
+            eprintln!("veiland-{}: shutdown before first configure", PLUGIN_NAME);
+            return Ok(());
         }
     };
     eprintln!(
@@ -351,12 +342,18 @@ fn run() -> Result<(), PluginError> {
         offset: 0,
     };
 
-    let mut buffer_released = true;
-    let mut pending_frame = false;
-
+    // On-demand: the vignette is static — it redraws only when the host
+    // asks (FrameDone). FramePacer owns the deferral state machine.
+    let mut pacer = FramePacer::on_demand();
     loop {
-        match conn.recv_event()? {
-            ServerMessage::Configure(c) => {
+        match pacer.next(&mut conn)? {
+            Frame::Render => {
+                render_and_send(
+                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                )?;
+                pacer.submitted();
+            }
+            Frame::Reconfigure(c) => {
                 if c.region_w != dma.width() || c.region_h != dma.height() {
                     eprintln!(
                         "veiland-{}: configure region {}x{} differs from initial {}x{}; \
@@ -369,27 +366,7 @@ fn run() -> Result<(), PluginError> {
                     );
                 }
             }
-            ServerMessage::FrameDone => {
-                if !buffer_released {
-                    pending_frame = true;
-                    continue;
-                }
-                render_and_send(
-                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
-                )?;
-                buffer_released = false;
-            }
-            ServerMessage::BufferReleased(_) => {
-                buffer_released = true;
-                if pending_frame {
-                    pending_frame = false;
-                    render_and_send(
-                        &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
-                    )?;
-                    buffer_released = false;
-                }
-            }
-            ServerMessage::Shutdown => {
+            Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
             }
