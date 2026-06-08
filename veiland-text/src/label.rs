@@ -509,13 +509,20 @@ pub(crate) fn render_label(
                 }
                 let placement = image.placement;
                 let data = image.data.clone();
-                if placement.width == 0 || placement.height == 0 {
+                let inserted = if placement.width == 0 || placement.height == 0 {
                     // Whitespace: no bitmap to upload but the advance
                     // still matters. The atlas inserts a zero-area
                     // entry so the next lookup is a hit.
                     atlas.insert_bitmap(key, 0, 0, &[])
                 } else {
                     atlas.insert_bitmap(key, placement.width, placement.height, &data)
+                };
+                // `None` means the glyph is larger than the whole atlas
+                // (runaway font_size). Skip it — tofu/gap beats crashing,
+                // which matters now that the core renders text too.
+                match inserted {
+                    Some(e) => e,
+                    None => continue,
                 }
             };
 

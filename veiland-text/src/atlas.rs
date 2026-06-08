@@ -156,7 +156,9 @@ impl Atlas {
     }
 
     /// Insert a freshly rasterized glyph. Returns the atlas entry the
-    /// caller should remember (and that future `lookup` calls will hit).
+    /// caller should remember (and that future `lookup` calls will hit),
+    /// or `None` if the glyph is larger than the atlas itself and can
+    /// never be packed.
     ///
     /// `bitmap` is `w * h` bytes of coverage data, top-to-bottom rows,
     /// as cosmic-text/swash produce them. Empty glyphs (zero width or
@@ -164,17 +166,21 @@ impl Atlas {
     ///
     /// If the new glyph won't fit, the atlas flushes everything and
     /// tries once more. Flush-on-full is the M10 eviction policy; see
-    /// module docs. The second attempt will only fail if the glyph
-    /// itself is larger than the atlas, which we treat as the caller's
-    /// bug and signal by panicking — a 1024-pixel-tall glyph would be a
-    /// pathological config no real plugin produces.
+    /// module docs. The second attempt only fails if the glyph itself is
+    /// larger than the 1024² atlas in some dimension — a runaway
+    /// `font_size` with a tall/decorative face. We must NOT panic on it:
+    /// `veiland-text` now runs inside the trusted core (for the password
+    /// placeholder), where a panic kills the locker (a threat-model
+    /// violation — see CLAUDE.md). Instead we return `None`; the caller
+    /// skips the glyph and the text degrades to a gap/tofu, which beats
+    /// crashing the lockscreen.
     pub(crate) fn insert_bitmap(
         &mut self,
         key: GlyphKey,
         w: u32,
         h: u32,
         bitmap: &[u8],
-    ) -> AtlasEntry {
+    ) -> Option<AtlasEntry> {
         if w == 0 || h == 0 {
             let entry = AtlasEntry {
                 u_min: 0.0,
@@ -183,17 +189,25 @@ impl Atlas {
                 v_max: 0.0,
             };
             self.entries.insert(key, entry);
-            return entry;
+            return Some(entry);
         }
 
         let rect = match self.try_pack(w, h) {
             Some(r) => r,
             None => {
                 self.flush();
-                self.try_pack(w, h).expect(
-                    "glyph larger than the entire atlas — likely a runaway font_size; \
-                     M10 ships with a 1024² atlas (see atlas.rs ATLAS_SIZE)",
-                )
+                match self.try_pack(w, h) {
+                    Some(r) => r,
+                    None => {
+                        // Glyph genuinely exceeds the atlas. Skip it.
+                        eprintln!(
+                            "veiland-text: glyph {}x{} larger than the {}² atlas \
+                             (runaway font_size?); skipping it",
+                            w, h, self.size
+                        );
+                        return None;
+                    }
+                }
             }
         };
 
@@ -232,7 +246,7 @@ impl Atlas {
             v_max: (rect.y + rect.h) as f32 / self.size as f32,
         };
         self.entries.insert(key, entry);
-        entry
+        Some(entry)
     }
 
     /// Find a position for a `w × h` glyph using shelf packing. Returns
@@ -253,8 +267,11 @@ impl Atlas {
                 return Some(rect);
             }
         }
-        // Start a new shelf if there's vertical room left.
-        if self.next_shelf_y + h <= self.size {
+        // Start a new shelf if there's vertical room left AND the glyph
+        // isn't wider than the atlas itself (a fresh shelf starts at x=0,
+        // so `w > size` can never fit and would otherwise produce a rect
+        // wider than the texture — an out-of-bounds glTexSubImage2D).
+        if w <= self.size && self.next_shelf_y + h <= self.size {
             let shelf = Shelf {
                 y_top: self.next_shelf_y,
                 height: h,
@@ -380,6 +397,32 @@ mod tests {
         // (next_shelf_y = ATLAS_SIZE). A new glyph that won't fit
         // on the existing shelf must fail.
         assert!(a.try_pack(2, 1).is_none());
+    }
+
+    #[test]
+    fn insert_oversized_glyph_returns_none_not_panic() {
+        // A glyph bigger than the atlas in either dimension can never be
+        // packed. `insert_bitmap` must return `None` (caller skips it ->
+        // tofu) rather than panic — veiland-text now runs inside the
+        // trusted core, where a panic kills the locker. The oversized
+        // path returns before any GL call, so the GL-free `fake_atlas`
+        // exercises it. The bitmap arg is unread on this path.
+        let mut a = fake_atlas();
+        let key = GlyphKey {
+            font_id: 1,
+            glyph_id: 1,
+            font_weight: 400,
+            size_px: 2048,
+            subpixel_bin: 0,
+        };
+        assert!(
+            a.insert_bitmap(key, ATLAS_SIZE + 1, 10, &[]).is_none(),
+            "an over-wide glyph must be skipped, not panic"
+        );
+        assert!(
+            a.insert_bitmap(key, 10, ATLAS_SIZE + 1, &[]).is_none(),
+            "an over-tall glyph must be skipped, not panic"
+        );
     }
 
     #[test]
