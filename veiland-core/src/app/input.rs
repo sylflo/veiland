@@ -6,9 +6,14 @@
 //! Security-critical surface (CLAUDE.md "Trust boundaries"): this is
 //! where keyboard focus is taken and where key events enter the core.
 //! The actual password-buffer / PAM / unlock logic lives in
-//! `AppData::handle_key` (see `app/mod.rs`); `press_key` and
-//! `repeat_key` just forward to it. Moved verbatim from main.rs; no
-//! logic change.
+//! `AppData::handle_key` (see `app/mod.rs`); every key entry point
+//! forwards to it.
+//!
+//! Key auto-repeat (holding a key) is driven by SCTK's calloop timer,
+//! set up via `get_keyboard_with_repeat` in `new_capability` below; its
+//! callback calls `handle_key` directly. The `KeyboardHandler::repeat_key`
+//! method also forwards to `handle_key` for any compositor that emits its
+//! own repeat events, so both paths behave identically.
 
 use smithay_client_toolkit::seat::{
     Capability, SeatHandler, SeatState,
@@ -38,9 +43,26 @@ impl SeatHandler for AppData {
     ) {
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             println!("Set keyboard capability");
+            // `get_keyboard_with_repeat` (not the plain `get_keyboard`) so
+            // held keys auto-repeat: SCTK registers a calloop timer driven
+            // by the compositor-advertised `wl_keyboard.repeat_info` rate
+            // and delay, and invokes our callback for each synthetic
+            // repeat. Without this, only the initial press fires, so e.g.
+            // holding Backspace deletes a single character. The callback
+            // routes through the same `handle_key` path as a real press —
+            // no separate repeat logic, and the threat-model boundary is
+            // unchanged (still core-only, still no plugin involvement).
             let keyboard = self
                 .seat_state
-                .get_keyboard(qh, &seat, None)
+                .get_keyboard_with_repeat(
+                    qh,
+                    &seat,
+                    None,
+                    self.loop_handle.clone(),
+                    Box::new(|app: &mut AppData, _kbd, event| {
+                        app.handle_key(&event);
+                    }),
+                )
                 .expect("Failed to create keyboard");
             self.keyboard = Some(keyboard);
         }
