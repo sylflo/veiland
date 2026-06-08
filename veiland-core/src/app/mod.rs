@@ -34,11 +34,11 @@ use khronos_egl as egl;
 
 use veiland_protocol::{ClientMessage, Configure};
 
-use crate::plugin::{self, PluginSlot};
-use crate::region;
-use crate::{
-    AppData, RunState, current_time_for_configure, entry_matches_output, try_spawn_one,
+use crate::plugin::{
+    self, PluginSlot, current_time_for_configure, entry_matches_output, try_spawn_one,
 };
+use crate::region;
+use crate::{AppData, RunState};
 
 /// One output's lock surface plus the EGL window/surface bound to it.
 pub(crate) struct LockSurface {

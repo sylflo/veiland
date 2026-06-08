@@ -3,6 +3,7 @@
 mod connection;
 mod dmabuf;
 mod error;
+mod host_spawn;
 mod slot;
 mod spawn;
 mod state;
@@ -10,6 +11,9 @@ mod sync;
 
 pub use connection::{HostConnection, ReceivedFds};
 pub use error::HostError;
+pub use host_spawn::{
+    current_time_for_configure, entry_matches_output, teardown_one_plugin, try_spawn_one,
+};
 pub use slot::PluginSlot;
 pub use spawn::spawn_plugin;
 pub use state::PluginState;

@@ -26,7 +26,7 @@ pub struct PluginProcess {
 /// `config_json`, if `Some`, is exported to the child as
 /// `VEILAND_PLUGIN_CONFIG`. The host derives this from the
 /// `[plugin.config]` TOML table for this plugin entry (see
-/// `veiland-core/src/main.rs`'s `try_spawn_one`). Plugins parse the
+/// `host_spawn::try_spawn_one`). Plugins parse the
 /// string however they like — JSON is the wire format because it's
 /// strictly more compact in transitive dep cost than re-shipping TOML
 /// to every plugin, and `serde_json::Value` is a sufficient target for

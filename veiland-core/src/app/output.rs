@@ -12,7 +12,8 @@ use smithay_client_toolkit::output::{OutputHandler, OutputState};
 
 use wayland_client::{Connection, Proxy, QueueHandle, protocol::wl_output};
 
-use crate::{AppData, teardown_one_plugin};
+use crate::AppData;
+use crate::plugin::teardown_one_plugin;
 
 impl OutputHandler for AppData {
     fn output_state(&mut self) -> &mut OutputState {
