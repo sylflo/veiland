@@ -85,6 +85,7 @@ base_opacity = 0.2
 name = "particles"
 binary = "target/debug/veiland-particles"
 z_index = 20
+monitors = ["DP-1"]
 
 [plugin.config]
 count = 40
@@ -93,16 +94,18 @@ count = 40
 color = [1.0, 1.0, 1.0, 1.0]
 
 # --- Sakura: falling cherry-blossom petals (DISABLED) --------------
-#[[plugin]]
-#name = "sakura"
-#binary = "target/debug/veiland-sakura"
-#z_index = 25
+[[plugin]]
+name = "sakura"
+binary = "target/debug/veiland-sakura"
+z_index = 25
+monitors = ["HDMI-A-1"]
 
-#[plugin.config]
-#count = 25
-#size_px = 22
-## White tint = use the petal PNG's own pink. Lower alpha to soften.
-#color = [1.0, 1.0, 1.0, 1.0]
+
+[plugin.config]
+count = 25
+size_px = 22
+# White tint = use the petal PNG's own pink. Lower alpha to soften.
+color = [1.0, 1.0, 1.0, 1.0]
 
 # --- Title (English) — small, dim, above the Japanese title --------
 [[plugin]]

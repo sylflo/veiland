@@ -11,6 +11,9 @@ pkgs.mkShell {
     pkg-config
     gcc
     gnumake
+    # Screen capture tooling for recording demo GIFs/videos.
+    wf-recorder
+    ffmpeg
   ];
 
   buildInputs = with pkgs; [
