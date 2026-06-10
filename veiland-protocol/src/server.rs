@@ -27,7 +27,7 @@ pub struct Configure {
     /// Plugins use this to convert logical-pixel config values (e.g.
     /// `font_size`, shadow blur radius) into physical pixels. The region
     /// dimensions are already in physical pixels — the host has done the
-    /// multiplication — so plugins do **not** multiply region_w/region_h
+    /// multiplication — so plugins do **not** multiply `region_w`/`region_h`
     /// by scale.
     pub scale: u32,
     pub time_unix_seconds: i64,

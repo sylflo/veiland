@@ -145,8 +145,7 @@ fn seed_petals(count: u32) -> Vec<Petal> {
     let mut rng = Rng(0x1234_5678);
     (0..count)
         .map(|_| {
-            let cycle =
-                FALL_MIN_SECONDS + rng.next_f32() * (FALL_MAX_SECONDS - FALL_MIN_SECONDS);
+            let cycle = FALL_MIN_SECONDS + rng.next_f32() * (FALL_MAX_SECONDS - FALL_MIN_SECONDS);
             Petal {
                 x_norm: rng.next_f32(),
                 t_offset: rng.next_f32() * cycle,
@@ -154,9 +153,7 @@ fn seed_petals(count: u32) -> Vec<Petal> {
                 drift_px: (rng.next_f32() * 2.0 - 1.0) * DRIFT_MAX_PX,
                 sway_phase: rng.next_f32() * std::f32::consts::TAU,
                 rot0: rng.next_f32() * std::f32::consts::TAU,
-                spin: (rng.next_f32() * 2.0 - 1.0)
-                    * SPIN_MAX_TURNS
-                    * std::f32::consts::TAU,
+                spin: (rng.next_f32() * 2.0 - 1.0) * SPIN_MAX_TURNS * std::f32::consts::TAU,
             }
         })
         .collect()
@@ -221,7 +218,10 @@ fn load_petal_rgba(path: &str) -> Option<(u32, u32, Vec<u8>)> {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("veiland-{}: cannot read petal {:?}: {}", PLUGIN_NAME, path, e);
+            eprintln!(
+                "veiland-{}: cannot read petal {:?}: {}",
+                PLUGIN_NAME, path, e
+            );
             return None;
         }
     };
@@ -456,7 +456,11 @@ fn run() -> Result<(), PluginError> {
     let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
     eprintln!(
         "sync model: {} (host_cap={}, plugin_cap={})",
-        if fast_path { "fast (fence fd)" } else { "slow (glFinish)" },
+        if fast_path {
+            "fast (fence fd)"
+        } else {
+            "slow (glFinish)"
+        },
         conn.host_supports_fence_fd(),
         gbm_egl.supports_fence_fd(),
     );

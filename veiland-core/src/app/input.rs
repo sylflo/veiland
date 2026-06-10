@@ -42,7 +42,7 @@ impl SeatHandler for AppData {
         capability: Capability,
     ) {
         if capability == Capability::Keyboard && self.keyboard.is_none() {
-            println!("Set keyboard capability");
+            eprintln!("veiland-core: set keyboard capability");
             // `get_keyboard_with_repeat` (not the plain `get_keyboard`) so
             // held keys auto-repeat: SCTK registers a calloop timer driven
             // by the compositor-advertised `wl_keyboard.repeat_info` rate

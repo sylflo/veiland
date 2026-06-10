@@ -181,7 +181,7 @@ impl Buffer {
 
 impl BufferDestroy {
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
-        write_u32_le(out, self.id)
+        write_u32_le(out, self.id);
     }
 
     pub(crate) fn decode(buf: &[u8]) -> Result<(Self, &[u8]), ProtocolError> {

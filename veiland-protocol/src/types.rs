@@ -19,7 +19,7 @@ pub struct Modifier(pub u64);
 impl Fourcc {
     /// DRM FourCC for 32-bit ARGB with 8 bits per channel — packs the
     /// ASCII bytes `'A','R','2','4'` into a little-endian u32.
-    pub const ARGB8888: Fourcc = Fourcc(0x34325241);
+    pub const ARGB8888: Fourcc = Fourcc(0x3432_5241);
 
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         write_u32_le(out, self.0);

@@ -138,10 +138,13 @@ pub(crate) fn write_str(out: &mut Vec<u8>, s: &str, max_len: u16) -> Result<(), 
     if len > max_len as usize {
         return Err(ProtocolError::StringTooLong {
             max: max_len,
-            // careful: if len > u16::MAX this lies
+            // len <= max_len <= u16::MAX here, so the cast is exact
+            #[allow(clippy::cast_possible_truncation)]
             actual: len as u16,
         });
     }
+    // len <= max_len <= u16::MAX here, so the cast is exact
+    #[allow(clippy::cast_possible_truncation)]
     write_u16_le(out, len as u16);
     out.extend_from_slice(s.as_bytes());
     Ok(())
