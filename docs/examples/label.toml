@@ -11,9 +11,9 @@
 # cosmic-text's shaping pipeline handles CJK — if you see tofu
 # (□□□□) instead of "こんにちは", the dev system is missing a CJK
 # font (install noto-fonts-cjk or distro equivalent; see
-# docs/m10-plan.md Q6).
+# install noto-fonts-cjk or distro equivalent).
 #
-# Run: VEILAND_CONFIG=docs/examples/m10-label.toml cargo run -p veiland-core
+# Run: VEILAND_CONFIG=docs/examples/label.toml cargo run -p veiland-core
 #
 # Note: binary paths are absolute and target/debug/. Adjust if you
 # build elsewhere or rename the workspace target directory.

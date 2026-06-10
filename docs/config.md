@@ -164,7 +164,7 @@ Rules:
 Controls the password field that appears as the user types: a rounded
 input **box** with one filled dot per buffered character centred inside
 it. The whole field is painted by the core on top of any plugins (soft
-trust-region — see `docs/m9-plan.md` Q1 for the threat-model discussion);
+trust-region — see `CLAUDE.md` §"Threat model" for the threat-model discussion);
 plugins never see keystrokes or the character count, so the field's
 appearance is the only thing config can touch.
 
@@ -351,7 +351,7 @@ region = { x = 660, y = 500, w = 600, h = 80 }
 
 ### A test fixture for the M6 compositor
 
-See `docs/examples/m6-boxes.toml` for the staircase of overlapping
+See `docs/examples/boxes.toml` for the staircase of overlapping
 red/blue/green test plugins used during M6 development. That
 fixture exercises region clipping, z-index ordering, and alpha
 blending end-to-end.
@@ -392,7 +392,7 @@ dot_spacing = 22
 ```
 
 A live fixture exercising the field over a plugin (the soft
-trust-region paint order) is at `docs/examples/m9-password.toml`.
+trust-region paint order) is at `docs/examples/password.toml`.
 
 ## 5. Multi-monitor
 
@@ -496,5 +496,5 @@ By design:
 
 - `docs/protocol.md` — the plugin ↔ host wire protocol. Read if
   you're writing a plugin.
-- `docs/examples/m6-boxes.toml` — the M6 test fixture, showing a
+- `docs/examples/boxes.toml` — the M6 test fixture, showing a
   three-plugin overlapping-region setup.

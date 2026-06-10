@@ -21,7 +21,7 @@
 #   - Bright green (0, 1, 0) where green covers, regardless of what's
 #     below (green is fully opaque).
 #
-# Run: VEILAND_CONFIG=docs/examples/m6-boxes.toml cargo run -p veiland-core
+# Run: VEILAND_CONFIG=docs/examples/boxes.toml cargo run -p veiland-core
 #
 # Note: binary paths are absolute and target/debug/. Adjust if you
 # build elsewhere or rename the workspace target directory.

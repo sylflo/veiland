@@ -184,8 +184,7 @@ Things you may notice missing and not need to file as bugs:
   integer `wl_output.scale` in M10.
 - **Bitmap fonts** (`pcf`, `bdf`) — TTF/OTF only.
 
-See [`m10-plan.md`](m10-plan.md)'s "Deferred to post-M10"
-section for the rationale on each.
+The rationale for each deferral is in the commit history for M10.
 
 ## Loading image assets
 
@@ -208,8 +207,7 @@ A few non-obvious points:
   more formats only when a user asks.
 - **Don't decode on the IPC main thread for large images**.
   Today `veiland-wallpaper` does, which blocks the lock surface
-  for ~5s on a 4K JPEG; the fix is a worker thread, deferred to
-  M12+ per [`improvements.md`](improvements.md). Small icons
+  for ~5s on a 4K JPEG; the fix is a worker thread (deferred). Small icons
   (~hundreds of KB) decode in single-digit ms and are fine
   inline.
 - **EXIF orientation is not honoured** by `image` by default.
@@ -251,9 +249,9 @@ A few non-obvious points:
   that classic GL tutorials teach. (See the wallpaper plugin: the
   first cut had a flip and the image came out upside down; removing
   it was the fix.)
-- **Straight-alpha output**. The host composites your buffer using
-  straight-alpha blending (`docs/protocol.md` §12.1). Emit
-  `vec4(rgb, a)` with `rgb` not pre-multiplied by `a`. Transparent
+- **Premultiplied-alpha output**. The host composites your buffer using
+  premultiplied-alpha blending (`docs/protocol.md` §12.1). Emit
+  `vec4(rgb * a, a)` — RGB already scaled by alpha. Transparent
   pixels should be `vec4(0.0)`.
 
 Reference: [`plugins/vignette`](../plugins/vignette/src/main.rs).

@@ -436,24 +436,22 @@ These describe how plugins should produce pixel data so the host's
 compositor blends multiple plugins correctly. They are not wire-format
 constraints — the wire bytes are unchanged — but the host assumes them.
 
-### 12.1 Straight (non-pre-multiplied) alpha
+### 12.1 Premultiplied alpha
 
-Plugins emit pixels with straight alpha: the RGB channels store the
-colour as-is, and the alpha channel separately stores opacity. A red
-pixel at 50% opacity is `(1.0, 0.0, 0.0, 0.5)`, not
-`(0.5, 0.0, 0.0, 0.5)`.
+Plugins emit pixels with premultiplied alpha: the RGB channels store
+the colour already scaled by alpha. A red pixel at 50% opacity is
+`(0.5, 0.0, 0.0, 0.5)`, not `(1.0, 0.0, 0.0, 0.5)`.
 
 The host's compositor uses
-`glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`, the natural blend
-function for straight alpha. Plugins that pre-multiply alpha will
-appear washed-out where their regions overlap lower-z plugins.
+`glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)`, the correct blend
+function for premultiplied alpha. Plugins that emit straight alpha
+(RGB not scaled by alpha) will appear too bright where their regions
+overlap lower-z plugins.
 
-This convention was chosen over pre-multiplied alpha because the
-natural shape of writing a fragment shader
-(`gl_FragColor = vec4(rgb, a)`) produces straight alpha;
-pre-multiplied would force every plugin author to remember to
-multiply, and the failure mode is subtle. See `docs/m6-plan.md` Q4.
-
-If pre-multiplied alpha becomes needed for a specific plugin in the
-future, it should be opted into via a flag in `Hello`, not made the
-default.
+This convention was chosen because `veiland-text` (the glyph atlas
+renderer used by the clock and label plugins) emits premultiplied
+alpha — glyph coverage composites correctly only once under
+`ONE / ONE_MINUS_SRC_ALPHA`. Straight alpha with that blend function
+double-applied coverage and produced a halo around text edges.
+Premultiplying in the fragment shader is one extra multiply per pixel
+and the failure mode (washed-out blending) is visible immediately.
