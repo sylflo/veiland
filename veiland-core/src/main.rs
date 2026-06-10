@@ -192,7 +192,14 @@ fn main() -> ExitCode {
     // Build both GL programs and bundle all EGL/GL handles into the
     // Renderer. The context is already current (surfaceless) above,
     // which the program build requires.
-    let renderer = Renderer::new(egl, egl_display, egl_config, egl_context);
+    let renderer = match Renderer::new(egl, egl_display, egl_config, egl_context) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("veiland-core: GL program build failed: {e}");
+            eprintln!("veiland-core: check EGL context and driver shader compiler");
+            return ExitCode::FAILURE;
+        }
+    };
 
     let auth = match auth::Session::new() {
         Ok(s) => s,

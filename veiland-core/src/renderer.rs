@@ -92,9 +92,9 @@ impl Renderer {
         egl_display: egl::Display,
         egl_config: egl::Config,
         egl_context: egl::Context,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let (compositor_program, compositor_vbo, compositor_sampler_loc, compositor_rect_loc) =
-            unsafe { build_compositor_program() };
+            unsafe { build_compositor_program()? };
         eprintln!("built compositor program id={}", compositor_program);
 
         let (
@@ -103,13 +103,13 @@ impl Renderer {
             indicator_centre_loc,
             indicator_radius_loc,
             indicator_color_loc,
-        ) = unsafe { build_indicator_program() };
+        ) = unsafe { build_indicator_program()? };
         eprintln!("built indicator program id={}", indicator_program);
 
-        let box_p = unsafe { build_box_program() };
+        let box_p = unsafe { build_box_program()? };
         eprintln!("built box program id={}", box_p.program);
 
-        Renderer {
+        Ok(Renderer {
             egl,
             egl_display,
             egl_config,
@@ -133,7 +133,7 @@ impl Renderer {
             box_outer_loc: box_p.outer_loc,
             font_ctx: None,
             placeholder_fbos: Vec::new(),
-        }
+        })
     }
 
     /// Draw the password field (input box + dots) on the currently-bound
@@ -474,7 +474,10 @@ impl Renderer {
     }
 }
 
-unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
+unsafe fn compile_shader(
+    kind: gl::types::GLenum,
+    src: &[u8],
+) -> Result<gl::types::GLuint, String> {
     unsafe {
         let shader = gl::CreateShader(kind);
         let src_ptr = src.as_ptr() as *const _;
@@ -485,22 +488,18 @@ unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLui
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(
-                shader,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "shader compile failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
+            gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            let msg = std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>");
+            return Err(format!("shader compile failed: {msg}"));
         }
-        shader
+        Ok(shader)
     }
 }
 
-unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::types::GLuint {
+unsafe fn link_program(
+    vs: gl::types::GLuint,
+    fs: gl::types::GLuint,
+) -> Result<gl::types::GLuint, String> {
     unsafe {
         let program = gl::CreateProgram();
         gl::AttachShader(program, vs);
@@ -511,27 +510,23 @@ unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::type
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(
-                program,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "program link failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
+            gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            let msg = std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>");
+            return Err(format!("program link failed: {msg}"));
         }
-        program
+        Ok(program)
     }
 }
 
-unsafe fn build_compositor_program() -> (
-    gl::types::GLuint,
-    gl::types::GLuint,
-    gl::types::GLint,
-    gl::types::GLint,
-) {
+unsafe fn build_compositor_program() -> Result<
+    (
+        gl::types::GLuint,
+        gl::types::GLuint,
+        gl::types::GLint,
+        gl::types::GLint,
+    ),
+    String,
+> {
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
         uniform vec4 u_rect;\n\
@@ -559,9 +554,9 @@ unsafe fn build_compositor_program() -> (
         }\n\0";
 
     unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
+        let vs = compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = link_program(vs, fs)?;
 
         let quad: [f32; 12] = [
             -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
@@ -580,7 +575,7 @@ unsafe fn build_compositor_program() -> (
         let sampler_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
         let rect_loc = gl::GetUniformLocation(program, b"u_rect\0".as_ptr() as *const _);
 
-        (program, vbo, sampler_loc, rect_loc)
+        Ok((program, vbo, sampler_loc, rect_loc))
     }
 }
 
@@ -596,13 +591,16 @@ unsafe fn build_compositor_program() -> (
 /// `u_centre` and `u_radius` are in clip space (so per-frame the
 /// caller converts surface-px → clip-space). Y is flipped at
 /// conversion time, not in the shader, because there's no UV here.
-unsafe fn build_indicator_program() -> (
-    gl::types::GLuint,
-    gl::types::GLuint,
-    gl::types::GLint,
-    gl::types::GLint,
-    gl::types::GLint,
-) {
+unsafe fn build_indicator_program() -> Result<
+    (
+        gl::types::GLuint,
+        gl::types::GLuint,
+        gl::types::GLint,
+        gl::types::GLint,
+        gl::types::GLint,
+    ),
+    String,
+> {
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
         uniform vec2 u_centre;\n\
@@ -643,9 +641,9 @@ unsafe fn build_indicator_program() -> (
         }\n\0";
 
     unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
+        let vs = compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = link_program(vs, fs)?;
 
         // Same unit quad as the compositor. Allocated separately so
         // the two programs stay independent — no shared-VBO coupling
@@ -668,7 +666,7 @@ unsafe fn build_indicator_program() -> (
         let radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
         let color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
 
-        (program, vbo, centre_loc, radius_loc, color_loc)
+        Ok((program, vbo, centre_loc, radius_loc, color_loc))
     }
 }
 
@@ -701,7 +699,7 @@ struct BoxProgram {
 /// premultiplied (`rgb * a`) because the box paints under the same
 /// `glBlendFunc(ONE, ONE_MINUS_SRC_ALPHA)`. `precision highp float` for the
 /// same Mesa-banding reason the indicator uses it.
-unsafe fn build_box_program() -> BoxProgram {
+unsafe fn build_box_program() -> Result<BoxProgram, String> {
     // u_rect: clip-space (x, y, w, h) placement of the quad.
     // u_half: half the box size in surface px (SDF half-extent).
     let vs_src = b"#version 100\n\
@@ -758,9 +756,9 @@ unsafe fn build_box_program() -> BoxProgram {
         }\n\0";
 
     unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
+        let vs = compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = link_program(vs, fs)?;
 
         // Same unit quad as the other two programs. Independent VBO so the
         // programs stay decoupled; 48 bytes is free.
@@ -778,7 +776,7 @@ unsafe fn build_box_program() -> BoxProgram {
             gl::STATIC_DRAW,
         );
 
-        BoxProgram {
+        Ok(BoxProgram {
             program,
             vbo,
             rect_loc: gl::GetUniformLocation(program, b"u_rect\0".as_ptr() as *const _),
@@ -787,6 +785,6 @@ unsafe fn build_box_program() -> BoxProgram {
             outline_loc: gl::GetUniformLocation(program, b"u_outline\0".as_ptr() as *const _),
             inner_loc: gl::GetUniformLocation(program, b"u_inner\0".as_ptr() as *const _),
             outer_loc: gl::GetUniformLocation(program, b"u_outer\0".as_ptr() as *const _),
-        }
+        })
     }
 }
