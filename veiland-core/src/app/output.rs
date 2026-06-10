@@ -188,15 +188,13 @@ impl OutputHandler for AppData {
         // Phase 1: send Shutdown to every live plugin on this output.
         // Errors are non-fatal — the next phase will SIGTERM/SIGKILL
         // anything that's not already dying.
-        for slot_opt in self.plugins[output_idx].iter_mut() {
-            if let Some(slot) = slot_opt {
-                if let Err(e) = slot.state.connection.send_shutdown() {
-                    eprintln!(
-                        "veiland-core: hotplug teardown: plugin {:?} \
-                        send_shutdown failed: {} (continuing)",
-                        slot.name, e
-                    );
-                }
+        for slot in self.plugins[output_idx].iter_mut().flatten() {
+            if let Err(e) = slot.state.connection.send_shutdown() {
+                eprintln!(
+                    "veiland-core: hotplug teardown: plugin {:?} \
+                    send_shutdown failed: {} (continuing)",
+                    slot.name, e
+                );
             }
         }
 
@@ -213,13 +211,13 @@ impl OutputHandler for AppData {
         // wl_surface; explicit destroy first keeps EGL from sending
         // commits to a dying surface.
         if let Some(surface_ref) = self.lock_surfaces[output_idx].as_mut() {
-            if let Some(egl_surface) = surface_ref.egl_surface.take() {
-                if let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface) {
-                    eprintln!(
-                        "veiland-core: eglDestroySurface for {:?} failed: {:?} (continuing)",
-                        surface_ref.name, e
-                    );
-                }
+            if let Some(egl_surface) = surface_ref.egl_surface.take()
+                && let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface)
+            {
+                eprintln!(
+                    "veiland-core: eglDestroySurface for {:?} failed: {:?} (continuing)",
+                    surface_ref.name, e
+                );
             }
             // WlEglSurface drops via the take() leaving None.
             surface_ref.egl_window = None;

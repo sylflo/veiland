@@ -328,14 +328,14 @@ impl AppData {
             // Tear down EGL bits first (same order as output_destroyed
             // Phase 3 — keep EGL from sending commits to a dying surface).
             if let Some(surface_ref) = self.lock_surfaces[idx].as_mut() {
-                if let Some(egl_surface) = surface_ref.egl_surface.take() {
-                    if let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface) {
-                        eprintln!(
-                            "veiland-core: eglDestroySurface for {:?} (rebind) failed: \
-                            {:?} (continuing)",
-                            surface_ref.name, e
-                        );
-                    }
+                if let Some(egl_surface) = surface_ref.egl_surface.take()
+                    && let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface)
+                {
+                    eprintln!(
+                        "veiland-core: eglDestroySurface for {:?} (rebind) failed: \
+                        {:?} (continuing)",
+                        surface_ref.name, e
+                    );
                 }
                 surface_ref.egl_window = None;
             }
@@ -532,17 +532,15 @@ impl AppData {
             gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
         }
 
-        for slot_opt in &self.plugins[output_idx] {
-            if let Some(slot) = slot_opt {
-                let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
-                slot.state.composite(
-                    self.renderer.compositor_program,
-                    self.renderer.compositor_vbo,
-                    self.renderer.compositor_sampler_loc,
-                    self.renderer.compositor_rect_loc,
-                    rect,
-                );
-            }
+        for slot in self.plugins[output_idx].iter().flatten() {
+            let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
+            slot.state.composite(
+                self.renderer.compositor_program,
+                self.renderer.compositor_vbo,
+                self.renderer.compositor_sampler_loc,
+                self.renderer.compositor_rect_loc,
+                rect,
+            );
         }
 
         // The password field (box + dots) paints on top of any plugins —
@@ -825,16 +823,16 @@ impl AppData {
                 entry.needs_paint = true;
             }
 
-            if let Some(slot) = self.slot_mut(o, p) {
-                if let Err(e) = slot.state.connection.send_frame_done() {
-                    let name = slot.name.clone();
-                    eprintln!(
-                        "veiland-core: plugin {:?} send_frame_done failed: {}",
-                        name, e
-                    );
-                    self.plugins[o][p] = None;
-                    return Ok(PostAction::Remove);
-                }
+            if let Some(slot) = self.slot_mut(o, p)
+                && let Err(e) = slot.state.connection.send_frame_done()
+            {
+                let name = slot.name.clone();
+                eprintln!(
+                    "veiland-core: plugin {:?} send_frame_done failed: {}",
+                    name, e
+                );
+                self.plugins[o][p] = None;
+                return Ok(PostAction::Remove);
             }
 
             let kick_paint = self

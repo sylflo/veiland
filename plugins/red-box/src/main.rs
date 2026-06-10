@@ -120,7 +120,7 @@ unsafe fn build_solid_program() -> gl::types::GLuint {
             gl::STATIC_DRAW,
         );
 
-        let a_pos = gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _);
+        let a_pos = gl::GetAttribLocation(program, c"a_pos".as_ptr());
         gl::EnableVertexAttribArray(a_pos as u32);
         gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 

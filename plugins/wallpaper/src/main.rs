@@ -208,11 +208,11 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
             gl::STATIC_DRAW,
         );
 
-        let a_pos = gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _);
+        let a_pos = gl::GetAttribLocation(program, c"a_pos".as_ptr());
         gl::EnableVertexAttribArray(a_pos as u32);
         gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
-        let u_tex_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
+        let u_tex_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
 
         Ok(GpuState {
             program,

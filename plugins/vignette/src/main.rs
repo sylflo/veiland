@@ -187,16 +187,15 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
             gl::STATIC_DRAW,
         );
 
-        let a_pos = gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _);
+        let a_pos = gl::GetAttribLocation(program, c"a_pos".as_ptr());
         gl::EnableVertexAttribArray(a_pos as u32);
         gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
-        let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
-        let u_opacities_loc =
-            gl::GetUniformLocation(program, b"u_opacities\0".as_ptr() as *const _);
-        let u_base_loc = gl::GetUniformLocation(program, b"u_base\0".as_ptr() as *const _);
-        let u_radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
-        let u_aspect_loc = gl::GetUniformLocation(program, b"u_aspect\0".as_ptr() as *const _);
+        let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
+        let u_opacities_loc = gl::GetUniformLocation(program, c"u_opacities".as_ptr());
+        let u_base_loc = gl::GetUniformLocation(program, c"u_base".as_ptr());
+        let u_radius_loc = gl::GetUniformLocation(program, c"u_radius".as_ptr());
+        let u_aspect_loc = gl::GetUniformLocation(program, c"u_aspect".as_ptr());
 
         Ok(GpuState {
             program,

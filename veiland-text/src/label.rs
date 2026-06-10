@@ -263,15 +263,14 @@ impl LabelGl {
                 return Self::broken();
             }
 
-            let a_pos_loc = gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _);
-            let a_uv_loc = gl::GetAttribLocation(program, b"a_uv\0".as_ptr() as *const _);
-            let u_surface_loc =
-                gl::GetUniformLocation(program, b"u_surface\0".as_ptr() as *const _);
-            let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
-            let u_atlas_loc = gl::GetUniformLocation(program, b"u_atlas\0".as_ptr() as *const _);
-            let u_anchor_loc = gl::GetUniformLocation(program, b"u_anchor\0".as_ptr() as *const _);
-            let u_rot_loc = gl::GetUniformLocation(program, b"u_rot\0".as_ptr() as *const _);
-            let u_offset_loc = gl::GetUniformLocation(program, b"u_offset\0".as_ptr() as *const _);
+            let a_pos_loc = gl::GetAttribLocation(program, c"a_pos".as_ptr());
+            let a_uv_loc = gl::GetAttribLocation(program, c"a_uv".as_ptr());
+            let u_surface_loc = gl::GetUniformLocation(program, c"u_surface".as_ptr());
+            let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
+            let u_atlas_loc = gl::GetUniformLocation(program, c"u_atlas".as_ptr());
+            let u_anchor_loc = gl::GetUniformLocation(program, c"u_anchor".as_ptr());
+            let u_rot_loc = gl::GetUniformLocation(program, c"u_rot".as_ptr());
+            let u_offset_loc = gl::GetUniformLocation(program, c"u_offset".as_ptr());
 
             let mut vbo: u32 = 0;
             gl::GenBuffers(1, &mut vbo);
@@ -630,15 +629,15 @@ pub(crate) fn render_label(
     // M10 doesn't implement blur. Warn once per LabelGl if a plugin
     // sets it, so the user sees something in the log; the shadow still
     // draws sharp.
-    if let Some(s) = label.shadow.as_ref() {
-        if s.blur > 0.0 && !label_gl.blur_warned {
-            eprintln!(
-                "veiland-text: shadow blur {} requested but blur is unimplemented in M10; \
-                 drawing sharp-edged shadow instead",
-                s.blur
-            );
-            label_gl.blur_warned = true;
-        }
+    if let Some(s) = label.shadow.as_ref()
+        && s.blur > 0.0 && !label_gl.blur_warned
+    {
+        eprintln!(
+            "veiland-text: shadow blur {} requested but blur is unimplemented in M10; \
+             drawing sharp-edged shadow instead",
+            s.blur
+        );
+        label_gl.blur_warned = true;
     }
 
     // SAFETY: gl FFI; LabelGl invariants checked above (broken=false),

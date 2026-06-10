@@ -232,12 +232,12 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
         gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
 
         let a_pos_loc =
-            gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _) as gl::types::GLuint;
+            gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
         let a_local_loc =
-            gl::GetAttribLocation(program, b"a_local\0".as_ptr() as *const _) as gl::types::GLuint;
+            gl::GetAttribLocation(program, c"a_local".as_ptr()) as gl::types::GLuint;
         let a_fade_loc =
-            gl::GetAttribLocation(program, b"a_fade\0".as_ptr() as *const _) as gl::types::GLuint;
-        let u_color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
+            gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
+        let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
 
         Ok(GpuState {
             program,

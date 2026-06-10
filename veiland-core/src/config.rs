@@ -487,15 +487,15 @@ fn validate(config: &mut Config) -> Result<(), ConfigError> {
             }
         }
 
-        if let Some(monitors) = &p.monitors {
-            if monitors.is_empty() {
-                return Err(ConfigError::Invalid(format!(
-                    "plugin {:?} has empty monitors list; \
-                    either omit the field (means 'all outputs') \
-                    or list at least one output name",
-                    p.name
-                )));
-            }
+        if let Some(monitors) = &p.monitors
+            && monitors.is_empty()
+        {
+            return Err(ConfigError::Invalid(format!(
+                "plugin {:?} has empty monitors list; \
+                either omit the field (means 'all outputs') \
+                or list at least one output name",
+                p.name
+            )));
         }
     }
     Ok(())

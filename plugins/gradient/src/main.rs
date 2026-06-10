@@ -57,11 +57,11 @@ unsafe fn build_gradient_program() -> Result<(gl::types::GLuint, gl::types::GLin
             gl::STATIC_DRAW,
         );
 
-        let a_pos = gl::GetAttribLocation(program, b"a_pos\0".as_ptr() as *const _);
+        let a_pos = gl::GetAttribLocation(program, c"a_pos".as_ptr());
         gl::EnableVertexAttribArray(a_pos as u32);
         gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
-        let u_time = gl::GetUniformLocation(program, b"u_time\0".as_ptr() as *const _);
+        let u_time = gl::GetUniformLocation(program, c"u_time".as_ptr());
 
         Ok((program, u_time))
     }

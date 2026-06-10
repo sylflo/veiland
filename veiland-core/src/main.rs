@@ -348,14 +348,12 @@ fn main() -> ExitCode {
     // Send Shutdown to every live plugin first, then wait per-plugin — for
     // N plugins this caps total teardown at one grace period, not N.
     for per_output in state.plugins.iter_mut() {
-        for slot_opt in per_output.iter_mut() {
-            if let Some(slot) = slot_opt {
-                if let Err(e) = slot.state.connection.send_shutdown() {
-                    eprintln!(
-                        "teardown: plugin {:?} send_shutdown failed: {} (continuing)",
-                        slot.name, e
-                    );
-                }
+        for slot in per_output.iter_mut().flatten() {
+            if let Err(e) = slot.state.connection.send_shutdown() {
+                eprintln!(
+                    "teardown: plugin {:?} send_shutdown failed: {} (continuing)",
+                    slot.name, e
+                );
             }
         }
     }

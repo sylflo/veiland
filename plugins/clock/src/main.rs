@@ -254,7 +254,7 @@ fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
             state.config.time_position[1] * sh,
         ),
         rotation: 0.0,
-        shadow: shadow.clone(),
+        shadow,
         letter_spacing: state.config.time_letter_spacing * s,
         font_weight: state.config.font_weight,
         italic: false,

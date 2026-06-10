@@ -225,8 +225,7 @@ impl Renderer {
             // method self-contained (no assumed GL state from the
             // previous program).
             gl::BindBuffer(gl::ARRAY_BUFFER, self.indicator_vbo);
-            let a_pos =
-                gl::GetAttribLocation(self.indicator_program, b"a_pos\0".as_ptr() as *const _);
+            let a_pos = gl::GetAttribLocation(self.indicator_program, c"a_pos".as_ptr());
             gl::EnableVertexAttribArray(a_pos as u32);
             gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
@@ -290,7 +289,7 @@ impl Renderer {
             gl::UseProgram(self.box_program);
 
             gl::BindBuffer(gl::ARRAY_BUFFER, self.box_vbo);
-            let a_pos = gl::GetAttribLocation(self.box_program, b"a_pos\0".as_ptr() as *const _);
+            let a_pos = gl::GetAttribLocation(self.box_program, c"a_pos".as_ptr());
             gl::EnableVertexAttribArray(a_pos as u32);
             gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
@@ -387,8 +386,7 @@ impl Renderer {
             gl::BindTexture(gl::TEXTURE_2D, texture);
             gl::Uniform1i(self.compositor_sampler_loc, 0);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.compositor_vbo);
-            let a_pos =
-                gl::GetAttribLocation(self.compositor_program, b"a_pos\0".as_ptr() as *const _);
+            let a_pos = gl::GetAttribLocation(self.compositor_program, c"a_pos".as_ptr());
             gl::EnableVertexAttribArray(a_pos as u32);
             gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
@@ -572,8 +570,8 @@ unsafe fn build_compositor_program() -> Result<
             gl::STATIC_DRAW,
         );
 
-        let sampler_loc = gl::GetUniformLocation(program, b"u_tex\0".as_ptr() as *const _);
-        let rect_loc = gl::GetUniformLocation(program, b"u_rect\0".as_ptr() as *const _);
+        let sampler_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
+        let rect_loc = gl::GetUniformLocation(program, c"u_rect".as_ptr());
 
         Ok((program, vbo, sampler_loc, rect_loc))
     }
@@ -662,9 +660,9 @@ unsafe fn build_indicator_program() -> Result<
             gl::STATIC_DRAW,
         );
 
-        let centre_loc = gl::GetUniformLocation(program, b"u_centre\0".as_ptr() as *const _);
-        let radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
-        let color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
+        let centre_loc = gl::GetUniformLocation(program, c"u_centre".as_ptr());
+        let radius_loc = gl::GetUniformLocation(program, c"u_radius".as_ptr());
+        let color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
 
         Ok((program, vbo, centre_loc, radius_loc, color_loc))
     }
@@ -779,12 +777,12 @@ unsafe fn build_box_program() -> Result<BoxProgram, String> {
         Ok(BoxProgram {
             program,
             vbo,
-            rect_loc: gl::GetUniformLocation(program, b"u_rect\0".as_ptr() as *const _),
-            half_loc: gl::GetUniformLocation(program, b"u_half\0".as_ptr() as *const _),
-            radius_loc: gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _),
-            outline_loc: gl::GetUniformLocation(program, b"u_outline\0".as_ptr() as *const _),
-            inner_loc: gl::GetUniformLocation(program, b"u_inner\0".as_ptr() as *const _),
-            outer_loc: gl::GetUniformLocation(program, b"u_outer\0".as_ptr() as *const _),
+            rect_loc: gl::GetUniformLocation(program, c"u_rect".as_ptr()),
+            half_loc: gl::GetUniformLocation(program, c"u_half".as_ptr()),
+            radius_loc: gl::GetUniformLocation(program, c"u_radius".as_ptr()),
+            outline_loc: gl::GetUniformLocation(program, c"u_outline".as_ptr()),
+            inner_loc: gl::GetUniformLocation(program, c"u_inner".as_ptr()),
+            outer_loc: gl::GetUniformLocation(program, c"u_outer".as_ptr()),
         })
     }
 }
