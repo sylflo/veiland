@@ -76,7 +76,7 @@ impl SeatHandler for AppData {
         capability: Capability,
     ) {
         if capability == Capability::Keyboard && self.keyboard.is_some() {
-            println!("Unset keyboard capability");
+            eprintln!("veiland-core: unset keyboard capability");
             self.keyboard.take().unwrap().release();
         }
     }
