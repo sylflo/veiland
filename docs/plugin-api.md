@@ -75,24 +75,26 @@ i.e. `dma.width()` / `dma.height()`):
 ```rust
 use veiland_text::{HAlign, Label, Shadow, VAlign};
 
+// font_size_frac and shadow_offset_frac come from the plugin's config
+// as fractions of surface height (e.g. 0.067 = ~72px on 1080p).
+let font_size_px = font_size_frac * surface_h as f32;
 let label = Label {
     text: "Hello veiland".to_string(),
     font_family: "Sans".to_string(),
-    font_size: 64.0 * scale as f32,                  // logical px × scale
+    font_size: font_size_px,
     color: [0.95, 0.95, 0.95, 1.0],                  // straight-alpha RGBA
     halign: HAlign::Center,
     valign: VAlign::Middle,
-    // `Label.position` is in surface pixels. To stay resolution-independent,
-    // express position as a fraction in your *config* and multiply by the
-    // surface size here — e.g. centre = (0.5 * surface_w, 0.5 * surface_h).
-    // (Do NOT multiply position by scale — a fraction already tracks the
-    // surface growing with resolution; the reference plugins do exactly this.)
+    // `Label.position` is in surface pixels. Express position as a fraction
+    // in your config and multiply by the surface size here so it tracks any
+    // resolution — e.g. centre = (0.5 * surface_w, 0.5 * surface_h).
     position: (0.5 * surface_w as f32, 0.5 * surface_h as f32),
     rotation: 0.0,
     shadow: Some(Shadow {
-        offset: (3.0 * scale as f32, 3.0 * scale as f32),
+        offset: (shadow_offset_frac * surface_h as f32,
+                 shadow_offset_frac * surface_h as f32),
         color: [0.0, 0.0, 0.0, 0.6],
-        blur: 0.0,                                   // ignored in M10
+        blur: 0.0,
     }),
 };
 ```
@@ -103,7 +105,7 @@ Field reference:
 | ------------- | --------------- | ---------------------------------------------------------------------- |
 | `text`        | `String`        | UTF-8. CJK / RTL / combining marks all work via cosmic-text shaping.   |
 | `font_family` | `String`        | `"Sans"` / `"Serif"` / `"Monospace"` or any system family name.        |
-| `font_size`   | `f32`           | Physical pixels. Multiply your logical size by `Configure.scale`.      |
+| `font_size`   | `f32`           | Physical pixels. Express your config value as a fraction of surface height and multiply by `surface_h` here — e.g. `0.067 * surface_h` ≈ 72px on 1080p, 145px on 4K. |
 | `color`       | `[f32; 4]`      | Straight-alpha RGBA, each component in `[0, 1]`.                       |
 | `halign`      | `HAlign`        | `Left` / `Center` / `Right` — which edge of the text sits at `position.x`. |
 | `valign`      | `VAlign`        | `Top` / `Middle` / `Bottom` — same for `position.y`.                   |
@@ -115,7 +117,7 @@ Field reference:
 
 | Field    | Type         | Notes                                                              |
 | -------- | ------------ | ------------------------------------------------------------------ |
-| `offset` | `(f32, f32)` | Pixel offset from the text. `(3, 3)` draws down-right.             |
+| `offset` | `(f32, f32)` | Pixel offset from the text. Express as `fraction * surface_h` — e.g. `0.003 * surface_h` ≈ 3px on 1080p. |
 | `color`  | `[f32; 4]`   | Straight-alpha RGBA.                                               |
 | `blur`   | `f32`        | Reserved; non-zero values are ignored in M10 with a one-time log.  |
 

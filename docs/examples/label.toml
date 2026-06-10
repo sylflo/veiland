@@ -26,13 +26,13 @@ z_index = 10
 [plugin.config]
 text = "Hello veiland"
 font_family = "Sans"
-font_size = 64
+font_size = 0.059             # fraction of surface height (~64px on 1080p)
 color = [0.95, 0.95, 0.95, 1.0]
 halign = "center"
 valign = "middle"
-position = [960, 540]
+position = [0.5, 0.5]        # centre of the surface
 rotation = 0
-shadow_offset = [3, 3]
+shadow_offset = [0.003, 0.003] # fraction of surface height (~3px on 1080p)
 shadow_color = [0.0, 0.0, 0.0, 0.6]
 shadow_blur = 0.0
 
@@ -44,8 +44,8 @@ z_index = 20
 [plugin.config]
 text = "こんにちは"
 font_family = "Sans"
-font_size = 80
+font_size = 0.074             # fraction of surface height (~80px on 1080p)
 color = [1.0, 1.0, 1.0, 1.0]
 halign = "center"
 valign = "middle"
-position = [960, 280]
+position = [0.5, 0.259]      # upper-third (~280/1080)

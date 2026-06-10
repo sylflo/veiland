@@ -26,17 +26,11 @@ use veiland_text::{FontContext, HAlign, Label, Shadow, VAlign};
 const PLUGIN_NAME: &str = "label";
 
 /// Per-frame plugin state. `font_ctx` is reused across renders; the
-/// `Label` is rebuilt each frame from `config` + the latest `scale`
-/// because rebuilding a `Label` is cheap (it's plain data).
+/// `Label` is rebuilt each frame from `config` + the current surface
+/// size because rebuilding a `Label` is cheap (it's plain data).
 struct State {
     font_ctx: FontContext,
     config: Config,
-    /// Current output scale factor from the most recent `Configure`.
-    /// Multiplied into `font_size`, `position`, and `shadow.offset`
-    /// before constructing the Label — these are logical-pixel values
-    /// in the user's config; the rendered output needs physical pixels.
-    /// See `docs/protocol.md` §7.1.
-    scale: u32,
 }
 
 /// Plugin-side config schema. Field defaults match an "obviously
@@ -49,6 +43,10 @@ struct Config {
     text: String,
     #[serde(default = "default_font_family")]
     font_family: String,
+    /// Font size as a **fraction of surface height** (`0.0–1.0`).
+    /// `0.067` ≈ 7% of screen height — ~72px on 1080p, ~145px on 4K.
+    /// Resolution- and scale-independent: the same fraction looks the
+    /// same size on every monitor.
     #[serde(default = "default_font_size")]
     font_size: f32,
     #[serde(default = "default_color")]
@@ -67,16 +65,18 @@ struct Config {
     position: [f32; 2],
     #[serde(default)]
     rotation: f32,
-    /// `None` → no shadow. `Some` enables the shadow pass with
-    /// `shadow_color` + `shadow_blur` (blur ignored in M10).
+    /// `None` → no shadow. `Some([x, y])` enables the shadow pass;
+    /// each component is a **fraction of surface height**, same unit as
+    /// `font_size`. `[0.003, 0.003]` ≈ 3px offset on 1080p.
     #[serde(default)]
     shadow_offset: Option<[f32; 2]>,
     #[serde(default = "default_shadow_color")]
     shadow_color: [f32; 4],
     #[serde(default)]
     shadow_blur: f32,
-    /// Extra inter-glyph spacing in logical pixels (scaled like font_size).
-    /// 0.0 is natural tracking.
+    /// Extra inter-glyph spacing as a **fraction of the computed font size**.
+    /// `0.0` is natural tracking; `0.5` adds half a font-height of space
+    /// between glyphs. Scales automatically with `font_size`.
     #[serde(default)]
     letter_spacing: f32,
     /// CSS-style numeric weight (100 Thin … 300 Light … 400 Normal …
@@ -98,7 +98,7 @@ fn default_font_family() -> String {
     "Sans".to_string()
 }
 fn default_font_size() -> f32 {
-    32.0
+    0.030
 }
 fn default_color() -> [f32; 4] {
     [1.0, 1.0, 1.0, 1.0]
@@ -201,36 +201,34 @@ fn default_config() -> Config {
 
 /// Build a `veiland_text::Label` for the current frame.
 ///
-/// Two different unit conversions happen here:
+/// All size-like config values are **fractions of surface height** and are
+/// converted to physical pixels here by multiplying by `sh`:
 ///
-///   * `position` is a **fraction of the surface** (`[0.5, 0.5]` = centre),
-///     multiplied by `surface_size` to get a physical-pixel anchor. Fractions
-///     are resolution-independent: `0.5` is the middle of a 1080p *and* a 4K
-///     buffer, so a label stays put when the dmabuf is reallocated to native
-///     size. It is **not** multiplied by `scale` — a fraction already tracks
-///     the surface growing with resolution.
-///
-///   * `font_size`, `letter_spacing`, and `shadow.offset` are *logical
-///     pixels* and get multiplied by `scale` so they render at the right
-///     physical size on a HiDPI output.
-fn build_label(config: &Config, scale: u32, surface_size: (u32, u32)) -> Label {
-    let s = scale as f32;
+///   * `font_size * sh` → physical font size. A fraction tracks native
+///     resolution automatically: 0.067 is ~72px on 1080p and ~145px on 4K.
+///   * `shadow.offset[i] * sh` → same unit as font_size.
+///   * `letter_spacing * font_size_px` → pixels, since letter_spacing is
+///     a fraction of the font size (em-ish multiplier).
+///   * `position` is already a fraction of the surface and is multiplied by
+///     `sw`/`sh` directly; it does not go through the same path.
+fn build_label(config: &Config, surface_size: (u32, u32)) -> Label {
     let (sw, sh) = (surface_size.0 as f32, surface_size.1 as f32);
+    let font_size_px = config.font_size * sh;
     Label {
         text: config.text.clone(),
         font_family: config.font_family.clone(),
-        font_size: config.font_size * s,
+        font_size: font_size_px,
         color: config.color,
         halign: config.halign.into(),
         valign: config.valign.into(),
         position: (config.position[0] * sw, config.position[1] * sh),
         rotation: config.rotation,
         shadow: config.shadow_offset.map(|off| Shadow {
-            offset: (off[0] * s, off[1] * s),
+            offset: (off[0] * sh, off[1] * sh),
             color: config.shadow_color,
             blur: config.shadow_blur,
         }),
-        letter_spacing: config.letter_spacing * s,
+        letter_spacing: config.letter_spacing * font_size_px,
         font_weight: config.font_weight,
         italic: config.italic,
     }
@@ -309,7 +307,6 @@ fn run() -> Result<(), PluginError> {
     let mut state = State {
         font_ctx: FontContext::new(),
         config,
-        scale: first_configure.scale,
     };
 
     // Rebuilt whenever `dma` is reallocated (on a region change), since the
@@ -351,7 +348,6 @@ fn run() -> Result<(), PluginError> {
                         );
                     }
                 }
-                state.scale = c.scale;
             }
             Frame::Shutdown => {
                 eprintln!("host requested shutdown");
@@ -388,7 +384,7 @@ fn render_and_send(
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let surface_size = (dma.width(), dma.height());
-    let label = build_label(&state.config, state.scale, surface_size);
+    let label = build_label(&state.config, surface_size);
 
     // SAFETY: bind_for_rendering left an FBO current on this thread;
     // the gl crate's function pointers were loaded by GbmEgl::new.

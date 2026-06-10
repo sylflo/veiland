@@ -54,8 +54,11 @@ struct Config {
     date_format: String,
     #[serde(default = "default_font_family")]
     font_family: String,
+    /// Time font size as a **fraction of surface height** (`0.0–1.0`).
+    /// `0.067` ≈ 7% of screen height — ~72px on 1080p, ~145px on 4K.
     #[serde(default = "default_time_font_size")]
     time_font_size: f32,
+    /// Date font size, same fraction-of-surface-height unit as `time_font_size`.
     #[serde(default = "default_date_font_size")]
     date_font_size: f32,
     #[serde(default = "default_time_color")]
@@ -75,17 +78,18 @@ struct Config {
     halign: HAlignCfg,
     #[serde(default)]
     valign: VAlignCfg,
-    /// Optional shadow applied to both labels (same offset / colour
-    /// for time and date, KISS). `None` → no shadow.
+    /// Optional shadow applied to both labels. `None` → no shadow.
+    /// `Some([x, y])` — each component is a **fraction of surface height**,
+    /// same unit as `time_font_size`. `[0, 0.002]` ≈ 2px on 1080p.
     #[serde(default)]
     shadow_offset: Option<[f32; 2]>,
     #[serde(default = "default_shadow_color")]
     shadow_color: [f32; 4],
     #[serde(default)]
     shadow_blur: f32,
-    /// Extra inter-glyph spacing in logical pixels (scaled like font_size).
-    /// 0.0 is natural tracking. Separate per label so the big time and the
-    /// small date can track independently.
+    /// Extra inter-glyph spacing as a **fraction of the computed font size**.
+    /// `0.0` is natural tracking; `0.5` adds half a font-height between glyphs.
+    /// Separate per label so time and date can track independently.
     #[serde(default)]
     time_letter_spacing: f32,
     #[serde(default)]
@@ -107,10 +111,10 @@ fn default_font_family() -> String {
     "Sans".to_string()
 }
 fn default_time_font_size() -> f32 {
-    72.0
+    0.067
 }
 fn default_date_font_size() -> f32 {
-    14.0
+    0.013
 }
 fn default_time_color() -> [f32; 4] {
     [0.91, 0.96, 0.97, 0.9]
@@ -220,24 +224,25 @@ fn load_config() -> Config {
 struct State {
     font_ctx: FontContext,
     config: Config,
-    scale: u32,
     time: CurrentTime,
 }
 
-/// Build the two Labels for this frame. Same unit model as `veiland-label`:
-/// `time_position`/`date_position` are **fractions of the surface** (`[0.5,
-/// 0.5]` = centre), multiplied by `surface_size` so they track resolution;
-/// font sizes, letter spacing and shadow offsets are *logical pixels*,
-/// multiplied by `scale`.
+/// Build the two Labels for this frame.
+///
+/// All size-like config values are **fractions of surface height** and are
+/// converted to physical pixels by multiplying by `sh`. `position` values
+/// are fractions of the surface and are multiplied by `sw`/`sh` directly.
 fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
-    let s = state.scale as f32;
     let (sw, sh) = (surface_size.0 as f32, surface_size.1 as f32);
     let dt = state.time.as_datetime();
     let time_text = format!("{}", dt.format(&state.config.time_format));
     let date_text = format!("{}", dt.format(&state.config.date_format));
 
+    let time_font_px = state.config.time_font_size * sh;
+    let date_font_px = state.config.date_font_size * sh;
+
     let shadow = state.config.shadow_offset.map(|off| Shadow {
-        offset: (off[0] * s, off[1] * s),
+        offset: (off[0] * sh, off[1] * sh),
         color: state.config.shadow_color,
         blur: state.config.shadow_blur,
     });
@@ -245,7 +250,7 @@ fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
     let time_label = Label {
         text: time_text,
         font_family: state.config.font_family.clone(),
-        font_size: state.config.time_font_size * s,
+        font_size: time_font_px,
         color: state.config.time_color,
         halign: state.config.halign.into(),
         valign: state.config.valign.into(),
@@ -255,7 +260,7 @@ fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
         ),
         rotation: 0.0,
         shadow,
-        letter_spacing: state.config.time_letter_spacing * s,
+        letter_spacing: state.config.time_letter_spacing * time_font_px,
         font_weight: state.config.font_weight,
         italic: false,
     };
@@ -263,7 +268,7 @@ fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
     let date_label = Label {
         text: date_text,
         font_family: state.config.font_family.clone(),
-        font_size: state.config.date_font_size * s,
+        font_size: date_font_px,
         color: state.config.date_color,
         halign: state.config.halign.into(),
         valign: state.config.valign.into(),
@@ -273,7 +278,7 @@ fn build_labels(state: &State, surface_size: (u32, u32)) -> (Label, Label) {
         ),
         rotation: 0.0,
         shadow,
-        letter_spacing: state.config.date_letter_spacing * s,
+        letter_spacing: state.config.date_letter_spacing * date_font_px,
         font_weight: state.config.font_weight,
         italic: false,
     };
@@ -346,7 +351,6 @@ fn run() -> Result<(), PluginError> {
     let mut state = State {
         font_ctx: FontContext::new(),
         config,
-        scale: first_configure.scale,
         time: CurrentTime {
             unix_seconds: first_configure.time_unix_seconds,
             tz_offset_seconds: first_configure.time_tz_offset_seconds,
@@ -393,7 +397,6 @@ fn run() -> Result<(), PluginError> {
                         );
                     }
                 }
-                state.scale = c.scale;
                 state.time = CurrentTime {
                     unix_seconds: c.time_unix_seconds,
                     tz_offset_seconds: c.time_tz_offset_seconds,
