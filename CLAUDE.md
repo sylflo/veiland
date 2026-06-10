@@ -36,7 +36,6 @@ The codebase is structured as a Cargo workspace:
 
 **Known limitations / open work:**
 
-- **Wallpaper native resolution:** procedural plugins (vignette, particles, etc.) now render at native output resolution; wallpaper still allocates from the 1080p spawn-time fallback because `wait_for_configure` returns the first Configure and the resend arrives after allocation. Fix is wallpaper reallocating on `Reconfigure`. Plan in `docs/native-resolution-plan.md`.
 - **Per-plugin frame rate:** all plugins run at the compositor's repaint rate. Deferred.
 - **Hyprland fast-replug:** unplug + replug within ~5–10s sometimes panics at `eglSwapBuffers` with `invalid object N`. Lock survives via compositor compliance; recovery is TTY-kill. Deferred to the Wayland-integration refactor.
 

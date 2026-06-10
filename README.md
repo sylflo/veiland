@@ -24,7 +24,7 @@ The locker works. The full feature set is in production:
 
 **Reference plugins:** wallpaper (PNG/JPEG), clock (time + date), particles (animated dots), vignette (corner darkening), label (arbitrary text), sakura (falling cherry blossoms).
 
-**Known limitations:** single-buffer rendering (M5 buffer pool not yet implemented); wallpaper renders at 1080p on 4K displays until a follow-up reallocation fix lands; Hyprland fast-replug (~5–10s unplug+replug) sometimes panics at `eglSwapBuffers` (lock survives, recovery is TTY-kill).
+**Known limitations:**  Hyprland fast-replug (~5–10s unplug+replug) sometimes panics at `eglSwapBuffers` (lock survives, recovery is TTY-kill).
 
 ## Architecture
 
