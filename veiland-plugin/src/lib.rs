@@ -6,6 +6,7 @@
 
 mod buffer;
 mod error;
+pub mod gl;
 mod lifecycle;
 mod render;
 mod socket;

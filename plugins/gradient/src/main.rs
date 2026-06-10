@@ -7,67 +7,17 @@
 
 use std::time::Instant;
 
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_plugin::{
+    gl as vgl, Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence,
+};
 use veiland_protocol::Buffer;
 
 const BUFFER_WIDTH: u32 = 512;
 const BUFFER_HEIGHT: u32 = 512;
 
-unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
-    unsafe {
-        let shader = gl::CreateShader(kind);
-        let src_ptr = src.as_ptr() as *const _;
-        gl::ShaderSource(shader, 1, &src_ptr, std::ptr::null());
-        gl::CompileShader(shader);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(
-                shader,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "shader compile failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        shader
-    }
-}
-
-unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::types::GLuint {
-    unsafe {
-        let program = gl::CreateProgram();
-        gl::AttachShader(program, vs);
-        gl::AttachShader(program, fs);
-        gl::LinkProgram(program);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetProgramiv(program, gl::LINK_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(
-                program,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "program link failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        program
-    }
-}
-
 /// Compile shaders, upload VBO, return (program, u_time location).
 /// Called once at startup; drawing reuses these every frame.
-unsafe fn build_gradient_program() -> (gl::types::GLuint, gl::types::GLint) {
+unsafe fn build_gradient_program() -> Result<(gl::types::GLuint, gl::types::GLint), String> {
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
         varying vec2 v_uv;\n\
@@ -88,9 +38,9 @@ unsafe fn build_gradient_program() -> (gl::types::GLuint, gl::types::GLint) {
         }\n\0";
 
     unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
+        let vs = vgl::compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = vgl::compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = vgl::link_program(vs, fs)?;
         gl::UseProgram(program);
 
         let quad: [f32; 12] = [
@@ -113,7 +63,7 @@ unsafe fn build_gradient_program() -> (gl::types::GLuint, gl::types::GLint) {
 
         let u_time = gl::GetUniformLocation(program, b"u_time\0".as_ptr() as *const _);
 
-        (program, u_time)
+        Ok((program, u_time))
     }
 }
 
@@ -137,7 +87,10 @@ fn run() -> Result<(), PluginError> {
     // 2. Compile gradient shader once. Subsequent frames re-bind and
     //    re-draw with an updated time uniform.
     dma.bind_for_rendering()?;
-    let (_program, u_time_loc) = unsafe { build_gradient_program() };
+    let (_program, u_time_loc) = unsafe { build_gradient_program() }.map_err(|e| {
+        eprintln!("veiland-gradient: {e}");
+        PluginError::Render("shader build failed")
+    })?;
 
     // 3. Connect to host. Reads fd from VEILAND_PLUGIN_SOCKET=3,
     //    negotiates protocol version, sends Hello — all in one call.

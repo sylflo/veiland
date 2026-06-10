@@ -17,7 +17,9 @@
 //! the smoothstep sum at low gradient values (per m11-plan.md Risks).
 
 use serde::Deserialize;
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
+use veiland_plugin::{
+    gl as vgl, Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence,
+};
 use veiland_protocol::Buffer;
 
 const PLUGIN_NAME: &str = "vignette";
@@ -101,58 +103,6 @@ fn load_config() -> Config {
     }
 }
 
-unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
-    unsafe {
-        let shader = gl::CreateShader(kind);
-        let src_ptr = src.as_ptr() as *const _;
-        gl::ShaderSource(shader, 1, &src_ptr, std::ptr::null());
-        gl::CompileShader(shader);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(
-                shader,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "shader compile failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        shader
-    }
-}
-
-unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::types::GLuint {
-    unsafe {
-        let program = gl::CreateProgram();
-        gl::AttachShader(program, vs);
-        gl::AttachShader(program, fs);
-        gl::LinkProgram(program);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetProgramiv(program, gl::LINK_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(
-                program,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "program link failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        program
-    }
-}
-
 struct GpuState {
     program: gl::types::GLuint,
     u_color_loc: gl::types::GLint,
@@ -162,7 +112,7 @@ struct GpuState {
     u_aspect_loc: gl::types::GLint,
 }
 
-unsafe fn build_gpu_state() -> GpuState {
+unsafe fn build_gpu_state() -> Result<GpuState, String> {
     // Highp throughout — mediump on Mesa can band the sum of four
     // smoothsteps at small gradient values (m11-plan.md Risks).
     let vs_src = b"#version 100\n\
@@ -218,9 +168,9 @@ unsafe fn build_gpu_state() -> GpuState {
         }\n\0";
 
     unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
+        let vs = vgl::compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = vgl::compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = vgl::link_program(vs, fs)?;
         gl::UseProgram(program);
 
         let quad: [f32; 12] = [
@@ -248,14 +198,14 @@ unsafe fn build_gpu_state() -> GpuState {
         let u_radius_loc = gl::GetUniformLocation(program, b"u_radius\0".as_ptr() as *const _);
         let u_aspect_loc = gl::GetUniformLocation(program, b"u_aspect\0".as_ptr() as *const _);
 
-        GpuState {
+        Ok(GpuState {
             program,
             u_color_loc,
             u_opacities_loc,
             u_base_loc,
             u_radius_loc,
             u_aspect_loc,
-        }
+        })
     }
 }
 
@@ -328,7 +278,10 @@ fn run() -> Result<(), PluginError> {
     );
 
     dma.bind_for_rendering()?;
-    let gpu = unsafe { build_gpu_state() };
+    let gpu = unsafe { build_gpu_state() }.map_err(|e| {
+        eprintln!("veiland-{PLUGIN_NAME}: {e}");
+        PluginError::Render("shader build failed")
+    })?;
 
     let mut state = State { config };
 
