@@ -46,10 +46,23 @@
 [[plugin]]
 name = "wallpaper"
 binary = "target/debug/veiland-wallpaper"
+monitors = ["HDMI-A-1"]
 z_index = 0
 
 [plugin.config]
-path = "/home/sylflo/Projects/personnel/system_config/dotfiles/wallpapers/938805-3840x2160-desktop-4k-makoto-shinkai-wallpaper-photo.jpg"
+path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/938805-3840x2160-desktop-4k-makoto-shinkai-wallpaper-photo.jpg"
+
+
+# --- Wallpaper: edge-to-edge image ---------------------------------
+[[plugin]]
+name = "wallpaper-2"
+binary = "target/debug/veiland-wallpaper"
+monitors = ["DP-1"]
+z_index = 0
+
+[plugin.config]
+path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/9ajx5sbkyx671.jpg"
+
 
 # --- Vignette: soft corner darkening -------------------------------
 [[plugin]]
