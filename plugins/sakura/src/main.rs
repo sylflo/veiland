@@ -327,12 +327,9 @@ unsafe fn build_gpu_state(petal_path: &str) -> GpuState {
             None => 0,
         };
 
-        let a_pos_loc =
-            gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
-        let a_uv_loc =
-            gl::GetAttribLocation(program, c"a_uv".as_ptr()) as gl::types::GLuint;
-        let a_fade_loc =
-            gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
+        let a_pos_loc = gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
+        let a_uv_loc = gl::GetAttribLocation(program, c"a_uv".as_ptr()) as gl::types::GLuint;
+        let a_fade_loc = gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
         let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
         let u_tex_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
 
@@ -517,7 +514,9 @@ fn run() -> Result<(), PluginError> {
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {
-                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path)?;
+                render_and_send(
+                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
+                )?;
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
@@ -615,7 +614,14 @@ fn render_and_send(
             // 5 floats/vertex: px, py, u, v, fade.
             let stride = (5 * std::mem::size_of::<f32>()) as i32;
             gl::EnableVertexAttribArray(gpu.a_pos_loc);
-            gl::VertexAttribPointer(gpu.a_pos_loc, 2, gl::FLOAT, gl::FALSE, stride, std::ptr::null());
+            gl::VertexAttribPointer(
+                gpu.a_pos_loc,
+                2,
+                gl::FLOAT,
+                gl::FALSE,
+                stride,
+                std::ptr::null(),
+            );
             gl::EnableVertexAttribArray(gpu.a_uv_loc);
             gl::VertexAttribPointer(
                 gpu.a_uv_loc,

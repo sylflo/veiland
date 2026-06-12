@@ -630,7 +630,8 @@ pub(crate) fn render_label(
     // sets it, so the user sees something in the log; the shadow still
     // draws sharp.
     if let Some(s) = label.shadow.as_ref()
-        && s.blur > 0.0 && !label_gl.blur_warned
+        && s.blur > 0.0
+        && !label_gl.blur_warned
     {
         eprintln!(
             "veiland-text: shadow blur {} requested but blur is unimplemented in M10; \

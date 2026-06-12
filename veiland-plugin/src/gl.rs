@@ -26,7 +26,12 @@ pub unsafe fn compile_shader(
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetShaderInfoLog(
+                shader,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             let msg = std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>");
             return Err(format!("shader compile failed: {msg}"));
         }
@@ -55,7 +60,12 @@ pub unsafe fn link_program(
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetProgramInfoLog(
+                program,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             let msg = std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>");
             return Err(format!("program link failed: {msg}"));
         }

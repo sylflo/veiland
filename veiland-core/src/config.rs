@@ -124,9 +124,9 @@ fn parse_rgba(s: &str) -> Result<Color, String> {
             s
         ));
     };
-    let inner = inner.strip_suffix(')').ok_or_else(|| {
-        format!("colour {:?} is missing its closing ')'", s)
-    })?;
+    let inner = inner
+        .strip_suffix(')')
+        .ok_or_else(|| format!("colour {:?} is missing its closing ')'", s))?;
 
     let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
     if parts.len() != 3 && parts.len() != 4 {
@@ -144,10 +144,7 @@ fn parse_rgba(s: &str) -> Result<Color, String> {
             .parse()
             .map_err(|_| format!("colour channel {:?} is not an integer", raw))?;
         if !(0..=255).contains(&v) {
-            return Err(format!(
-                "colour channel {} out of range [0, 255]",
-                v
-            ));
+            return Err(format!("colour channel {} out of range [0, 255]", v));
         }
         Ok(v as f32 / 255.0)
     };
@@ -908,7 +905,10 @@ mod tests {
         assert_eq!(p.box_height, 90);
         assert_eq!(p.outline_thickness, 2);
         assert_eq!(p.rounding, -1, "full-pill sentinel");
-        assert_eq!(p.dot_color, Color::new(220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 1.0));
+        assert_eq!(
+            p.dot_color,
+            Color::new(220.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0, 1.0)
+        );
         assert_eq!(p.placeholder_text, "Enter to remember...");
         assert_eq!(p.placeholder_font_family, "Sans");
         assert_eq!(p.placeholder_font_size, 18);
@@ -964,11 +964,20 @@ mod tests {
         assert_eq!(p.box_height, 100);
         assert_eq!(p.outline_thickness, 3);
         assert_eq!(p.rounding, 12);
-        assert_eq!(p.inner_color, Color::new(10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 0.5));
-        assert_eq!(p.outer_color, Color::new(200.0 / 255.0, 210.0 / 255.0, 220.0 / 255.0, 0.8));
+        assert_eq!(
+            p.inner_color,
+            Color::new(10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 0.5)
+        );
+        assert_eq!(
+            p.outer_color,
+            Color::new(200.0 / 255.0, 210.0 / 255.0, 220.0 / 255.0, 0.8)
+        );
         assert_eq!(p.dot_color, Color::new(1.0, 1.0, 1.0, 1.0));
         assert_eq!(p.placeholder_text, "Type here");
-        assert_eq!(p.placeholder_color, Color::new(100.0 / 255.0, 110.0 / 255.0, 120.0 / 255.0, 0.5));
+        assert_eq!(
+            p.placeholder_color,
+            Color::new(100.0 / 255.0, 110.0 / 255.0, 120.0 / 255.0, 0.5)
+        );
         assert_eq!(p.placeholder_font_family, "Liberation Sans");
         assert_eq!(p.placeholder_font_size, 22);
     }
@@ -1150,8 +1159,14 @@ mod tests {
     #[test]
     fn color_alpha_clamped() {
         // Alpha > 1.0 is obvious "fully opaque" intent → clamp, don't reject.
-        assert_eq!(parse_rgba("rgba(0, 0, 0, 1.5)").unwrap(), Color::new(0.0, 0.0, 0.0, 1.0));
-        assert_eq!(parse_rgba("rgba(0, 0, 0, -0.2)").unwrap(), Color::new(0.0, 0.0, 0.0, 0.0));
+        assert_eq!(
+            parse_rgba("rgba(0, 0, 0, 1.5)").unwrap(),
+            Color::new(0.0, 0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            parse_rgba("rgba(0, 0, 0, -0.2)").unwrap(),
+            Color::new(0.0, 0.0, 0.0, 0.0)
+        );
     }
 
     #[test]

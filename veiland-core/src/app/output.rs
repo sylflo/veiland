@@ -212,7 +212,10 @@ impl OutputHandler for AppData {
         // commits to a dying surface.
         if let Some(surface_ref) = self.lock_surfaces[output_idx].as_mut() {
             if let Some(egl_surface) = surface_ref.egl_surface.take()
-                && let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface)
+                && let Err(e) = self
+                    .renderer
+                    .egl
+                    .destroy_surface(self.renderer.egl_display, egl_surface)
             {
                 eprintln!(
                     "veiland-core: eglDestroySurface for {:?} failed: {:?} (continuing)",

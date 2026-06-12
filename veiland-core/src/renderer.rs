@@ -291,7 +291,12 @@ impl Renderer {
         let clip_cx = (centre_x_px / w) * 2.0 - 1.0;
         let clip_cy = -((centre_y_px / h) * 2.0 - 1.0);
         // Rect origin is the lower-left corner in clip space.
-        let rect = [clip_cx - clip_w / 2.0, clip_cy - clip_h / 2.0, clip_w, clip_h];
+        let rect = [
+            clip_cx - clip_w / 2.0,
+            clip_cy - clip_h / 2.0,
+            clip_w,
+            clip_h,
+        ];
 
         let inner = pw.inner_color.0;
         let outer = pw.outer_color.0;
@@ -483,10 +488,7 @@ impl Renderer {
     }
 }
 
-unsafe fn compile_shader(
-    kind: gl::types::GLenum,
-    src: &[u8],
-) -> Result<gl::types::GLuint, String> {
+unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> Result<gl::types::GLuint, String> {
     unsafe {
         let shader = gl::CreateShader(kind);
         let src_ptr = src.as_ptr() as *const _;
@@ -497,7 +499,12 @@ unsafe fn compile_shader(
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(shader, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetShaderInfoLog(
+                shader,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             let msg = std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>");
             return Err(format!("shader compile failed: {msg}"));
         }
@@ -519,7 +526,12 @@ unsafe fn link_program(
         if ok == 0 {
             let mut log = [0u8; 1024];
             let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(program, log.len() as i32, &mut len, log.as_mut_ptr() as *mut _);
+            gl::GetProgramInfoLog(
+                program,
+                log.len() as i32,
+                &mut len,
+                log.as_mut_ptr() as *mut _,
+            );
             let msg = std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>");
             return Err(format!("program link failed: {msg}"));
         }

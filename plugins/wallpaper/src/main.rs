@@ -19,7 +19,7 @@
 use serde::Deserialize;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use veiland_plugin::{
-    gl as vgl, Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence,
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence, gl as vgl,
 };
 use veiland_protocol::Buffer;
 

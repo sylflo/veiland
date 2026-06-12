@@ -121,7 +121,8 @@ impl SessionLockHandler for AppData {
         // draw_password_field. egl::Surface is Copy (the rest
         // of this function already deref-copies it via *egl_surface).
         let egl_surface = *entry.egl_surface.as_ref().unwrap();
-        self.renderer.egl
+        self.renderer
+            .egl
             .make_current(
                 self.renderer.egl_display,
                 Some(egl_surface),
@@ -164,7 +165,8 @@ impl SessionLockHandler for AppData {
             // firing immediately repaints with plugin content.
         }
 
-        self.renderer.egl
+        self.renderer
+            .egl
             .swap_buffers(self.renderer.egl_display, egl_surface)
             .expect("eglSwapBuffers");
 

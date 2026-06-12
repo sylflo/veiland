@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use veiland_plugin::{
-    gl as vgl, Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence,
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence, gl as vgl,
 };
 use veiland_protocol::Buffer;
 

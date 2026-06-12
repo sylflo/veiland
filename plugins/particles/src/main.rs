@@ -18,7 +18,7 @@
 use serde::Deserialize;
 use std::time::Instant;
 use veiland_plugin::{
-    gl as vgl, Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence,
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence, gl as vgl,
 };
 use veiland_protocol::Buffer;
 
@@ -231,12 +231,9 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
         gl::GenBuffers(1, &mut vbo);
         gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
 
-        let a_pos_loc =
-            gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
-        let a_local_loc =
-            gl::GetAttribLocation(program, c"a_local".as_ptr()) as gl::types::GLuint;
-        let a_fade_loc =
-            gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
+        let a_pos_loc = gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
+        let a_local_loc = gl::GetAttribLocation(program, c"a_local".as_ptr()) as gl::types::GLuint;
+        let a_fade_loc = gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
         let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
 
         Ok(GpuState {

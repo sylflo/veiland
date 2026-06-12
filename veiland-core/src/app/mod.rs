@@ -126,9 +126,10 @@ impl AppData {
         let lock_surface_obj =
             session_lock.create_lock_surface(wl_surface.clone(), output, &self.qh);
 
-        let fractional_scale = self.fractional_scale_manager.as_ref().map(|mgr| {
-            mgr.get_fractional_scale(&wl_surface, &self.qh, ())
-        });
+        let fractional_scale = self
+            .fractional_scale_manager
+            .as_ref()
+            .map(|mgr| mgr.get_fractional_scale(&wl_surface, &self.qh, ()));
 
         let lock_surface = LockSurface {
             name,
@@ -336,7 +337,10 @@ impl AppData {
             // Phase 3 — keep EGL from sending commits to a dying surface).
             if let Some(surface_ref) = self.lock_surfaces[idx].as_mut() {
                 if let Some(egl_surface) = surface_ref.egl_surface.take()
-                    && let Err(e) = self.renderer.egl.destroy_surface(self.renderer.egl_display, egl_surface)
+                    && let Err(e) = self
+                        .renderer
+                        .egl
+                        .destroy_surface(self.renderer.egl_display, egl_surface)
                 {
                     eprintln!(
                         "veiland-core: eglDestroySurface for {:?} (rebind) failed: \
@@ -465,11 +469,7 @@ impl AppData {
     /// Re-send `Configure` to every live plugin on one output with an
     /// updated `scale_120`. Called when a `wp_fractional_scale_v1.
     /// preferred_scale` event arrives for that output's surface.
-    pub(crate) fn resend_configure_scale_for_output(
-        &mut self,
-        output_idx: usize,
-        scale_120: u32,
-    ) {
+    pub(crate) fn resend_configure_scale_for_output(&mut self, output_idx: usize, scale_120: u32) {
         let Some(per_output) = self.plugins.get_mut(output_idx) else {
             return;
         };
@@ -546,7 +546,8 @@ impl AppData {
         // backed; the clone is cheap.
         let wl_surface = entry.lock_surface.wl_surface().clone();
 
-        self.renderer.egl
+        self.renderer
+            .egl
             .make_current(
                 self.renderer.egl_display,
                 Some(egl_surface),
@@ -608,7 +609,8 @@ impl AppData {
             }
         }
 
-        self.renderer.egl
+        self.renderer
+            .egl
             .swap_buffers(self.renderer.egl_display, egl_surface)
             .expect("eglSwapBuffers (repaint)");
 

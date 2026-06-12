@@ -24,16 +24,12 @@ impl Dispatch<wp_fractional_scale_v1::WpFractionalScaleV1, ()> for AppData {
         let new_scale_120 = scale.clamp(1, 9999);
 
         // Find which output_idx owns this fractional_scale object.
-        let Some(output_idx) = state
-            .lock_surfaces
-            .iter()
-            .position(|opt| {
-                opt.as_ref()
-                    .and_then(|s| s.fractional_scale.as_ref())
-                    .map(|fs| fs == proxy)
-                    .unwrap_or(false)
-            })
-        else {
+        let Some(output_idx) = state.lock_surfaces.iter().position(|opt| {
+            opt.as_ref()
+                .and_then(|s| s.fractional_scale.as_ref())
+                .map(|fs| fs == proxy)
+                .unwrap_or(false)
+        }) else {
             return;
         };
 
