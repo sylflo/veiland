@@ -325,13 +325,13 @@ fn run() -> Result<(), PluginError> {
         }
     };
     eprintln!(
-        "veiland-{}: first configure region=({},{}) {}x{} scale={} time={} tz={}",
+        "veiland-{}: first configure region=({},{}) {}x{} scale_120={} time={} tz={}",
         PLUGIN_NAME,
         first_configure.region_x,
         first_configure.region_y,
         first_configure.region_w,
         first_configure.region_h,
-        first_configure.scale,
+        first_configure.scale_120,
         first_configure.time_unix_seconds,
         first_configure.time_tz_offset_seconds,
     );

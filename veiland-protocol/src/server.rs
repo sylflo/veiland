@@ -22,14 +22,12 @@ pub struct Configure {
     pub region_y: i32,
     pub region_w: u32,
     pub region_h: u32,
-    /// Output scale factor from `wl_output.scale` (1, 2, or 3 — Wayland's
-    /// integer-scale field; fractional scale is a separate protocol).
-    /// Plugins use this to convert logical-pixel config values (e.g.
-    /// `font_size`, shadow blur radius) into physical pixels. The region
-    /// dimensions are already in physical pixels — the host has done the
-    /// multiplication — so plugins do **not** multiply `region_w`/`region_h`
-    /// by scale.
-    pub scale: u32,
+    /// Output scale as 120ths, matching `wp_fractional_scale_v1`'s encoding.
+    /// 120 = 1×, 180 = 1.5×, 240 = 2×. Use `scale_120 as f32 / 120.0` to get
+    /// the float multiplier. The region dimensions are already in physical
+    /// pixels — plugins do **not** multiply `region_w`/`region_h` by scale.
+    /// Range: 1..=9999.
+    pub scale_120: u32,
     pub time_unix_seconds: i64,
     pub time_tz_offset_seconds: i32,
     /// `xdg_output.name` of the output this plugin instance serves
@@ -113,7 +111,7 @@ impl Configure {
         write_i32_le(out, self.region_y);
         write_u32_le(out, self.region_w);
         write_u32_le(out, self.region_h);
-        write_u32_le(out, self.scale);
+        write_u32_le(out, self.scale_120);
         write_i64_le(out, self.time_unix_seconds);
         write_i32_le(out, self.time_tz_offset_seconds);
         // Host-controlled string (xdg_output.name), always short in
@@ -149,8 +147,8 @@ impl Configure {
             return Err(ProtocolError::OutOfRange);
         }
 
-        let (scale, buf) = read_u32_le(buf)?;
-        if !(1..=3).contains(&scale) {
+        let (scale_120, buf) = read_u32_le(buf)?;
+        if !(1..=9999).contains(&scale_120) {
             return Err(ProtocolError::OutOfRange);
         }
 
@@ -165,7 +163,7 @@ impl Configure {
                 region_y,
                 region_w,
                 region_h,
-                scale,
+                scale_120,
                 time_unix_seconds,
                 time_tz_offset_seconds,
                 output_name,
@@ -196,7 +194,7 @@ mod tests {
             region_y: 200,
             region_w: 800,
             region_h: 600,
-            scale: 1,
+            scale_120: 120,
             time_unix_seconds: 1_700_000_000,
             time_tz_offset_seconds: 3600,
             output_name: "DP-1".to_string(),
@@ -222,7 +220,7 @@ mod tests {
             0xc8, 0x00, 0x00, 0x00, // region_y = 200
             0x20, 0x03, 0x00, 0x00, // region_w = 800
             0x58, 0x02, 0x00, 0x00, // region_h = 600
-            0x01, 0x00, 0x00, 0x00, // scale = 1
+            0x78, 0x00, 0x00, 0x00, // scale_120 = 120 (1×)
             0x00, 0xf1, 0x53, 0x65, 0x00, 0x00, 0x00, 0x00, // time_unix = 1_700_000_000
             0x10, 0x0e, 0x00, 0x00, // tz_offset = 3600
             0x04, 0x00, // output_name length = 4
@@ -258,7 +256,7 @@ mod tests {
     #[test]
     fn configure_scale_zero_rejected() {
         let mut c = valid_configure();
-        c.scale = 0;
+        c.scale_120 = 0;
         let msg = ServerMessage::Configure(c);
         let mut out = Vec::new();
         msg.encode(&mut out);
@@ -268,7 +266,7 @@ mod tests {
     #[test]
     fn configure_scale_too_large_rejected() {
         let mut c = valid_configure();
-        c.scale = 4;
+        c.scale_120 = 10000;
         let msg = ServerMessage::Configure(c);
         let mut out = Vec::new();
         msg.encode(&mut out);
@@ -277,12 +275,23 @@ mod tests {
 
     #[test]
     fn configure_values_at_max_edge_accepted() {
-        // region_w = region_h = 8192 and scale = 3 are the top of their
+        // region_w = region_h = 8192 and scale_120 = 9999 are the top of their
         // inclusive ranges and must be accepted.
         let mut c = valid_configure();
         c.region_w = 8192;
         c.region_h = 8192;
-        c.scale = 3;
+        c.scale_120 = 9999;
+        let msg = ServerMessage::Configure(c);
+        let mut out = Vec::new();
+        msg.encode(&mut out);
+        assert_eq!(ServerMessage::decode(&out).unwrap(), msg);
+    }
+
+    #[test]
+    fn configure_scale_fractional_accepted() {
+        // 150 = 1.25×, a common laptop fractional scale.
+        let mut c = valid_configure();
+        c.scale_120 = 150;
         let msg = ServerMessage::Configure(c);
         let mut out = Vec::new();
         msg.encode(&mut out);
@@ -394,7 +403,7 @@ mod tests {
         bytes.extend_from_slice(&200i32.to_le_bytes()); // region_y
         bytes.extend_from_slice(&800u32.to_le_bytes()); // region_w
         bytes.extend_from_slice(&600u32.to_le_bytes()); // region_h
-        bytes.extend_from_slice(&1u32.to_le_bytes()); // scale
+        bytes.extend_from_slice(&120u32.to_le_bytes()); // scale_120 = 120 (1×)
         bytes.extend_from_slice(&1_700_000_000i64.to_le_bytes()); // time_unix
         bytes.extend_from_slice(&3600i32.to_le_bytes()); // tz
         bytes.extend_from_slice(&65u16.to_le_bytes()); // output_name length = 65

@@ -354,7 +354,7 @@ struct State {
     petals: Vec<Petal>,
     /// CPU-side vertex buffer. 6 verts/petal × 5 floats/vert.
     cpu_verts: Vec<f32>,
-    scale: u32,
+    scale_120: u32,
     start: Instant,
 }
 
@@ -373,7 +373,7 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
     let now = state.start.elapsed().as_secs_f32();
     let w = surface_w as f32;
     let h = surface_h as f32;
-    let scale = state.scale as f32;
+    let scale = state.scale_120 as f32 / 120.0;
     let r = state.config.size_px * scale;
 
     // The four corner offsets of the unrotated petal quad, with their UVs.
@@ -473,13 +473,13 @@ fn run() -> Result<(), PluginError> {
         }
     };
     eprintln!(
-        "veiland-{}: first configure region=({},{}) {}x{} scale={}",
+        "veiland-{}: first configure region=({},{}) {}x{} scale_120={}",
         PLUGIN_NAME,
         first_configure.region_x,
         first_configure.region_y,
         first_configure.region_w,
         first_configure.region_h,
-        first_configure.scale,
+        first_configure.scale_120,
     );
 
     let mut dma = DmaBuffer::new(&gbm_egl, first_configure.region_w, first_configure.region_h)?;
@@ -502,7 +502,7 @@ fn run() -> Result<(), PluginError> {
         config,
         petals,
         cpu_verts,
-        scale: first_configure.scale,
+        scale_120: first_configure.scale_120,
         start: Instant::now(),
     };
 
@@ -546,7 +546,7 @@ fn run() -> Result<(), PluginError> {
                         );
                     }
                 }
-                state.scale = c.scale;
+                state.scale_120 = c.scale_120;
             }
             Frame::Shutdown => {
                 eprintln!("host requested shutdown");

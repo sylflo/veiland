@@ -32,6 +32,8 @@ use wayland_client::{
     protocol::{wl_buffer, wl_keyboard, wl_output},
 };
 
+use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_manager_v1;
+
 use veiland_protocol::{HOST_CAP_FENCE_FD, HostCapabilities};
 
 use plugin::{PluginSlot, teardown_one_plugin};
@@ -110,6 +112,10 @@ pub(crate) struct AppData {
     /// what keeps the clock plugin's display current — every Configure
     /// carries a fresh `time_unix_seconds`.
     last_time_tick: std::time::Instant,
+    /// `wp_fractional_scale_manager_v1` global, bound from the registry.
+    /// `None` when the compositor does not advertise the protocol
+    /// (older compositors); the core falls back to `wl_output.scale * 120`.
+    fractional_scale_manager: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
 }
 
 fn main() -> ExitCode {
@@ -212,6 +218,16 @@ fn main() -> ExitCode {
         }
     };
 
+    let fractional_scale_manager = globals
+        .bind::<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1, _, _>(&qh, 1..=1, ())
+        .ok();
+    if fractional_scale_manager.is_none() {
+        eprintln!(
+            "veiland-core: wp_fractional_scale_manager_v1 not advertised — \
+            fractional scaling unavailable, falling back to wl_output.scale"
+        );
+    }
+
     let auth = match auth::Session::new() {
         Ok(s) => s,
         Err(e) => {
@@ -246,6 +262,7 @@ fn main() -> ExitCode {
         pending_outputs_arrived: Vec::new(),
         pending_outputs_rebound: Vec::new(),
         last_time_tick: std::time::Instant::now(),
+        fractional_scale_manager,
     };
 
     // xdg_output.name arrives async after registry bind; without a roundtrip
@@ -403,3 +420,4 @@ smithay_client_toolkit::delegate_keyboard!(AppData);
 smithay_client_toolkit::delegate_registry!(AppData);
 smithay_client_toolkit::delegate_session_lock!(AppData);
 wayland_client::delegate_noop!(AppData: ignore wl_buffer::WlBuffer);
+wayland_client::delegate_noop!(AppData: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);

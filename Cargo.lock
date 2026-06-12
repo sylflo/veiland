@@ -1192,6 +1192,7 @@ dependencies = [
  "veiland-text",
  "wayland-client",
  "wayland-egl",
+ "wayland-protocols",
  "zeroize",
 ]
 

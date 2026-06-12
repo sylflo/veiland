@@ -179,8 +179,8 @@ fn run() -> Result<(), PluginError> {
             }
             Frame::Reconfigure(c) => {
                 eprintln!(
-                    "configure: region=({},{}) {}x{} scale={}",
-                    c.region_x, c.region_y, c.region_w, c.region_h, c.scale
+                    "configure: region=({},{}) {}x{} scale_120={}",
+                    c.region_x, c.region_y, c.region_w, c.region_h, c.scale_120
                 );
             }
             Frame::Shutdown => {

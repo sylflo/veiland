@@ -13,6 +13,7 @@
 //! definition and `main()` stay in the crate root.
 
 mod compositor;
+mod fractional_scale;
 mod input;
 mod lock;
 mod output;
@@ -73,6 +74,13 @@ pub(crate) struct LockSurface {
     /// commits feed it into the plugin `Configure` so a 4K monitor
     /// gets a 4K buffer instead of an upscaled 1080p one.
     pub(crate) surface_size: Option<(u32, u32)>,
+    /// Output scale as 120ths. Initialised from `wl_output.scale * 120`;
+    /// updated asynchronously by `wp_fractional_scale_v1.preferred_scale`
+    /// events when the compositor supports the protocol.
+    pub(crate) scale_120: u32,
+    /// The `wp_fractional_scale_v1` object for this surface. `None` when
+    /// `wp_fractional_scale_manager_v1` is not available.
+    pub(crate) fractional_scale: Option<wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1>,
 }
 
 impl AppData {
@@ -100,20 +108,39 @@ impl AppData {
                 return None;
             }
         };
-        let surface = self.compositor_state.create_surface(&self.qh);
         eprintln!(
             "veiland-core: output {} connected, creating lock surface",
             name
         );
+        // Seed scale_120 from the integer wl_output.scale (always available).
+        // If wp_fractional_scale_v1 is supported, a preferred_scale event will
+        // arrive soon and override this with the true fractional value.
+        let raw_scale = self
+            .output_state
+            .info(output)
+            .map(|i| i.scale_factor)
+            .unwrap_or(1);
+        let seed_scale_120 = (raw_scale.max(1) as u32).min(83) * 120;
+
+        let wl_surface = self.compositor_state.create_surface(&self.qh);
+        let lock_surface_obj =
+            session_lock.create_lock_surface(wl_surface.clone(), output, &self.qh);
+
+        let fractional_scale = self.fractional_scale_manager.as_ref().map(|mgr| {
+            mgr.get_fractional_scale(&wl_surface, &self.qh, ())
+        });
+
         let lock_surface = LockSurface {
             name,
             wl_output: output.clone(),
-            lock_surface: session_lock.create_lock_surface(surface, output, &self.qh),
+            lock_surface: lock_surface_obj,
             egl_window: None,
             egl_surface: None,
             needs_paint: true,
             frame_callback_pending: false,
             surface_size: None,
+            scale_120: seed_scale_120,
+            fractional_scale,
         };
         // Reuse the first None slot if one exists (hotplug-out leaves
         // sentinels; reusing keeps lock_surfaces.len() bounded under
@@ -136,33 +163,13 @@ impl AppData {
     /// hotplug-in case where `create_lock_surface_for_output`
     /// returned a recycled `None` slot.
     pub(crate) fn spawn_plugins_for_output(&mut self, output_idx: usize, output_name: &str) {
-        // Look up the output's scale factor via SCTK's OutputInfo and clamp to
-        // the protocol's 1..=3 range. Hardware reporting an out-of-range value
-        // (e.g. 4 on 8K-at-200%) is rare but real; clamping to 3 keeps text
-        // *almost* the right size on unfamiliar hardware, which is the least
-        // surprising failure mode. Raising the cap is a separate decision.
-        let raw_scale = self.lock_surfaces[output_idx]
+        // Read scale_120 directly from the LockSurface — it was seeded from
+        // wl_output.scale at surface creation and may already have been updated
+        // by a wp_fractional_scale_v1.preferred_scale event.
+        let scale_120: u32 = self.lock_surfaces[output_idx]
             .as_ref()
-            .and_then(|s| self.output_state.info(&s.wl_output))
-            .map(|info| info.scale_factor)
-            .unwrap_or(1);
-        let scale: u32 = match u32::try_from(raw_scale) {
-            Ok(s) if (1..=3).contains(&s) => s,
-            Ok(s) => {
-                eprintln!(
-                    "veiland-core: output {} reports scale {}, outside 1..=3; clamping to 3",
-                    output_name, s
-                );
-                3
-            }
-            Err(_) => {
-                eprintln!(
-                    "veiland-core: output {} reports negative scale {}; clamping to 1",
-                    output_name, raw_scale
-                );
-                1
-            }
-        };
+            .map(|s| s.scale_120)
+            .unwrap_or(120);
 
         // The surface size in physical pixels, if the compositor has
         // reported it yet. On a fresh lock this is usually `None` here:
@@ -185,7 +192,7 @@ impl AppData {
             match try_spawn_one(
                 entry,
                 output_name,
-                scale,
+                scale_120,
                 surface_size,
                 self.host_capabilities,
                 &self.renderer.egl,
@@ -446,6 +453,37 @@ impl AppData {
             if let Err(e) = slot.state.connection.send_configure(next.clone()) {
                 eprintln!(
                     "veiland-core: resize resend: send_configure to plugin {:?} failed: {} \
+                     (will be cleaned up on next read)",
+                    slot.name, e
+                );
+                continue;
+            }
+            slot.last_configure = Some(next);
+        }
+    }
+
+    /// Re-send `Configure` to every live plugin on one output with an
+    /// updated `scale_120`. Called when a `wp_fractional_scale_v1.
+    /// preferred_scale` event arrives for that output's surface.
+    pub(crate) fn resend_configure_scale_for_output(
+        &mut self,
+        output_idx: usize,
+        scale_120: u32,
+    ) {
+        let Some(per_output) = self.plugins.get_mut(output_idx) else {
+            return;
+        };
+        for slot_opt in per_output.iter_mut() {
+            let Some(slot) = slot_opt.as_mut() else {
+                continue;
+            };
+            let Some(prev) = slot.last_configure.clone() else {
+                continue;
+            };
+            let next = veiland_protocol::Configure { scale_120, ..prev };
+            if let Err(e) = slot.state.connection.send_configure(next.clone()) {
+                eprintln!(
+                    "veiland-core: scale resend: send_configure to plugin {:?} failed: {} \
                      (will be cleaned up on next read)",
                     slot.name, e
                 );

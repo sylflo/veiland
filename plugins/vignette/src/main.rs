@@ -257,13 +257,13 @@ fn run() -> Result<(), PluginError> {
         }
     };
     eprintln!(
-        "veiland-{}: first configure region=({},{}) {}x{} scale={}",
+        "veiland-{}: first configure region=({},{}) {}x{} scale_120={}",
         PLUGIN_NAME,
         first_configure.region_x,
         first_configure.region_y,
         first_configure.region_w,
         first_configure.region_h,
-        first_configure.scale,
+        first_configure.scale_120,
     );
 
     let dma = DmaBuffer::new(&gbm_egl, first_configure.region_w, first_configure.region_h)?;

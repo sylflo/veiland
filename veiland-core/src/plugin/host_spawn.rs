@@ -34,7 +34,7 @@ pub fn entry_matches_output(entry: &config::PluginEntry, output_name: &str) -> b
 pub fn try_spawn_one(
     entry: &config::PluginEntry,
     output_name: &str,
-    scale: u32,
+    scale_120: u32,
     surface_size: Option<(u32, u32)>,
     host_capabilities: HostCapabilities,
     egl: &egl::Instance<egl::Static>,
@@ -109,7 +109,7 @@ pub fn try_spawn_one(
         region_y: 0,
         region_w,
         region_h,
-        scale,
+        scale_120,
         time_unix_seconds,
         time_tz_offset_seconds,
         output_name: output_name.to_string(),

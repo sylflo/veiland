@@ -29,7 +29,7 @@
 //!             conn.send_buffer(&buf_msg, dma.dmabuf_fd(), fence)?;
 //!             pacer.submitted();
 //!         }
-//!         Frame::Reconfigure(c) => { scale = c.scale; }
+//!         Frame::Reconfigure(c) => { scale = c.scale_120; }
 //!         Frame::Shutdown => return Ok(()),
 //!     }
 //! }

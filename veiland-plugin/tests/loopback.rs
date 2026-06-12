@@ -331,7 +331,7 @@ fn recv_event_configure_roundtrip() {
                 assert_eq!(c.region_y, 200);
                 assert_eq!(c.region_w, 800);
                 assert_eq!(c.region_h, 600);
-                assert_eq!(c.scale, 1);
+                assert_eq!(c.scale_120, 120);
             }
             other => panic!("expected Configure, got {:?}", other),
         }
@@ -347,7 +347,7 @@ fn recv_event_configure_roundtrip() {
         region_y: 200,
         region_w: 800,
         region_h: 600,
-        scale: 1,
+        scale_120: 120,
         time_unix_seconds: 1_700_000_000,
         time_tz_offset_seconds: 3600,
         output_name: "DP-1".to_string(),
