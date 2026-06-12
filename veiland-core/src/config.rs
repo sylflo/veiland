@@ -293,6 +293,15 @@ pub struct Password {
     /// scale plumbed into the field yet, matching the box dimensions.)
     #[serde(default = "default_placeholder_font_size")]
     pub placeholder_font_size: u32,
+
+    /// Box fill colour override when the last auth attempt failed.
+    /// Applied for ~1.5 s then reverts to `inner_color`.
+    #[serde(default = "default_fail_color")]
+    pub fail_color: Color,
+
+    /// Box fill colour override while caps lock is active.
+    #[serde(default = "default_capslock_color")]
+    pub capslock_color: Color,
 }
 
 impl Default for Password {
@@ -315,6 +324,8 @@ impl Default for Password {
             placeholder_color: default_placeholder_color(),
             placeholder_font_family: default_placeholder_font_family(),
             placeholder_font_size: default_placeholder_font_size(),
+            fail_color: default_fail_color(),
+            capslock_color: default_capslock_color(),
         }
     }
 }
@@ -369,6 +380,12 @@ fn default_placeholder_font_family() -> String {
 }
 fn default_placeholder_font_size() -> u32 {
     18
+}
+fn default_fail_color() -> Color {
+    Color::new(180.0 / 255.0, 40.0 / 255.0, 40.0 / 255.0, 0.75)
+}
+fn default_capslock_color() -> Color {
+    Color::new(200.0 / 255.0, 150.0 / 255.0, 30.0 / 255.0, 0.75)
 }
 
 #[derive(Debug)]

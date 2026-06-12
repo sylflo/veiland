@@ -161,6 +161,8 @@ impl Renderer {
         &mut self,
         password: &config::Password,
         char_count: usize,
+        auth_state: crate::AuthState,
+        caps_lock: bool,
         width: i32,
         height: i32,
     ) {
@@ -182,7 +184,16 @@ impl Renderer {
         let centre_y_px = h * y_percent / 100.0;
 
         if pw.show_box {
-            self.draw_box(pw, centre_x_px, centre_y_px, w, h);
+            let effective_inner = match auth_state {
+                crate::AuthState::Failed => pw.fail_color,
+                _ if caps_lock => pw.capslock_color,
+                _ => pw.inner_color,
+            };
+            let pw_override = config::Password {
+                inner_color: effective_inner,
+                ..pw.clone()
+            };
+            self.draw_box(&pw_override, centre_x_px, centre_y_px, w, h);
         }
 
         // Cap at max_dots (config-driven; clamped at load to [1, 256]).

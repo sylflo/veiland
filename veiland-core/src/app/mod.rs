@@ -548,6 +548,8 @@ impl AppData {
         self.renderer.draw_password_field(
             &self.config.password,
             self.auth.char_count(),
+            self.auth_state,
+            self.modifiers.caps_lock,
             w,
             h,
         );
@@ -686,13 +688,29 @@ impl AppData {
                     }
                     Err(_) => {
                         // Buffer already cleared by authenticate(). User retypes.
-                        // Repaint so the dots vanish — that's the
-                        // (silent) failure feedback for M9.
                         buffer_changed = true;
+                        self.auth_state = crate::AuthState::Failed;
+
+                        use smithay_client_toolkit::reexports::calloop::timer::{
+                            TimeoutAction, Timer,
+                        };
+                        let _ = self.loop_handle.insert_source(
+                            Timer::from_duration(std::time::Duration::from_millis(1500)),
+                            |_, _, state: &mut crate::AppData| {
+                                state.auth_state = crate::AuthState::Idle;
+                                for entry in state.lock_surfaces.iter_mut().flatten() {
+                                    entry.needs_paint = true;
+                                }
+                                TimeoutAction::Drop
+                            },
+                        );
                     }
                 }
             }
             Keysym::BackSpace => {
+                if self.auth_state == crate::AuthState::Failed {
+                    self.auth_state = crate::AuthState::Idle;
+                }
                 self.auth.pop_char();
                 buffer_changed = true;
             }
@@ -709,6 +727,9 @@ impl AppData {
                 if let Some(s) = event.utf8.as_deref()
                     && !s.chars().any(|c| c.is_control())
                 {
+                    if self.auth_state == crate::AuthState::Failed {
+                        self.auth_state = crate::AuthState::Idle;
+                    }
                     self.auth.push_utf8(s);
                     buffer_changed = true;
                 }

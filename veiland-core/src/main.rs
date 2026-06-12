@@ -47,6 +47,16 @@ pub(crate) enum RunState {
     Refused,
 }
 
+/// Visual state of the password field. Drives colour overrides in the renderer.
+/// `Checking` is reserved for a future async-PAM path; no visual change today.
+#[derive(Default, PartialEq, Clone, Copy)]
+pub(crate) enum AuthState {
+    #[default]
+    Idle,
+    Checking,
+    Failed,
+}
+
 pub(crate) struct AppData {
     conn: Connection,
     compositor_state: CompositorState,
@@ -58,6 +68,7 @@ pub(crate) struct AppData {
     session_lock: Option<SessionLock>,
     lock_surfaces: Vec<Option<LockSurface>>,
     run: RunState,
+    auth_state: AuthState,
     /// All host-side EGL + GL state (the shared context plus the two
     /// draw programs). Lives behind one field; access is
     /// `self.renderer.*`.
@@ -223,6 +234,7 @@ fn main() -> ExitCode {
         session_lock: None,
         lock_surfaces: Vec::new(),
         run: RunState::Running,
+        auth_state: AuthState::default(),
         renderer,
         plugins: Vec::new(),
         auth,
