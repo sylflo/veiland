@@ -2,15 +2,16 @@
 
 //! `OutputHandler` impl: hotplug routing.
 //!
-//! `new_output` and `update_output` only *queue* topology changes onto
-//! `AppData`; the actual surface create/recreate happens later in
-//! `process_pending_hotplug` (the deferred-drain pattern, see M8).
-//! `output_destroyed` runs the synchronous teardown for a departed
-//! output. Moved verbatim from main.rs; no logic change.
+//! `new_output` queues new outputs onto `pending_outputs_arrived`;
+//! the actual surface creation happens later in `process_pending_hotplug`
+//! (deferred-drain pattern — SCTK must finish the event batch first).
+//! `update_output` is a no-op (scale/size updates arrive via other paths).
+//! `output_destroyed` runs the synchronous 4-phase teardown for a departed
+//! output. Outputs are tracked by registry numeric ID, not by name.
 
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 
-use wayland_client::{Connection, Proxy, QueueHandle, protocol::wl_output};
+use wayland_client::{Connection, QueueHandle, protocol::wl_output};
 
 use crate::AppData;
 use crate::plugin::teardown_one_plugin;
@@ -32,40 +33,24 @@ impl OutputHandler for AppData {
         // through processing the current event batch and may not have
         // finished binding the new wl_output globally yet. The
         // deferred drain runs after SCTK's internal state has
-        // settled. See the M8 retrospective in docs/m8-plan.md
-        // for the trace evidence and design rationale.
+        // settled.
         //
-        // Hyprland twist: when a monitor is unplugged, Hyprland
-        // sometimes re-advertises the *surviving* monitor's wl_output
-        // under a new global. SCTK fires `new_output` for that new
-        // global, with a name that matches our existing entry. The
-        // server-side state is now tied to the new global; using
-        // the old wl_output proxy on the next commit produces
-        // "invalid object N". Detection: if `name` already has a
-        // lock surface, route this to the rebound queue instead of
-        // the arrival queue. The drain's rebound path destroys
-        // the affected lock surface and creates a fresh one against
-        // the new proxy. (Sway doesn't re-advertise, so this branch
-        // never fires there and behavior is unchanged.)
-        let name = self
-            .output_state
-            .info(&output)
+        // We track by registry numeric ID (OutputInfo::id), not by
+        // output name. This means a compositor that re-advertises a
+        // surviving monitor under a new global ID (Hyprland quirk on
+        // unplug) is handled as a normal remove + add with no special
+        // case: output_destroyed removes the old slot by the old ID,
+        // and this new_output queues an arrival with the new ID.
+        let info = self.output_state.info(&output);
+        let id = info.as_ref().map(|i| i.id).unwrap_or(0);
+        let name = info
             .and_then(|i| i.name)
             .unwrap_or_else(|| "<unnamed>".to_string());
-        let already_have = self
-            .lock_surfaces
-            .iter()
-            .any(|s| s.as_ref().map(|ls| ls.name == name).unwrap_or(false));
-        if already_have {
-            eprintln!(
-                "[M8-TRACE] new_output fired: {:?} (REBIND of existing name, queued)",
-                name
-            );
-            self.pending_outputs_rebound.push((output, name));
-        } else {
-            eprintln!("[M8-TRACE] new_output fired: {:?} (queued)", name);
-            self.pending_outputs_arrived.push((output, name));
-        }
+        eprintln!(
+            "veiland-core: new_output fired: {:?} (id {}, queued)",
+            name, id
+        );
+        self.pending_outputs_arrived.push((output, id, name));
     }
 
     fn update_output(
@@ -74,53 +59,10 @@ impl OutputHandler for AppData {
         _qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        // `update_output` fires for two distinct reasons we have to
-        // distinguish:
-        //
-        // (a) Mode/scale change on a still-alive output. The wl_output
-        //     proxy identity is the same; nothing to do here (a future
-        //     M-step may want to re-send Configure to plugins with the
-        //     new size).
-        //
-        // (b) SCTK rebound the wl_output global after a topology event
-        //     (Hyprland fast-replug pattern: global_remove + global on
-        //     the same local id within one batch). The proxy identity
-        //     is DIFFERENT from what we have stored on `LockSurface`,
-        //     and we need to destroy + recreate our lock surface
-        //     against the fresh proxy. Otherwise the next commit on
-        //     the still-alive surface trips "invalid object" because
-        //     dmabuf-feedback / scanout state references the rebound
-        //     identity.
-        //
-        // Discriminator: `output.id() != stored.wl_output.id()`.
-        // ObjectId equality is Arc-based on the proxy's alive flag,
-        // not on the wire-level id — so even when SCTK re-uses local
-        // id 12 for the new binding, the new proxy's ObjectId is
-        // distinct from the released one.
-        let name = self
-            .output_state
-            .info(&output)
-            .and_then(|i| i.name)
-            .unwrap_or_else(|| "<unnamed>".to_string());
-        let rebound = self
-            .lock_surfaces
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .find(|ls| ls.name == name)
-            .map(|ls| ls.wl_output.id() != output.id())
-            .unwrap_or(false);
-        if rebound {
-            eprintln!(
-                "[M8-TRACE] update_output fired: {:?} (REBOUND, queued for recreate)",
-                name
-            );
-            self.pending_outputs_rebound.push((output, name));
-        } else {
-            eprintln!(
-                "[M8-TRACE] update_output fired: {:?} (mode/scale change, no-op)",
-                name
-            );
-        }
+        // Fires when a live output's mode, scale, or geometry changes.
+        // Scale updates arrive via wp_fractional_scale_v1; size updates
+        // arrive via SessionLockHandler::configure. Nothing to do here.
+        let _ = output;
     }
 
     fn output_destroyed(
@@ -133,9 +75,8 @@ impl OutputHandler for AppData {
         // SessionLockSurface for this output; touching its EGL surface
         // from here on would block in eglSwapBuffers waiting on a
         // commit no one will ever ack. We:
-        //   1. Resolve the departed output's name (so we can find our
-        //      matching slot — names are the only stable identity we
-        //      keep on LockSurface).
+        //   1. Resolve the departed output's registry ID (the stable
+        //      numeric key we store on LockSurface) and name (for logs).
         //   2. Tear down every plugin instance for that output via the
         //      existing Shutdown → grace → SIGTERM → SIGKILL sequence.
         //      Plugin calloop sources self-remove via PostAction::Remove
@@ -145,33 +86,35 @@ impl OutputHandler for AppData {
         //      in surviving calloop closures.
         // Defensive throughout: this is compositor-driven input, never
         // crash on it.
-        let name = match self.output_state.info(&output).and_then(|i| i.name) {
-            Some(n) => n,
+        let info = self.output_state.info(&output);
+        let registry_id = match info.as_ref().map(|i| i.id) {
+            Some(id) => id,
             None => {
                 eprintln!(
                     "veiland-core: output_destroyed fired for an output \
-                    with no cached name; skipping teardown (would not \
-                    know which lock surface to tear down)"
+                    with no cached info; skipping teardown"
                 );
-                eprintln!("[M8-TRACE] output_destroyed RETURNING (no name)");
                 return;
             }
         };
-        eprintln!("[M8-TRACE] output_destroyed ENTER: {:?}", name);
+        let name = info
+            .and_then(|i| i.name)
+            .unwrap_or_else(|| format!("<id {}>", registry_id));
+        eprintln!(
+            "veiland-core: output_destroyed ENTER: {:?} (id {})",
+            name, registry_id
+        );
 
-        let output_idx = self
-            .lock_surfaces
-            .iter()
-            .position(|opt| opt.as_ref().map(|ls| ls.name == name).unwrap_or(false));
+        let output_idx = self.lock_surfaces.iter().position(|opt| {
+            opt.as_ref()
+                .map(|ls| ls.registry_id == registry_id)
+                .unwrap_or(false)
+        });
         let Some(output_idx) = output_idx else {
             eprintln!(
-                "veiland-core: output_destroyed for {:?} but no matching \
+                "veiland-core: output_destroyed for {:?} (id {}) but no matching \
                 lock surface; nothing to tear down",
-                name
-            );
-            eprintln!(
-                "[M8-TRACE] output_destroyed RETURNING (no matching surface): {:?}",
-                name
+                name, registry_id
             );
             return;
         };
@@ -248,9 +191,8 @@ impl OutputHandler for AppData {
         // main.c destroy_surface.
         self.lock_surfaces[output_idx] = None;
         eprintln!(
-            "veiland-core: output {} teardown complete; slot is now None",
-            name
+            "veiland-core: output {:?} (id {}) teardown complete; slot is now None",
+            name, registry_id
         );
-        eprintln!("[M8-TRACE] output_destroyed RETURNING (normal): {:?}", name);
     }
 }

@@ -43,15 +43,17 @@ use crate::{AppData, RunState};
 
 /// One output's lock surface plus the EGL window/surface bound to it.
 pub(crate) struct LockSurface {
+    /// The `wl_registry` global name (numeric ID) for this output.
+    /// Used as the primary lookup key — stable within a compositor
+    /// session and unambiguous even when Hyprland re-advertises a
+    /// surviving monitor under a new global (that gets a new ID and
+    /// is handled as a normal remove + add).
+    pub(crate) registry_id: u32,
+    /// Human-readable output name (xdg_output.name, e.g. "DP-1").
+    /// Kept for logging and for matching against the user's
+    /// `monitors = [...]` config entries via `entry_matches_output`.
+    /// Not used as a lookup key.
     pub(crate) name: String,
-    /// The `wl_output` proxy this lock surface was created against.
-    /// Kept so `update_output` can detect a rebind: if SCTK rebinds
-    /// the global on a topology change, the new `WlOutput` will have
-    /// a different `id()` and we know to destroy + recreate this
-    /// surface against the fresh proxy. Comparing by id (not by
-    /// equality of the WlOutput value) is the protocol-correct way
-    /// to detect identity change.
-    pub(crate) wl_output: wl_output::WlOutput,
     pub(crate) lock_surface: SessionLockSurface,
     pub(crate) egl_window: Option<wayland_egl::WlEglSurface>,
     pub(crate) egl_surface: Option<egl::Surface>,
@@ -95,6 +97,7 @@ impl AppData {
     pub(crate) fn create_lock_surface_for_output(
         &mut self,
         output: &wl_output::WlOutput,
+        registry_id: u32,
         name: String,
     ) -> Option<usize> {
         let session_lock = match self.session_lock.as_ref() {
@@ -132,8 +135,8 @@ impl AppData {
             .map(|mgr| mgr.get_fractional_scale(&wl_surface, &self.qh, ()));
 
         let lock_surface = LockSurface {
+            registry_id,
             name,
-            wl_output: output.clone(),
             lock_surface: lock_surface_obj,
             egl_window: None,
             egl_surface: None,
@@ -252,110 +255,56 @@ impl AppData {
             .expect("register plugin fd with calloop");
     }
 
-    /// Drain the pending-hotplug queues. Called after every
+    /// Drain the pending-arrivals queue. Called after every
     /// `event_loop.dispatch()` returns — by that point SCTK has fully
     /// processed all events from the batch (registry bind/unbind,
     /// xdg_output.name, geometry, etc.) and our internal state is
     /// safe to mutate.
     ///
-    /// Two queues:
+    /// For each newly-arrived output: create a lock surface (the
+    /// compositor will send a Configure for it on a later dispatch),
+    /// spawn the matching plugin instances, and register their sockets.
     ///
-    /// - `pending_outputs_arrived`: outputs whose `wl_output` global
-    ///   newly appeared. Create a lock surface (the compositor will
-    ///   send us a Configure for it on a later dispatch), then spawn
-    ///   the matching plugin instances and register their sockets.
-    ///
-    /// - `pending_outputs_rebound`: outputs whose `wl_output` proxy
-    ///   was rebound (Hyprland's fast-replug pattern). The plugins
-    ///   are still alive and connected; only the lock surface needs
-    ///   replacing. Destroy the old surface (dropping it lets SCTK's
-    ///   Drop send `ext_session_lock_surface_v1.destroy()`), then
-    ///   create a fresh one against the new proxy.
-    ///
-    /// Both paths are idempotent against running again with the same
-    /// queues — we filter "already have a lock surface for this
-    /// name" out of the arrived queue defensively in case SCTK fires
-    /// `new_output` for an output we already created at startup.
+    /// Outputs are tracked by registry numeric ID. A compositor that
+    /// re-advertises a surviving monitor under a new global ID
+    /// (Hyprland unplug quirk) produces a normal remove + add cycle:
+    /// `output_destroyed` removes the old slot by its ID, and the new
+    /// arrival here creates a fresh slot with the new ID. No special
+    /// rebind path needed.
     pub(crate) fn process_pending_hotplug(&mut self) {
         let arrived = std::mem::take(&mut self.pending_outputs_arrived);
-        let rebound = std::mem::take(&mut self.pending_outputs_rebound);
 
-        // --- Arrivals ---
-        // For each newly-arrived output, create a lock surface and
-        // spawn plugins. The compositor will send a Configure for
-        // the new surface on a subsequent dispatch.
-        for (output, name) in arrived {
-            // Defensive: if we already have a lock surface for this
-            // name, this is a spurious notification. Skip rather
-            // than double-create.
-            let already_have = self
-                .lock_surfaces
-                .iter()
-                .any(|s| s.as_ref().map(|ls| ls.name == name).unwrap_or(false));
+        for (output, registry_id, name) in arrived {
+            // Defensive: skip if we already have a slot for this
+            // registry ID (shouldn't happen with correct ID tracking,
+            // but guards against SCTK firing new_output twice).
+            let already_have = self.lock_surfaces.iter().any(|s| {
+                s.as_ref()
+                    .map(|ls| ls.registry_id == registry_id)
+                    .unwrap_or(false)
+            });
             if already_have {
                 eprintln!(
-                    "[M8-TRACE] arrival skipped: {:?} already has a lock surface",
-                    name
+                    "veiland-core: arrival skipped: id {} ({:?}) already has a lock surface",
+                    registry_id, name
                 );
                 continue;
             }
-            eprintln!("[M8-TRACE] processing arrival: {:?}", name);
-            let Some(idx) = self.create_lock_surface_for_output(&output, name.clone()) else {
+            eprintln!(
+                "veiland-core: processing arrival: {:?} (id {})",
+                name, registry_id
+            );
+            let Some(idx) = self.create_lock_surface_for_output(&output, registry_id, name.clone())
+            else {
                 continue;
             };
             self.spawn_plugins_for_output(idx, &name);
             // Register calloop sources for every plugin slot at this
-            // index. Even if the slot was previously occupied (slot
-            // recycled from a torn-down output), the prior calloop
-            // sources self-removed when their plugin sockets hit EOF;
-            // the new processes need fresh sources.
+            // index. Prior calloop sources self-removed when their
+            // plugin sockets hit EOF; the new processes need fresh ones.
             for p in 0..self.plugins[idx].len() {
                 self.register_plugin_source(idx, p);
             }
-        }
-
-        // --- Rebinds ---
-        // For each rebound output, replace the lock surface with a
-        // fresh one against the new wl_output proxy. The old surface
-        // is dropped (sending destroy) before the new one is created.
-        for (output, name) in rebound {
-            eprintln!("[M8-TRACE] processing rebind: {:?}", name);
-            // Find the matching slot. If it's gone (e.g. our previous
-            // drain step already replaced it), nothing to do.
-            let Some(idx) = self
-                .lock_surfaces
-                .iter()
-                .position(|s| s.as_ref().map(|ls| ls.name == name).unwrap_or(false))
-            else {
-                eprintln!(
-                    "[M8-TRACE] rebind skipped: {:?} has no current lock surface",
-                    name
-                );
-                continue;
-            };
-            // Tear down EGL bits first (same order as output_destroyed
-            // Phase 3 — keep EGL from sending commits to a dying surface).
-            if let Some(surface_ref) = self.lock_surfaces[idx].as_mut() {
-                if let Some(egl_surface) = surface_ref.egl_surface.take()
-                    && let Err(e) = self
-                        .renderer
-                        .egl
-                        .destroy_surface(self.renderer.egl_display, egl_surface)
-                {
-                    eprintln!(
-                        "veiland-core: eglDestroySurface for {:?} (rebind) failed: \
-                        {:?} (continuing)",
-                        surface_ref.name, e
-                    );
-                }
-                surface_ref.egl_window = None;
-            }
-            // Drop the old LockSurface so SCTK's Drop sends destroy.
-            self.lock_surfaces[idx] = None;
-            // Create the fresh one against the new wl_output proxy.
-            // It will land in the just-emptied slot (`create_lock_
-            // surface_for_output` prefers None slots).
-            self.create_lock_surface_for_output(&output, name);
         }
     }
 

@@ -94,18 +94,12 @@ pub(crate) struct AppData {
     /// `spawn_plugins_for_output` for newly-arrived monitors.
     host_capabilities: HostCapabilities,
     /// Outputs whose `new_output` fired during the last dispatch
-    /// batch. Drained after `event_loop.dispatch()` returns, when
-    /// SCTK's `OutputState` has fully processed all events from the
-    /// batch (so `xdg_output.name` and friends are populated). See
-    /// `process_pending_hotplug` and the M8 retrospective in
-    /// docs/m8-plan.md.
-    pending_outputs_arrived: Vec<(wl_output::WlOutput, String)>,
-    /// Outputs whose `wl_output` proxy was rebound mid-flight
-    /// (Hyprland fast-replug pattern: global_remove + global on
-    /// the same local id within one dispatch batch). We need to
-    /// destroy the lock surface tied to the old proxy and create
-    /// a fresh one against the new proxy. Carries the new proxy.
-    pending_outputs_rebound: Vec<(wl_output::WlOutput, String)>,
+    /// batch. Carries `(proxy, registry_id, name)`. Drained after
+    /// `event_loop.dispatch()` returns, when SCTK's `OutputState`
+    /// has fully processed all events from the batch (so
+    /// `xdg_output.name` and friends are populated). See
+    /// `process_pending_hotplug`.
+    pending_outputs_arrived: Vec<(wl_output::WlOutput, u32, String)>,
     /// Last time the periodic Configure tick fired. Initialised at
     /// startup; `process_periodic_tick` re-sends Configure to every
     /// alive plugin when 30s have elapsed since this. The tick is
@@ -260,7 +254,6 @@ fn main() -> ExitCode {
         modifiers: Modifiers::default(),
         host_capabilities,
         pending_outputs_arrived: Vec::new(),
-        pending_outputs_rebound: Vec::new(),
         last_time_tick: std::time::Instant::now(),
         fractional_scale_manager,
     };
@@ -318,20 +311,20 @@ fn main() -> ExitCode {
     // arrival path — startup and runtime use identical plumbing.
     // Collect outputs into an owned vec first because the helpers take
     // &mut self and SCTK's outputs() iterator borrows output_state.
-    let initial_outputs: Vec<(wl_output::WlOutput, String)> = state
+    let initial_outputs: Vec<(wl_output::WlOutput, u32, String)> = state
         .output_state
         .outputs()
         .map(|o| {
-            let name = state
-                .output_state
-                .info(&o)
+            let info = state.output_state.info(&o);
+            let id = info.as_ref().map(|i| i.id).unwrap_or(0);
+            let name = info
                 .and_then(|i| i.name)
                 .unwrap_or_else(|| "<unnamed>".to_string());
-            (o, name)
+            (o, id, name)
         })
         .collect();
-    for (output, name) in &initial_outputs {
-        if let Some(idx) = state.create_lock_surface_for_output(output, name.clone()) {
+    for (output, id, name) in &initial_outputs {
+        if let Some(idx) = state.create_lock_surface_for_output(output, *id, name.clone()) {
             state.spawn_plugins_for_output(idx, name);
         }
     }
@@ -339,7 +332,6 @@ fn main() -> ExitCode {
     // roundtrip — we've already handled those outputs explicitly
     // here. The drain-after-dispatch path is for *real* hotplug.
     state.pending_outputs_arrived.clear();
-    state.pending_outputs_rebound.clear();
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
