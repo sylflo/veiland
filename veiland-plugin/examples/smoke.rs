@@ -93,9 +93,9 @@ fn smoke() -> Result<(), PluginError> {
                 "smoke: no VEILAND_PLUGIN_SOCKET in env, as expected for \
                  a standalone smoke test, exiting."
             );
-            return Ok(());
+            Ok(())
         }
-        Err(e) => return Err(e),
+        Err(e) => Err(e),
         Ok(mut conn) => {
             // Hypothetical: if a host *did* set the env var (e.g. someone
             // ran us under the real host as a test), do the full minimal

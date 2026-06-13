@@ -55,6 +55,8 @@ pub(crate) enum RunState {
 pub(crate) enum AuthState {
     #[default]
     Idle,
+    // Reserved for a future async-PAM path; not constructed yet. See type doc.
+    #[allow(dead_code)]
     Checking,
     Failed,
 }

@@ -95,7 +95,7 @@ mod tests {
     fn display_renders_every_variant() {
         let _ = format!(
             "{}",
-            HostError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x"))
+            HostError::Io(std::io::Error::other("x"))
         );
         let _ = format!("{}", HostError::Nix(nix::Error::EINVAL));
         let _ = format!("{}", HostError::Protocol(ProtocolError::Truncated));

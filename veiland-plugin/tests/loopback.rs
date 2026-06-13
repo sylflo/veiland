@@ -24,7 +24,7 @@ use nix::sys::socket::{
 use veiland_plugin::{Connection, PluginError};
 use veiland_protocol::{
     Buffer, ClientMessage, Configure, Fourcc, HOST_CAP_FENCE_FD, Hello, HostCapabilities, Modifier,
-    PROTOCOL_VERSION, ServerMessage, read_version, write_host_capabilities, write_version,
+    PROTOCOL_VERSION, ServerMessage, read_version, write_host_capabilities,
 };
 
 // ---- Fake-host helpers ------------------------------------------------------

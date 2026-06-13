@@ -407,7 +407,7 @@ mod tests {
         bytes.extend_from_slice(&1_700_000_000i64.to_le_bytes()); // time_unix
         bytes.extend_from_slice(&3600i32.to_le_bytes()); // tz
         bytes.extend_from_slice(&65u16.to_le_bytes()); // output_name length = 65
-        bytes.extend(std::iter::repeat(b'a').take(65));
+        bytes.extend(std::iter::repeat_n(b'a', 65));
         assert_eq!(
             ServerMessage::decode(&bytes),
             Err(ProtocolError::StringTooLong {

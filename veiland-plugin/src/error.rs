@@ -89,7 +89,7 @@ mod tests {
         let _ = format!("{}", PluginError::Env("VEILAND_PLUGIN_SOCKET"));
         let _ = format!(
             "{}",
-            PluginError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x"))
+            PluginError::Io(std::io::Error::other("x"))
         );
         let _ = format!("{}", PluginError::Nix(nix::Error::EINVAL));
         let _ = format!("{}", PluginError::Protocol(ProtocolError::Truncated));
