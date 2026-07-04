@@ -1,0 +1,9 @@
+# PAM configuration for veiland (Arch, Fedora/RHEL).
+# veiland does password authentication only. It runs the auth and
+# account phases and feeds the typed password to PAM; it never opens a
+# session, sets credentials, or changes passwords, and it cannot drive
+# interactive modules like fingerprint (pam_fprintd) or hardware tokens.
+# Including system-auth inherits the machine's password stack; any
+# non-password lines it pulls in are inert for veiland.
+auth     include  system-auth
+account  include  system-auth

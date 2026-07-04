@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Example veiland config. Copy to ~/.config/veiland/config.toml and edit:
+#
+#   mkdir -p ~/.config/veiland
+#   cp /usr/share/veiland/config.example.toml ~/.config/veiland/config.toml
+#
+# Plugin `binary` paths are absolute (no $PATH, no ~ expansion). The
+# distro package installs the reference plugins into /usr/bin.
+# See docs/config.md for every option.
+
+[[plugin]]
+name = "wallpaper"
+binary = "/usr/bin/veiland-wallpaper"
+z_index = -100                      # always behind everything
+
+[[plugin.config]]
+image = "/usr/share/backgrounds/veiland.jpg"   # edit: point at your image
+
+[[plugin]]
+name = "clock"
+binary = "/usr/bin/veiland-clock"
+z_index = 10
+region = { x = 100, y = 100, w = 300, h = 80 }
+
+# The password field is painted by the core, not a plugin. Defaults are
+# fine; this just nudges it up slightly. Remove to use defaults.
+[password]
+y_percent = 72
