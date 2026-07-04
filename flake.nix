@@ -169,5 +169,10 @@
           '';
         });
       });
+
+      # NixOS module: `services.veiland.enable = true` installs the
+      # package and registers the PAM service. Not per-system — the
+      # consuming config supplies its own pkgs/system.
+      nixosModules.default = import ./nix/module.nix self;
     };
 }
