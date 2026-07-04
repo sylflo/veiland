@@ -24,8 +24,6 @@ The locker works. The full feature set is in production:
 
 **Reference plugins:** wallpaper (PNG/JPEG), clock (time + date), particles (animated dots), vignette (corner darkening), label (arbitrary text), sakura (falling cherry blossoms).
 
-**Known limitations:**  Hyprland fast-replug (~5–10s unplug+replug) sometimes panics at `eglSwapBuffers` (lock survives, recovery is TTY-kill).
-
 ## Architecture
 
 Veiland-core is a Wayland client that owns the lock surface, handles PAM, and composites the final image. It spawns plugin processes as children. Each plugin connects over a Unix socket, allocates GPU buffers via GBM, renders into them with its own OpenGL context, and sends the buffer file descriptors to the core via `SCM_RIGHTS`. The core imports the fds as `EGLImage` textures and composites them onto the lock surface. No pixel data crosses CPU memory.
