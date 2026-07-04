@@ -347,12 +347,13 @@ z_index = 20
 region = { x = 660, y = 500, w = 600, h = 80 }
 ```
 
-(None of those plugins exist yet; they'll arrive in M7+.)
+(Those exact plugin names are illustrative — see the reference plugins
+for the real binaries.)
 
-### A test fixture for the M6 compositor
+### A test fixture for the compositor
 
 See `docs/examples/boxes.toml` for the staircase of overlapping
-red/blue/green test plugins used during M6 development. That
+red/blue/green test plugins. That
 fixture exercises region clipping, z-index ordering, and alpha
 blending end-to-end.
 
@@ -496,5 +497,5 @@ By design:
 
 - `docs/protocol.md` — the plugin ↔ host wire protocol. Read if
   you're writing a plugin.
-- `docs/examples/boxes.toml` — the M6 test fixture, showing a
+- `docs/examples/boxes.toml` — a test fixture showing a
   three-plugin overlapping-region setup.

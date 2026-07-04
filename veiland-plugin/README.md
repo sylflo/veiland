@@ -21,8 +21,8 @@ making the context current surfacelessly), and the protocol dispatch
 - **Not a GL helper.** Plugin authors write their own shaders, VBOs, and
   draw calls. This crate hands them a framebuffer to render into.
 - **Not a buffer-pool implementation.** v1 is single-buffer with
-  `glFinish` between render and submit; explicit sync fences and pool
-  recycling are M5.
+  `glFinish` between render and submit; a buffer pool with per-id
+  recycling is future work.
 
 For the wire protocol itself see [`docs/protocol.md`](../docs/protocol.md).
 For the architectural rationale (process isolation, threat model, why

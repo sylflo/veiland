@@ -1,6 +1,6 @@
-# M6 step 6 validation fixture — three coloured-box plugins at known
-# z-indexes and overlapping regions. The visual unlock for the whole
-# M6 compositor story.
+# Example — three coloured-box plugins at known z-indexes and
+# overlapping regions. Demonstrates the compositor's region clipping
+# and z-ordering.
 #
 # Layout: a 200-pixel staircase of overlapping rectangles on a
 # 1920x1080 surface.
