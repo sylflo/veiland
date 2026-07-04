@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Distro packaging matrix. Each job builds veiland's native package
+# inside that distro's own container, so the packages are validated on
+# real distro tooling (the dev host is NixOS and can't run
+# makepkg/dpkg-buildpackage/rpmbuild). This is separate from ci.yml (the
+# Nix gate) and does not affect it.
+#
+# Arch is implemented; debian and fedora are placeholders until their
+# packaging lands (Steps 3-4 of docs/packaging-plan.md) - they run a
+# stub so the matrix shape is proven now.
+
+name: packages
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arch:
+    name: Arch (PKGBUILD)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build tooling
+        # base-devel gives makepkg + fakeroot; the rest are this
+        # package's makedepends. makepkg refuses to run as root, so we
+        # add an unprivileged 'builder' user below.
+        run: |
+          pacman -Syu --noconfirm base-devel git rust cargo pkgconf \
+            pam libglvnd mesa libdrm wayland libxkbcommon libjpeg-turbo
+          useradd -m builder
+
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: |
+          # makepkg builds from $srcdir; our PKGBUILD does
+          # `cd "$srcdir/veiland"`, so stage the checkout there.
+          set -eux
+          workdir=$(mktemp -d)
+          cp packaging/arch/PKGBUILD "$workdir/PKGBUILD"
+          mkdir -p "$workdir/src"
+          # Copy the whole repo (the build needs the full workspace +
+          # packaging/ assets referenced by package()).
+          git config --global --add safe.directory "$PWD"
+          git archive --format=tar HEAD | tar -x -C "$workdir/src" \
+            --one-top-level=veiland
+          chown -R builder:builder "$workdir"
+          cd "$workdir"
+          # --noextract: source=() has nothing to fetch, we pre-staged
+          # src/. --nodeps: deps already installed above. --skipinteg:
+          # no checksums with a local tree.
+          sudo -u builder makepkg --noconfirm --nodeps --skipinteg \
+            --noextract -f
+          ls -la ./*.pkg.tar.*
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veiland-arch
+          path: ${{ github.workspace }}/**/*.pkg.tar.*
+          if-no-files-found: warn
+
+  debian:
+    name: Debian (.deb) [placeholder]
+    runs-on: ubuntu-latest
+    container: debian:stable
+    steps:
+      - name: Placeholder
+        run: echo "Debian packaging lands in Step 3 (docs/packaging-plan.md)."
+
+  fedora:
+    name: Fedora (.rpm) [placeholder]
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Placeholder
+        run: echo "Fedora packaging lands in Step 4 (docs/packaging-plan.md)."
