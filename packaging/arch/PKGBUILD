@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Maintainer: sylflo <claude@sylvain-chateau.com>
+# Maintainer: sylflo <veiland@sylvain-chateau.com>
 #
 # Arch PKGBUILD for veiland. Builds the real set (veiland-core + the
 # reference plugins) from source into /usr/bin and installs the veiland

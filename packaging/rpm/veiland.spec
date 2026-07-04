@@ -114,5 +114,5 @@ install -Dm0644 packaging/veiland.example.toml \
 %{_datadir}/veiland/config.example.toml
 
 %changelog
-* Sat Jul 04 2026 sylflo <claude@sylvain-chateau.com> - 0.1.0-1
+* Sat Jul 04 2026 sylflo <veiland@sylvain-chateau.com> - 0.1.0-1
 - Initial package: veiland-core + reference plugins, bundled PAM service.
