@@ -12,15 +12,14 @@ Two crates live on the plugin side:
 - **`veiland-plugin`** — required. Wraps the socket dance,
   EGL/GBM setup, dmabuf allocation, and protocol framing.
   Every plugin needs this.
-- **`veiland-text`** — optional, added in M10. Provides text
+- **`veiland-text`** — optional. Provides text
   rendering on top of cosmic-text + a GPU glyph atlas. Add it
   to your `Cargo.toml` only if you actually draw text — its
   transitive deps cost ~5 MB of binary size.
 
 The shape of this document mirrors the crate layout: a brief on
 `veiland-plugin` (mostly a pointer to the existing reference
-plugins, since the API has been stable since M3), then a fuller
-walkthrough of `veiland-text` (new in M10).
+plugins), then a fuller walkthrough of `veiland-text`.
 
 ## `veiland-plugin`
 
@@ -119,7 +118,7 @@ Field reference:
 | -------- | ------------ | ------------------------------------------------------------------ |
 | `offset` | `(f32, f32)` | Pixel offset from the text. Express as `fraction * surface_h` — e.g. `0.003 * surface_h` ≈ 3px on 1080p. |
 | `color`  | `[f32; 4]`   | Straight-alpha RGBA.                                               |
-| `blur`   | `f32`        | Reserved; non-zero values are ignored in M10 with a one-time log.  |
+| `blur`   | `f32`        | Reserved; non-zero values are currently ignored with a one-time log.  |
 
 ### Rendering
 
@@ -138,12 +137,14 @@ afterwards. Subsequent draws in the same frame composite on top.
 
 ### HiDPI
 
-The host sends `Configure.scale: u32` carrying the output's
-`wl_output.scale` (1, 2, or 3). Store it on your plugin state at
-every `Configure` and use the current value when building each
-`Label`. The convention is: every logical-pixel *size* field
-(`font_size`, `letter_spacing`, `shadow.offset`) gets multiplied by
-`scale`; non-pixel fields (`color`, `rotation`) do not.
+The host sends `Configure.scale_120: u32` carrying the output's scale
+as 120ths (120 = 1×, 180 = 1.5×, 240 = 2×), matching
+`wp_fractional_scale_v1`'s encoding. Convert to a float multiplier with
+`scale_120 as f32 / 120.0`. Store it on your plugin state at every
+`Configure` and use the current value when building each `Label`. The
+convention is: every logical-pixel *size* field (`font_size`,
+`letter_spacing`, `shadow.offset`) gets multiplied by that factor;
+non-pixel fields (`color`, `rotation`) do not.
 
 `position` is the exception: don't scale it. A label's place on screen
 should be a *fraction of the surface* (`[0.5, 0.5]` = centre), multiplied
@@ -163,28 +164,24 @@ otherwise the host stretches your old buffer and text goes soft.
 See [`plugins/label`](../plugins/label/src/main.rs)'s
 `build_label` for the reference shape.
 
-### What's not in M10
+### Not yet supported
 
-Things you may notice missing and not need to file as bugs:
+Things you may notice missing in `veiland-text` and not need to file
+as bugs:
 
 - **Shadow blur** (`Shadow.blur`) — the field is on the struct
-  for forward compatibility but the value is ignored. Sharp
-  shadow only in M10.
+  for forward compatibility but the value is currently ignored;
+  shadows are sharp.
 - **Stroke / outline** rendering.
 - **Per-character colour mixing**, gradients, animated typing.
 - **Vertical text** / Mongolian / arbitrary writing modes.
 - **Font fallback configuration** — fontdb's automatic fallback
-  is what you get. Users who want explicit fallback chains wait
-  for M12+.
+  is what you get. Explicit fallback chains are future work.
 - **Subpixel positioning controls** — text is snapped to the
   integer pixel grid.
 - **Hot-reloading the user's `font_family`** without restarting
   the plugin.
-- **Fractional output scale** (`wp_fractional_scale_v1`) — only
-  integer `wl_output.scale` in M10.
 - **Bitmap fonts** (`pcf`, `bdf`) — TTF/OTF only.
-
-The rationale for each deferral is in the commit history for M10.
 
 ## Loading image assets
 
@@ -212,7 +209,7 @@ A few non-obvious points:
   inline.
 - **EXIF orientation is not honoured** by `image` by default.
   Phones / cameras embedding an "image is rotated" tag will
-  render sideways. M12+ fix.
+  render sideways (deferred).
 
 Reference: [`plugins/wallpaper`](../plugins/wallpaper/src/main.rs).
 Short enough to read top-to-bottom.

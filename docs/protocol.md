@@ -215,10 +215,10 @@ handshake, based on `HOST_CAP_FENCE_FD` AND its own EGL display's support for
 choice is fixed for the connection's lifetime — plugins do not switch paths
 per frame.
 
-- **Fast path (M5a):** every `Buffer` carries 2 fds (dmabuf + fence). Plugin
+- **Fast path:** every `Buffer` carries 2 fds (dmabuf + fence). Plugin
   flushes its GL command stream, exports a fence fd, sends both. Host waits
   on the fence before sampling.
-- **Slow path (M3 fallback):** every `Buffer` carries 1 fd (dmabuf only).
+- **Slow path (fallback):** every `Buffer` carries 1 fd (dmabuf only).
   Plugin calls `gl::Finish` before `send_buffer` to ensure the dmabuf is
   GPU-complete on the wire. Host samples without waiting.
 
@@ -252,7 +252,7 @@ u32   id
 > **v1 implementation note.** With v1's single-buffer model the plugin has no
 > reason to send `BufferDestroy` before shutdown — at shutdown, socket close
 > already prompts the host to free everything. `BufferDestroy` is on the wire
-> from v1 so that buffer-pool plugins (M5+) and any pre-launch reference
+> from v1 so that future buffer-pool plugins and any reference
 > plugins that grow a pool can use it without a protocol bump.
 
 ## 7. Server messages (host → plugin)
@@ -288,7 +288,7 @@ A re-`Configure` may arrive at any time with a different `scale` (e.g. the
 user changes their monitor's scale factor in the compositor settings). The
 plugin should latch the new value and use it on the next `FrameDone` — there
 is no separate "scale-changed" message and no requirement to re-render
-immediately on receipt. M10's `veiland-label` is the reference shape:
+immediately on receipt. `veiland-label` is the reference shape:
 `scale` is stored on plugin state at every `Configure`, and every render
 multiplies logical-pixel config values (`font_size`, `position`, shadow
 offset) by the current scale.
@@ -328,17 +328,18 @@ Host is done sampling the buffer with this id; plugin may reuse it.
 - **Fast path (host advertised `HOST_CAP_FENCE_FD` and plugin opted in):**
   host MUST send `BufferReleased` after it finishes sampling each buffer.
   Plugins use this to gate the next render — overwriting the dmabuf before
-  the release arrives races the host's GPU read. Step 10 of M5a specifies
-  how the host knows sampling is complete (host-side egress fence).
+  the release arrives races the host's GPU read. The host uses a host-side
+  egress fence to know when sampling is complete.
 - **Slow path (no `HOST_CAP_FENCE_FD`, or plugin chose `glFinish`):** host
   MAY omit `BufferReleased`. The plugin's `glFinish` before `send_buffer`
   makes the buffer GPU-stable on send, and the single-buffer model rewrites
   unconditionally on the next `FrameDone`. Plugins on the slow path MUST
   tolerate not receiving `BufferReleased`.
 
-Buffer-pool plugins (M5b+, if it lands) will track release per-id so the
-pool's free-list reflects host-side completion. M5a's single-buffer plugin
-uses `BufferReleased` purely as a wait point, not as an id-keyed structure.
+Future buffer-pool plugins will track release per-id so the
+pool's free-list reflects host-side completion. The current single-buffer
+plugin uses `BufferReleased` purely as a wait point, not as an id-keyed
+structure.
 
 ### 7.4 `Shutdown` — tag `0x0004`
 
@@ -403,11 +404,11 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
   is the rule for evolving the protocol at any version, not just v1.
 - The version handshake (§5) is the escape hatch for incompatible changes.
 
-## 11. Open questions (resolve before the relevant milestone)
+## 11. Design decisions (resolved)
 
-- **§6.2 — explicit fd count (resolved in M5a).** Originally framed as
-  "fd_count byte in the payload" vs "one fd per message tag, ever." M5a
-  picked a third option that emerged from the capability handshake design:
+- **§6.2 — explicit fd count.** Originally framed as
+  "fd_count byte in the payload" vs "one fd per message tag, ever." The
+  resolution was a third option that emerged from the capability handshake design:
   **implicit per-tag, validated by the host using the negotiated capability
   state**. No `fd_count` byte on the wire. For `Buffer` specifically, the
   rule has two levels: the tag determines the *maximum* (1 or 2 fds), and
@@ -417,7 +418,7 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
   Other fd-carrying messages added in the future will follow the same
   pattern: per-tag implicit rule, capability-gated where optionality is
   needed.
-- **§6.2 — format and modifier validation (resolved in M3).** Originally the
+- **§6.2 — format and modifier validation.** Originally the
   codec rejected anything outside `format ∈ {ARGB8888}` and
   `modifier ∈ {LINEAR, INVALID}`. NVIDIA's proprietary driver returns
   vendor-private tiling modifiers (e.g. `0x0300000000e08014`) and the gradient
@@ -428,7 +429,7 @@ and exit. Hosts are trusted; a buggy host is a host bug worth surfacing.
   is the validation. `INVALID` is documented inline in §6.2 as a legitimate
   sentinel (`gbm_bo_create` without explicit modifier negotiation returns
   it). Landed atomically across `veiland-protocol`, `veiland-core`, and this
-  doc as part of the M3 commit.
+  doc in a single commit.
 
 ## 12. Rendering conventions
 
