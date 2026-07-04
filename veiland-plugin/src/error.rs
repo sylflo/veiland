@@ -87,10 +87,7 @@ mod tests {
     #[test]
     fn display_renders_every_variant() {
         let _ = format!("{}", PluginError::Env("VEILAND_PLUGIN_SOCKET"));
-        let _ = format!(
-            "{}",
-            PluginError::Io(std::io::Error::other("x"))
-        );
+        let _ = format!("{}", PluginError::Io(std::io::Error::other("x")));
         let _ = format!("{}", PluginError::Nix(nix::Error::EINVAL));
         let _ = format!("{}", PluginError::Protocol(ProtocolError::Truncated));
         let _ = format!("{}", PluginError::ProtocolViolation("test"));

@@ -93,10 +93,7 @@ mod tests {
     /// If a new variant is added without updating Display, this fails to build.
     #[test]
     fn display_renders_every_variant() {
-        let _ = format!(
-            "{}",
-            HostError::Io(std::io::Error::other("x"))
-        );
+        let _ = format!("{}", HostError::Io(std::io::Error::other("x")));
         let _ = format!("{}", HostError::Nix(nix::Error::EINVAL));
         let _ = format!("{}", HostError::Protocol(ProtocolError::Truncated));
         let _ = format!("{}", HostError::ProtocolViolation("test"));
