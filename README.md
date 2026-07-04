@@ -69,6 +69,61 @@ nix run github:sylflo/veiland
 (Run outside NixOS, or before adding the module, this still needs the
 PAM service — see [PAM setup](#pam-setup).)
 
+### Arch Linux
+
+Install from the AUR (available from the `v0.1.0` release onward):
+
+```sh
+yay -S veiland        # or: paru -S veiland
+```
+
+The package installs `veiland-core` and the reference plugins into
+`/usr/bin` and registers the `veiland` PAM service — no manual
+`/etc/pam.d/veiland` needed.
+
+To build it yourself from this repo instead:
+
+```sh
+cd packaging/arch
+makepkg -si
+```
+
+### Debian / Ubuntu
+
+Download the `.deb` from the [latest release][releases] and install it
+(available from `v0.1.0` onward). `apt` pulls in the runtime libraries:
+
+```sh
+sudo apt install ./veiland_0.1.0-1_amd64.deb
+```
+
+The package installs the binaries into `/usr/bin` and bundles
+`/etc/pam.d/veiland`, so PAM works out of the box. Built for Debian 13
+(trixie) and newer, and Ubuntu 24.04 and newer.
+
+To build the `.deb` yourself from this repo:
+
+```sh
+cp -r packaging/debian debian
+dpkg-buildpackage -b -us -uc
+sudo apt install ../veiland_*.deb
+```
+
+### Fedora / RHEL
+
+Install the `.rpm` straight from the [latest release][releases]
+(available from `v0.1.0` onward); `dnf` resolves the runtime deps:
+
+```sh
+sudo dnf install https://github.com/sylflo/veiland/releases/latest/download/veiland-0.1.0-1.x86_64.rpm
+```
+
+The package installs the binaries into `/usr/bin` and bundles
+`/etc/pam.d/veiland`. To build the `.rpm` yourself, see
+`packaging/README.md`.
+
+[releases]: https://github.com/sylflo/veiland/releases
+
 ### From source
 
 Linux only. Requires `pkg-config`, Mesa (libgbm, libEGL, libGLESv2),
@@ -95,6 +150,9 @@ Veiland authenticates against the PAM service named `veiland`, so
 `account` phases (verify the password, check the account is valid) — it
 does not open a session, so the config is minimal.
 
+The **distro packages** (Arch/Debian/Fedora, above) bundle this file, so
+if you installed one of them there is nothing to do here.
+
 On **NixOS**, the [flake module](#nixos-flake-module) handles this. If
 you install the package some other way, add:
 
@@ -102,8 +160,9 @@ you install the package some other way, add:
 security.pam.services.veiland = {};
 ```
 
-On **other distributions**, create `/etc/pam.d/veiland` referencing the
-system auth stack. Most distributions (Arch, Fedora, openSUSE):
+For a **source install on other distributions**, create
+`/etc/pam.d/veiland` referencing the system auth stack. Most
+distributions (Arch, Fedora, openSUSE):
 
 ```
 auth     include system-auth
@@ -117,9 +176,12 @@ auth     include common-auth
 account  include common-account
 ```
 
-This inherits whatever policy the system already uses (fingerprint
-readers, hardware tokens, etc.) and stays correct as that policy changes.
-It is the standard approach for a screen locker's PAM stack.
+This inherits the system's password policy and stays correct as that
+policy changes — the standard approach for a screen locker's PAM stack.
+Note that veiland does **password authentication only**: it feeds the
+typed password to PAM and cannot drive interactive modules like
+fingerprint readers or hardware tokens, so any such lines the include
+pulls in are inert for veiland.
 
 ## Configuration
 
