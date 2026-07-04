@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Veiland plugin protocol — v1 (M3 draft)
+# Veiland plugin protocol — v1
 
 This document is the source of truth for the wire protocol between veiland-core
 (the host) and a plugin process. The Rust types in `veiland-protocol` are *an*

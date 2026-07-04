@@ -3,7 +3,7 @@ name = "veiland-label"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "M10 demo plugin — renders a single styled text label from [plugin.config] via veiland-text."
+description = "Demo plugin — renders a single styled text label from [plugin.config] via veiland-text."
 repository = "https://github.com/sylflo/veiland"
 publish = false
 

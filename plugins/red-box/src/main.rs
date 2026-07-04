@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M6 throwaway test plugin — fills its region with red at ~78%
+//! Throwaway test plugin — fills its region with red at ~78%
 //! opacity. Exists to validate the host's per-region compositing
 //! and straight-alpha blending. Not a reference plugin; M7 will
 //! produce polished reference plugins (clock, wallpaper, shader-bg).

@@ -41,12 +41,6 @@ impl SessionLockHandler for AppData {
         _serial: u32,
     ) {
         let (width, height) = configure.new_size;
-        eprintln!(
-            "[M8-TRACE] configure ENTER: wl_surface={:?} size=({}x{})",
-            session_lock_surface.wl_surface().id(),
-            width,
-            height,
-        );
 
         let target = session_lock_surface.wl_surface();
         // Look up the surface in our vec. Returning None here is *not*

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M11 reference plugin — slow upward drift of small dots.
+//! Reference plugin — slow upward drift of small dots.
 //!
 //! Geometry-based (one quad per particle, not instanced rendering),
 //! per `docs/m11-plan.md`. Each particle has a fixed seed (its X,

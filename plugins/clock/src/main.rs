@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M11 reference plugin — renders the time and date as two labels.
+//! Reference plugin — renders the time and date as two labels.
 //!
 //! Builds two `veiland_text::Label`s every `FrameDone` from
 //! `Configure.time_unix_seconds` + `time_tz_offset_seconds`, formatted

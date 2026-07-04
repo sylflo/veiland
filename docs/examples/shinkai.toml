@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# M11 mockup fixture — Shinkai movies, scene 1 ("Your Name").
+# Mockup scene — Shinkai movies, scene 1 ("Your Name").
 #
-# Composes all four M11 reference plugins (wallpaper, vignette,
-# particles, clock) plus two `veiland-label` instances from M10 for
-# the movie title and the quote. Z-order matches docs/m11-plan.md Q3:
+# Composes all four reference plugins (wallpaper, vignette,
+# particles, clock) plus two `veiland-label` instances for
+# the movie title and the quote. Z-order (back to front):
 #
 #   0  wallpaper       (background image)
 #   10 vignette        (darkens corners)

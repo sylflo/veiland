@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M11 reference plugin — four-corner radial-gradient vignette.
+//! Reference plugin — four-corner radial-gradient vignette.
 //!
 //! One full-buffer quad. Fragment shader computes per-pixel coverage
 //! from four corner radial-gradient terms (one per corner), sums

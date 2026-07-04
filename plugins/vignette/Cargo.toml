@@ -3,7 +3,7 @@ name = "veiland-vignette"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "M11 reference plugin — four-corner radial-gradient vignette via a single fragment shader."
+description = "Reference plugin — four-corner radial-gradient vignette via a single fragment shader."
 repository = "https://github.com/sylflo/veiland"
 publish = false
 

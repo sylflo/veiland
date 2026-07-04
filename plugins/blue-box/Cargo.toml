@@ -3,7 +3,7 @@ name = "veiland-blue-box"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "M6 throwaway test plugin — fills its region with blue at 50% opacity. Validates the host's compositor and straight-alpha blending; not a reference plugin."
+description = "Throwaway test plugin — fills its region with blue at 50% opacity. Validates the host's compositor and straight-alpha blending; not a reference plugin."
 repository = "https://github.com/sylflo/veiland"
 publish = false
 

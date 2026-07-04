@@ -3,7 +3,7 @@ name = "veiland-particles"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "M11 reference plugin — slow upward drift of small dots."
+description = "Reference plugin — slow upward drift of small dots."
 repository = "https://github.com/sylflo/veiland"
 publish = false
 

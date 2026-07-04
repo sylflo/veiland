@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M6 throwaway test plugin — fills its region with fully-opaque
+//! Throwaway test plugin — fills its region with fully-opaque
 //! green. Exists to validate the host's per-region compositing.
 //! Fully opaque, so blending is observationally equivalent to
 //! GL_REPLACE in this plugin's region — it covers everything below.

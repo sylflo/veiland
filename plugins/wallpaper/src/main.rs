@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M11 reference plugin — displays a single fixed image as a
+//! Reference plugin — displays a single fixed image as a
 //! full-surface background.
 //!
 //! Reads `path = "..."` from `VEILAND_PLUGIN_CONFIG`, kicks off a

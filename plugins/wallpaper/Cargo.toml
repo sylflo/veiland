@@ -3,7 +3,7 @@ name = "veiland-wallpaper"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "M11 reference plugin — displays a single fixed image as the lock-surface background."
+description = "Reference plugin — displays a single fixed image as the lock-surface background."
 repository = "https://github.com/sylflo/veiland"
 publish = false
 

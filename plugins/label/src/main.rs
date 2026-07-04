@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! M10 demo plugin — renders a single styled text label.
+//! Demo plugin — renders a single styled text label.
 //!
 //! Reads its config from `VEILAND_PLUGIN_CONFIG` (JSON, per
 //! `docs/protocol.md` §2 and `docs/config.md` §3), constructs a
