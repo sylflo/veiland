@@ -33,8 +33,11 @@
 #
 # Visible-vs-mockup differences:
 #
-# * Particle motion is ~10 fps not ~60 fps (host pacing limitation;
-#   per-plugin frame rate is a known limitation, deferred).
+# * (none affecting motion) Particles/sakura animate at the compositor
+#   refresh rate — measured ~55-60 fps per output. An older note here
+#   claimed ~10 fps; that was the pre-explicit-sync eglSwapBuffers stall,
+#   since fixed. Per-plugin frame rate (a plugin choosing its own slower
+#   rate) is still a deferred limitation, but does not slow motion.
 #
 # Letter-spacing, font-weight, and italics now match the mockup: the
 # labels carry `letter_spacing` + `font_weight` + `italic`, the clock
