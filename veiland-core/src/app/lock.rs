@@ -78,7 +78,13 @@ impl SessionLockHandler for AppData {
         let new_size = (width, height);
         let size_changed = entry.surface_size != Some(new_size);
         entry.surface_size = Some(new_size);
-        if entry.egl_window.is_none() {
+        if let Some(egl_window) = entry.egl_window.as_ref() {
+            egl_window.resize(width as i32, height as i32, 0, 0);
+            println!(
+                " -> [{}] resized EGL surface ({}x{})",
+                entry.name, width, height
+            );
+        } else {
             let egl_window =
                 wayland_egl::WlEglSurface::new(target.id(), width as i32, height as i32)
                     .expect("WlEglSurface::new");
@@ -96,16 +102,6 @@ impl SessionLockHandler for AppData {
             entry.egl_surface = Some(egl_surface);
             println!(
                 " -> [{}] created EGL surface ({}x{})",
-                entry.name, width, height
-            );
-        } else {
-            entry
-                .egl_window
-                .as_ref()
-                .unwrap()
-                .resize(width as i32, height as i32, 0, 0);
-            println!(
-                " -> [{}] resized EGL surface ({}x{})",
                 entry.name, width, height
             );
         }
