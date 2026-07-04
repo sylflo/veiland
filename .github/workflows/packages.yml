@@ -76,9 +76,40 @@ jobs:
         run: echo "Debian packaging lands in Step 3 (docs/packaging-plan.md)."
 
   fedora:
-    name: Fedora (.rpm) [placeholder]
+    name: Fedora (.rpm)
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
-      - name: Placeholder
-        run: echo "Fedora packaging lands in Step 4 (docs/packaging-plan.md)."
+      - name: Install build tooling
+        run: |
+          dnf -y install rpm-build rpmdevtools tar git \
+            cargo rust pkgconf-pkg-config \
+            pam-devel mesa-libGL-devel mesa-libEGL-devel mesa-libgbm-devel \
+            libdrm-devel wayland-devel libxkbcommon-devel turbojpeg-devel
+
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: |
+          # rpmbuild wants the source tree as a tarball named
+          # %{name}-%{version}.tar.gz whose top dir is %{name}-%{version}.
+          set -eux
+          rpmdev-setuptree
+          ver=0.1.0
+          git config --global --add safe.directory "$PWD"
+          # Stage a clean copy of the tree under veiland-$ver/ and tar it.
+          git archive --format=tar --prefix="veiland-$ver/" HEAD \
+            | gzip > "$HOME/rpmbuild/SOURCES/veiland-$ver.tar.gz"
+          rpmbuild -ba packaging/rpm/veiland.spec
+          ls -la "$HOME"/rpmbuild/RPMS/*/*.rpm
+          # rpmbuild writes outside the workspace; upload-artifact
+          # forbids '..' in paths, so copy the RPMs into the workspace.
+          mkdir -p dist
+          cp "$HOME"/rpmbuild/RPMS/*/*.rpm dist/
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veiland-fedora
+          path: dist/*.rpm
+          if-no-files-found: warn
