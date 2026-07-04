@@ -32,15 +32,94 @@ Veiland-core is a Wayland client that owns the lock surface, handles PAM, and co
 
 All security-critical operations (input handling, password buffer, PAM, unlock decision) run in the trusted core process. Plugins are untrusted and sandboxed by process boundaries — the kernel enforces both crash isolation and memory isolation for free.
 
-## Building
+## Installing
 
-Linux only. Requires `pkg-config`, Mesa (libgbm, libEGL, libGLESv2), libdrm, libpam, and a Wayland compositor implementing `ext-session-lock-v1`.
+### NixOS (flake module)
 
-NixOS users: `nix-shell` pulls in all dependencies. See `shell.nix`.
+Veiland ships a flake with a NixOS module. Add veiland as an input and
+import the module:
+
+```nix
+# flake.nix
+{
+  inputs.veiland.url = "github:sylflo/veiland";
+}
+```
+
+```nix
+# configuration.nix (with `inputs` in scope, e.g. via specialArgs)
+{
+  imports = [ inputs.veiland.nixosModules.default ];
+  services.veiland.enable = true;
+}
+```
+
+`services.veiland.enable = true` installs `veiland-core` and the
+reference plugins and registers the `veiland` PAM service for you — no
+manual `/etc/pam.d/veiland` needed. All that's left is to write a config
+(see [Configuration](#configuration)) and bind a key or idle daemon to
+`veiland-core`.
+
+To try it without installing anything:
+
+```sh
+nix run github:sylflo/veiland
+```
+
+(Run outside NixOS, or before adding the module, this still needs the
+PAM service — see [PAM setup](#pam-setup).)
+
+### From source
+
+Linux only. Requires `pkg-config`, Mesa (libgbm, libEGL, libGLESv2),
+libdrm, libpam, and a Wayland compositor implementing
+`ext-session-lock-v1`.
 
 ```sh
 cargo build --release
 ```
+
+The flake's dev shell provides every build dependency:
+
+```sh
+nix develop      # drops you into a shell with the full toolchain
+```
+
+A source build does **not** set up PAM — you must create
+`/etc/pam.d/veiland` yourself. See [PAM setup](#pam-setup).
+
+## PAM setup
+
+Veiland authenticates against the PAM service named `veiland`, so
+`/etc/pam.d/veiland` must exist. Veiland only performs the `auth` and
+`account` phases (verify the password, check the account is valid) — it
+does not open a session, so the config is minimal.
+
+On **NixOS**, the [flake module](#nixos-flake-module) handles this. If
+you install the package some other way, add:
+
+```nix
+security.pam.services.veiland = {};
+```
+
+On **other distributions**, create `/etc/pam.d/veiland` referencing the
+system auth stack. Most distributions (Arch, Fedora, openSUSE):
+
+```
+auth     include system-auth
+account  include system-auth
+```
+
+Debian/Ubuntu use `common-auth` / `common-account` instead:
+
+```
+auth     include common-auth
+account  include common-account
+```
+
+This inherits whatever policy the system already uses (fingerprint
+readers, hardware tokens, etc.) and stays correct as that policy changes.
+It is the same approach swaylock and hyprlock use.
 
 ## Configuration
 
@@ -62,6 +141,12 @@ name = "clock"
 binary = "/path/to/veiland-clock"
 z_index = 1
 ```
+
+Each plugin's `binary` is an absolute path. When installed via the
+NixOS module the plugins are on `PATH`, so resolve the store path with
+`readlink -f "$(which veiland-clock)"` (or point `binary` at the plugin
+directly, e.g. `${pkgs.veiland}/bin/veiland-clock` if you generate the
+config in Nix).
 
 Example configs (including a Shinkai-mockup scene) are in `docs/examples/`.
 
