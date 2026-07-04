@@ -68,12 +68,63 @@ jobs:
           if-no-files-found: warn
 
   debian:
-    name: Debian (.deb) [placeholder]
+    name: Debian (.deb)
     runs-on: ubuntu-latest
-    container: debian:stable
+    # debian:testing (trixie), not stable: stable's libturbojpeg (2.1.5)
+    # is below the turbojpeg crate's >= 3.0 floor. Testing ships 3.x.
+    # The produced .deb therefore targets trixie/newer, not oldstable.
+    container: debian:testing
     steps:
-      - name: Placeholder
-        run: echo "Debian packaging lands in Step 3 (docs/packaging-plan.md)."
+      - name: Install build tooling
+        run: |
+          apt-get update
+          # build-essential + debhelper give dpkg-buildpackage/dh; the
+          # rest are this package's Build-Depends. NOT apt's cargo/rustc:
+          # debian:stable ships rustc 1.85, but the dependency tree needs
+          # 1.89 (cosmic-text, image, smol_str). We install a current
+          # toolchain via rustup instead (see below), leaving Cargo.lock
+          # and the other distros/flake untouched. curl+ca-certificates
+          # are for the rustup installer.
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential debhelper devscripts pkg-config \
+            curl ca-certificates \
+            libpam0g-dev libgl-dev libegl-dev libgbm-dev \
+            libdrm-dev libwayland-dev libxkbcommon-dev libturbojpeg0-dev
+
+      - name: Install Rust (rustup)
+        run: |
+          set -eux
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          # Put cargo on PATH for subsequent steps.
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: |
+          # dpkg-buildpackage expects debian/ at the top of the source
+          # tree; ours lives under packaging/debian/, so stage it there.
+          set -eux
+          # debian/rules calls cargo; make sure rustup's toolchain is on
+          # PATH inside the dpkg-buildpackage subprocess too.
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cp -r packaging/debian debian
+          # -b: binary-only. -us -uc: unsigned. -d: skip the
+          # Build-Depends sanity check (we installed them above).
+          dpkg-buildpackage -b -us -uc -d
+          # dpkg writes the .deb to the PARENT dir; copy it into the
+          # workspace so upload-artifact can find it (no '..' allowed).
+          mkdir -p dist
+          cp ../*.deb dist/
+          ls -la dist/
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veiland-debian
+          path: dist/*.deb
+          if-no-files-found: warn
 
   fedora:
     name: Fedora (.rpm)

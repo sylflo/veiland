@@ -1,0 +1,8 @@
+target/release/veiland-core        usr/bin
+target/release/veiland-wallpaper   usr/bin
+target/release/veiland-clock       usr/bin
+target/release/veiland-particles   usr/bin
+target/release/veiland-vignette    usr/bin
+target/release/veiland-label       usr/bin
+target/release/veiland-sakura      usr/bin
+packaging/veiland.example.toml     usr/share/veiland

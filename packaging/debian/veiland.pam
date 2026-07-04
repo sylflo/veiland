@@ -1,0 +1,9 @@
+# PAM configuration for veiland (Debian/Ubuntu).
+# veiland does password authentication only. It runs the auth and
+# account phases and feeds the typed password to PAM; it never opens a
+# session, sets credentials, or changes passwords, and it cannot drive
+# interactive modules like fingerprint (pam_fprintd) or hardware tokens.
+# On Debian the system stack is split into common-* fragments; any
+# non-password lines they pull in are inert for veiland.
+auth     include  common-auth
+account  include  common-account

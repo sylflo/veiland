@@ -1,0 +1,39 @@
+Source: veiland
+Section: x11
+Priority: optional
+Maintainer: sylflo <veiland@sylvain-chateau.com>
+# Rust is intentionally NOT a Build-Depends: the CI build installs a
+# current toolchain via rustup (the dependency tree needs rustc 1.89;
+# not all Debian releases carry that yet). dpkg-buildpackage is run with
+# -d to skip the Build-Depends check accordingly. The build runs on
+# debian:testing (trixie) because stable's libturbojpeg (2.1.5) is below
+# the turbojpeg crate's >= 3.0 requirement.
+Build-Depends:
+ debhelper-compat (= 13),
+ pkg-config,
+ libpam0g-dev,
+ libgl-dev,
+ libegl-dev,
+ libgbm-dev,
+ libdrm-dev,
+ libwayland-dev,
+ libxkbcommon-dev,
+ libturbojpeg0-dev,
+Standards-Version: 4.6.2
+Homepage: https://github.com/sylflo/veiland
+Rules-Requires-Root: no
+
+Package: veiland
+Architecture: linux-any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+Description: Wayland screen locker with process-isolated GPU plugins
+ Veiland is a Wayland screen locker whose visual layers (wallpaper,
+ clock, animations, widgets) run as separate, process-isolated plugins
+ that render on the GPU and share buffers with the locker via DMA-BUF.
+ The locker itself owns PAM authentication, keyboard input, and the
+ unlock decision; plugins never see keystrokes or the password.
+ .
+ This package installs veiland-core and the reference plugins
+ (wallpaper, clock, particles, vignette, label, sakura).

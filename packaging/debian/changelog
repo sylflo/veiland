@@ -1,0 +1,5 @@
+veiland (0.1.0-1) unstable; urgency=medium
+
+  * Initial package: veiland-core + reference plugins, bundled PAM service.
+
+ -- sylflo <veiland@sylvain-chateau.com>  Sat, 04 Jul 2026 18:00:00 +0000
