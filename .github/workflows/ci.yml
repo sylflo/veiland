@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# CI: the flake is the gate. `nix flake check` runs fmt + clippy + the
+# test suite (see flake.nix `checks`); `nix build` proves the package
+# still produces binaries. No apt package list to maintain — the flake
+# pins every system library.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref (e.g. a force-push to a PR).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake:
+    name: nix flake check + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # Zero-config binary cache backed by the GitHub Actions cache, so
+      # reruns don't recompile the whole dependency tree. No account, no
+      # secrets. If this backend is retired, drop the step (CI still works,
+      # just slower) or switch to a Cachix / FlakeHub cache.
+      - name: Set up Nix store cache
+        uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - name: Flake checks (fmt, clippy, tests)
+        run: nix flake check --print-build-logs
+
+      - name: Build package
+        run: nix build --print-build-logs
