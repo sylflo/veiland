@@ -14,7 +14,7 @@
 //! scale or region.
 //!
 //! `precision highp float` everywhere — `mediump` Mesa can band on
-//! the smoothstep sum at low gradient values (per m11-plan.md Risks).
+//! the smoothstep sum at low gradient values.
 
 use serde::Deserialize;
 use veiland_plugin::{
@@ -114,7 +114,7 @@ struct GpuState {
 
 unsafe fn build_gpu_state() -> Result<GpuState, String> {
     // Highp throughout — mediump on Mesa can band the sum of four
-    // smoothsteps at small gradient values (m11-plan.md Risks).
+    // smoothsteps at small gradient values.
     let vs_src = b"#version 100\n\
         precision highp float;\n\
         attribute vec2 a_pos;\n\

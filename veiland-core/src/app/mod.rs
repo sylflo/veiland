@@ -319,7 +319,7 @@ impl AppData {
     /// plugins pure functions of host events instead of each one
     /// reaching for `clock_gettime` independently.
     ///
-    /// 30 s is the cadence picked in `docs/m11-plan.md` Q1: within
+    /// 30 s is the chosen cadence: within
     /// half a minute of true wall-clock time, cheap enough to ignore.
     /// Other Configure fields (region, scale, output_name) are
     /// re-sent unchanged from `slot.last_configure`.

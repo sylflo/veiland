@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! GPU glyph atlas. See `docs/m10-plan.md` step 4.
+//! GPU glyph atlas.
 //!
 //! One `R8` GL texture (1024×1024 by default) holds every rasterized
 //! glyph the plugin has drawn this session. A hash map keyed on
@@ -34,7 +34,7 @@
 use std::collections::HashMap;
 
 /// Side length of the atlas texture, in physical pixels. 1024 × 1024 ×
-/// 1 byte = 1 MB. See `docs/m10-plan.md` Q7 for the sizing rationale.
+/// 1 byte = 1 MB.
 const ATLAS_SIZE: u32 = 1024;
 
 /// Identifier for a glyph in the atlas. The tuple discretizes everything

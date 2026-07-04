@@ -31,7 +31,7 @@ use crate::config::Region;
 /// produces clip-space values outside `[-1, +1]` and GL clips them
 /// at the rasterizer. The config loader logs a warning for
 /// implausible-looking coords (>8192) but otherwise lets them
-/// through. See `docs/m6-plan.md` Q2.
+/// through.
 pub fn region_to_clip_rect(region: Option<&Region>, surface_w: i32, surface_h: i32) -> [f32; 4] {
     let Some(r) = region else {
         return [-1.0, -1.0, 2.0, 2.0];

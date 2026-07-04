@@ -16,7 +16,7 @@
 //!
 //! 2. `FontContext::new()` runs alongside GPU setup; it does the
 //!    ~30–100ms fontdb system-font scan once. Eager init is fine for a
-//!    long-lived plugin per `docs/m10-plan.md` Q8.
+//!    long-lived plugin.
 
 use serde::Deserialize;
 use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};

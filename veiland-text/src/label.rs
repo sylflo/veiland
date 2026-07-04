@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Public `Label` API and its GL draw path. See `docs/m10-plan.md`
-//! step 5a.
+//! Public `Label` API and its GL draw path.
 //!
 //! 5a built the core: text/font/size/color/alignment/position; shape
 //! via cosmic-text, upload glyphs into the atlas (step 4), one
@@ -182,8 +181,6 @@ const VS_SRC: &[u8] = b"#version 100\n\
         // own Y convention cancels it, so the net effect is identity:\n\
         // pixel-y = 0 in the plugin renders to screen-row 0. So we map\n\
         // pixel-y/h directly to clip.y * 0.5 + 0.5.\n\
-        //\n\
-        // See docs/m10-plan.md step 5b for the rotation + shadow math.\n\
         vec2 rel = a_pos - u_anchor;\n\
         vec2 rot = vec2(rel.x * u_rot.x - rel.y * u_rot.y,\n\
                         rel.x * u_rot.y + rel.y * u_rot.x);\n\

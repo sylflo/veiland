@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Stress plugin — deliberately heavy fragment shader, used to measure
-//! the per-frame round-trip cost before and after M5a's fence-based
-//! sync. See `docs/m5-plan.md` step 0.
+//! the per-frame round-trip cost before and after the fence-based
+//! sync path.
 //!
 //! The fragment shader runs `ITERATIONS` iterations of a sin/cos loop
 //! per pixel. With `ITERATIONS = 0` we measure the IPC + composite

@@ -2,8 +2,8 @@
 
 //! Reference plugin — slow upward drift of small dots.
 //!
-//! Geometry-based (one quad per particle, not instanced rendering),
-//! per `docs/m11-plan.md`. Each particle has a fixed seed (its X,
+//! Geometry-based (one quad per particle, not instanced rendering).
+//! Each particle has a fixed seed (its X,
 //! and a time offset within the cycle); the Y position is recomputed
 //! every frame from `(now - t_offset) mod cycle`. When a particle
 //! wraps past the top it reappears at the bottom — the per-particle
@@ -11,9 +11,8 @@
 //!
 //! Cadence: the plugin treats `BufferReleased` as "render next
 //! frame," not FrameDone. The host's compositor refresh rate ends up
-//! driving us. See `docs/m11-plan.md` Q2 — we accept the CPU/GPU
-//! cost for M11 v1; the proper "opt into 60Hz" host capability is
-//! M12+.
+//! driving us — we accept the CPU/GPU cost for v1; the proper "opt
+//! into 60Hz" host capability is future work.
 
 use serde::Deserialize;
 use std::time::Instant;
@@ -438,7 +437,7 @@ fn run() -> Result<(), PluginError> {
 
     // Self-paced: render on every BufferReleased so the compositor's
     // repaint rate drives the animation, not the host's input-event
-    // cadence. See module docs / m11-plan Q2. FramePacer owns the pacing
+    // cadence. See module docs. FramePacer owns the pacing
     // state machine.
     let mut pacer = FramePacer::self_paced();
     loop {

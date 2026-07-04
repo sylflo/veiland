@@ -17,7 +17,7 @@
 //!
 //! Cadence mirrors `veiland-particles`: render on `BufferReleased` so
 //! the compositor's repaint rate drives the animation. See that plugin's
-//! module docs and `docs/m11-plan.md` Q2.
+//! module docs.
 
 use serde::Deserialize;
 use std::time::Instant;

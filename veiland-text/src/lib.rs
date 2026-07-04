@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Text rendering for veiland plugins. See `docs/m10-plan.md`.
+//! Text rendering for veiland plugins.
 //!
-//! M10 step 5a: the public `Label` API and its GL draw path land.
+//! The public `Label` API and its GL draw path.
 //! Plugins construct a `FontContext` once at startup, build a `Label`
 //! per frame (cheap — just config), and call `FontContext::render`.
 //! Atlas (step 4) and shader/VBO (this step) materialize lazily on the
@@ -98,15 +98,14 @@ mod tests {
     /// useful. This test catches the "dev box has no fonts installed"
     /// case at `cargo test` time rather than at "demo plugin shows blank
     /// screen" time. If it fails on NixOS, the dev shell needs fontconfig
-    /// + a font package (`noto-fonts` or equivalent) — see `docs/m10-plan.md` Q6.
+    /// + a font package (`noto-fonts` or equivalent).
     #[test]
     fn font_context_finds_at_least_one_system_font() {
         let ctx = FontContext::new();
         let font_count = ctx.font_system.db().len();
         assert!(
             font_count > 0,
-            "fontdb found zero fonts — fontconfig/system-font integration is broken; \
-             see docs/m10-plan.md Q6"
+            "fontdb found zero fonts — fontconfig/system-font integration is broken"
         );
     }
 }
