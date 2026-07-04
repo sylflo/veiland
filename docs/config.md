@@ -199,7 +199,7 @@ placeholder_font_family = "Sans"           # CSS-style family name
 placeholder_font_size = 18                 # surface px; clamped [1, 512]
 ```
 
-**Colours** use a Hyprlock-style `rgba(r, g, b, a)` string: `r`/`g`/`b`
+**Colours** use a CSS-style `rgba(r, g, b, a)` string: `r`/`g`/`b`
 are integers `0..=255`, `a` is a float `0.0..=1.0`. `rgb(r, g, b)`
 (alpha implied `1.0`) is also accepted. Out-of-range channels are a
 load error (a typo worth surfacing); alpha outside `0..=1` is clamped.

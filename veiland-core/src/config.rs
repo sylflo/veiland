@@ -75,7 +75,7 @@ pub struct Region {
     pub h: u32,
 }
 
-/// An RGBA colour, parsed from a Hyprlock-style `rgba(r, g, b, a)` string.
+/// An RGBA colour, parsed from a CSS-style `rgba(r, g, b, a)` string.
 /// `r`/`g`/`b` are 0–255 integers, `a` is a 0.0–1.0 float. `rgb(r, g, b)`
 /// (alpha implied 1.0) is also accepted.
 ///
@@ -95,7 +95,7 @@ impl Color {
     }
 }
 
-/// Parse a Hyprlock-style `rgba(r, g, b, a)` / `rgb(r, g, b)` colour string.
+/// Parse a CSS-style `rgba(r, g, b, a)` / `rgb(r, g, b)` colour string.
 ///
 /// `r`/`g`/`b` are integers in `0..=255` (rejected if out of range — a
 /// typo like `rgba(300, 0, 0, 1)` is a config error worth surfacing). `a`

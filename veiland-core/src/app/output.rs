@@ -174,7 +174,7 @@ impl OutputHandler for AppData {
         // handler BEFORE releasing the wl_output (SCTK 0.20
         // src/output.rs lines 909-918), so destroying the lock surface
         // here happens while the wl_output is still alive — matching
-        // swaylock / hyprlock's destruction order:
+        // the canonical ext-session-lock destruction order:
         //
         //     ext_session_lock_surface_v1.destroy()  ← our Drop here
         //     wl_surface.destroy()                   ← chained Drops
@@ -183,12 +183,10 @@ impl OutputHandler for AppData {
         // The earlier `mem::forget` was a M7-debug-cycle empirical
         // workaround that traded a Drop-time crash for a later
         // swap-time crash on the surviving monitor (Hyprland) and
-        // stranded keyboard focus on the destroyed surface (Sway —
-        // the compositor doesn't re-route until the surface object
-        // is actually destroyed). Both researched references just
-        // drop the surface — see hyprlock's
-        // src/core/hyprlock.cpp setGlobalRemove and swaylock-plugin's
-        // main.c destroy_surface.
+        // stranded keyboard focus on the destroyed surface (some
+        // compositors don't re-route until the surface object is
+        // actually destroyed). The correct fix is to just drop the
+        // surface so the .destroy() is sent.
         self.lock_surfaces[output_idx] = None;
         eprintln!(
             "veiland-core: output {:?} (id {}) teardown complete; slot is now None",

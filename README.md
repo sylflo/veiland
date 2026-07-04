@@ -119,7 +119,7 @@ account  include common-account
 
 This inherits whatever policy the system already uses (fingerprint
 readers, hardware tokens, etc.) and stays correct as that policy changes.
-It is the same approach swaylock and hyprlock use.
+It is the standard approach for a screen locker's PAM stack.
 
 ## Configuration
 
@@ -207,7 +207,6 @@ Other compositors implementing the protocol (KDE Plasma, niri, Wayfire, river, a
 
 The Linux GPU stack (GBM, EGL, dmabuf import) is sparsely documented. Useful starting points:
 
-- [`swaylock-plugin`](https://github.com/mstoeckl/swaylock-plugin) — closest project in spirit; demonstrates `ext-session-lock-v1` lifecycle and delegating background rendering to another process.
 - [`kmscube`](https://gitlab.freedesktop.org/mesa/kmscube) — canonical GBM + EGL example.
 - [`wlroots`](https://gitlab.freedesktop.org/wlroots/wlroots) — production-quality GBM + EGL + dmabuf import. See `render/gles2/` and `render/allocator/gbm.c`.
 - [`EGL_EXT_image_dma_buf_import`](https://registry.khronos.org/EGL/extensions/EXT/EGL_EXT_image_dma_buf_import.txt) — the load-bearing EGL extension.
