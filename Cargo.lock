@@ -1196,6 +1196,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "veiland-embers"
+version = "0.1.0"
+dependencies = [
+ "gl",
+ "serde",
+ "veiland-plugin",
+ "veiland-protocol",
+]
+
+[[package]]
 name = "veiland-gradient"
 version = "0.1.0"
 dependencies = [
