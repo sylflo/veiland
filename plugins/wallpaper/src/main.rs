@@ -18,10 +18,7 @@
 
 use serde::Deserialize;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use veiland_plugin::{
-    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence, gl as vgl,
-};
-use veiland_protocol::Buffer;
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, gl as vgl};
 
 const PLUGIN_NAME: &str = "wallpaper";
 
@@ -255,10 +252,9 @@ fn run() -> Result<(), PluginError> {
     let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
-    let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
     eprintln!(
         "sync model: {} (host_cap={}, plugin_cap={})",
-        if fast_path {
+        if conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd() {
             "fast (fence fd)"
         } else {
             "slow (glFinish)"
@@ -302,10 +298,6 @@ fn run() -> Result<(), PluginError> {
     })?;
     let mut decode_rx: Option<Receiver<Option<DecodedImage>>> = Some(decode_rx);
 
-    // Rebuilt whenever `dma` is reallocated (on a region change), since the
-    // buffer carries the fd/stride/modifier the host needs to import it.
-    let mut buf_msg = buffer_msg_for(&dma);
-
     // On-demand: the wallpaper redraws only when the host asks (and once
     // more when the worker thread's decode lands, via FrameDone). FramePacer
     // owns the deferral state machine.
@@ -313,46 +305,28 @@ fn run() -> Result<(), PluginError> {
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {
-                render_and_send(
-                    &dma,
-                    &gbm_egl,
-                    &mut conn,
-                    &buf_msg,
-                    &mut gpu,
-                    &mut decode_rx,
-                    fast_path,
-                )?;
+                render_and_send(&dma, &mut conn, &gbm_egl, &mut gpu, &mut decode_rx)?;
                 pacer.submitted();
             }
-            Frame::Reconfigure(c) => {
-                // Reallocate the dmabuf to the output's true size (the host
-                // resends Configure after the 1080p spawn fallback). The
-                // decoded image lives in a GL texture in this context's
-                // namespace, not the FBO, so it survives the swap untouched —
-                // the next render redraws it into the new buffer. A failed
-                // realloc is non-fatal: keep the old buffer and stretch rather
-                // than take the locker down.
-                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
-                    Ok(true) => {
-                        buf_msg = buffer_msg_for(&dma);
-                        eprintln!(
-                            "veiland-{}: reallocated to {}x{}, stride={}",
-                            PLUGIN_NAME,
-                            dma.width(),
-                            dma.height(),
-                            dma.stride(),
-                        );
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        eprintln!(
-                            "veiland-{}: reallocation to {}x{} failed: {} — \
-                             keeping current buffer, wallpaper may stretch",
-                            PLUGIN_NAME, c.region_w, c.region_h, e
-                        );
-                    }
+            Frame::Reconfigure(c) => match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
+                Ok(true) => {
+                    eprintln!(
+                        "veiland-{}: reallocated to {}x{}, stride={}",
+                        PLUGIN_NAME,
+                        dma.width(),
+                        dma.height(),
+                        dma.stride(),
+                    );
                 }
-            }
+                Ok(false) => {}
+                Err(e) => {
+                    eprintln!(
+                        "veiland-{}: reallocation to {}x{} failed: {} — \
+                             keeping current buffer, wallpaper may stretch",
+                        PLUGIN_NAME, c.region_w, c.region_h, e
+                    );
+                }
+            },
             Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
@@ -361,34 +335,14 @@ fn run() -> Result<(), PluginError> {
     }
 }
 
-/// Build the wire `Buffer` message describing `dma`. Called once at startup
-/// and again after every reallocation, since the fd/stride/modifier the host
-/// imports all move with the underlying GBM bo. `id` stays 0 across the
-/// plugin's life — v1 is single-buffer, and a fresh `Buffer` with id 0
-/// cleanly replaces the host's prior import.
-fn buffer_msg_for(dma: &DmaBuffer) -> Buffer {
-    Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    }
-}
-
 fn render_and_send(
     dma: &DmaBuffer,
-    gbm_egl: &GbmEgl,
     conn: &mut Connection,
-    buf_msg: &Buffer,
+    gbm_egl: &GbmEgl,
     gpu: &mut GpuState,
     decode_rx: &mut Option<Receiver<Option<DecodedImage>>>,
-    fast_path: bool,
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
-    let (w, h) = (dma.width(), dma.height());
 
     // Check the decode worker before drawing — a freshly-arrived
     // texture renders on the same frame. The receiver is taken once
@@ -419,7 +373,6 @@ fn render_and_send(
     }
 
     unsafe {
-        gl::Viewport(0, 0, w as i32, h as i32);
         gl::ClearColor(0.0, 0.0, 0.0, 1.0);
         gl::Clear(gl::COLOR_BUFFER_BIT);
 
@@ -432,17 +385,7 @@ fn render_and_send(
         }
     }
 
-    if fast_path {
-        unsafe {
-            gl::Flush();
-        }
-        let fence = SyncFence::create(gbm_egl)?;
-        conn.send_buffer(buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
-    } else {
-        dma.finish();
-        conn.send_buffer(buf_msg, dma.dmabuf_fd(), None)?;
-    }
-    Ok(())
+    conn.submit_frame(dma, gbm_egl)
 }
 
 fn main() {

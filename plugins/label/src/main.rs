@@ -19,8 +19,7 @@
 //!    long-lived plugin.
 
 use serde::Deserialize;
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::Buffer;
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError};
 use veiland_text::{FontContext, HAlign, Label, Shadow, VAlign};
 
 const PLUGIN_NAME: &str = "label";
@@ -234,10 +233,9 @@ fn run() -> Result<(), PluginError> {
     let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
-    let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
     eprintln!(
         "sync model: {} (host_cap={}, plugin_cap={})",
-        if fast_path {
+        if conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd() {
             "fast (fence fd)"
         } else {
             "slow (glFinish)"
@@ -284,46 +282,34 @@ fn run() -> Result<(), PluginError> {
         config,
     };
 
-    // Rebuilt whenever `dma` is reallocated (on a region change), since the
-    // buffer carries the fd/stride/modifier the host needs to import it.
-    let mut buf_msg = buffer_msg_for(&dma);
-
     // On-demand: a static label only redraws when the host asks
     // (FrameDone). FramePacer owns the deferral state machine.
     let mut pacer = FramePacer::on_demand();
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {
-                render_and_send(&dma, &gbm_egl, &mut conn, &buf_msg, &mut state, fast_path)?;
+                render_and_send(&dma, &mut conn, &gbm_egl, &mut state)?;
                 pacer.submitted();
             }
-            Frame::Reconfigure(c) => {
-                // Reallocate the dmabuf to the output's true size so text is
-                // laid out at native resolution (render_and_send reads
-                // surface_size from the buffer each frame) and the host's
-                // composite is 1:1 instead of a stretch. Glyph atlas lives in
-                // FontContext, untouched by the swap. Non-fatal on failure.
-                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
-                    Ok(true) => {
-                        buf_msg = buffer_msg_for(&dma);
-                        eprintln!(
-                            "veiland-{}: reallocated to {}x{}, stride={}",
-                            PLUGIN_NAME,
-                            dma.width(),
-                            dma.height(),
-                            dma.stride(),
-                        );
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        eprintln!(
-                            "veiland-{}: reallocation to {}x{} failed: {} — \
-                             keeping current buffer, text may stretch",
-                            PLUGIN_NAME, c.region_w, c.region_h, e
-                        );
-                    }
+            Frame::Reconfigure(c) => match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
+                Ok(true) => {
+                    eprintln!(
+                        "veiland-{}: reallocated to {}x{}, stride={}",
+                        PLUGIN_NAME,
+                        dma.width(),
+                        dma.height(),
+                        dma.stride(),
+                    );
                 }
-            }
+                Ok(false) => {}
+                Err(e) => {
+                    eprintln!(
+                        "veiland-{}: reallocation to {}x{} failed: {} — \
+                             keeping current buffer, text may stretch",
+                        PLUGIN_NAME, c.region_w, c.region_h, e
+                    );
+                }
+            },
             Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());
@@ -332,30 +318,11 @@ fn run() -> Result<(), PluginError> {
     }
 }
 
-/// Build the wire `Buffer` message describing `dma`. Called at startup and
-/// again after every reallocation, since the fd/stride/modifier the host
-/// imports all move with the underlying GBM bo. `id` stays 0 across the
-/// plugin's life — v1 is single-buffer, and a fresh `Buffer` with id 0
-/// cleanly replaces the host's prior import.
-fn buffer_msg_for(dma: &DmaBuffer) -> Buffer {
-    Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    }
-}
-
 fn render_and_send(
     dma: &DmaBuffer,
-    gbm_egl: &GbmEgl,
     conn: &mut Connection,
-    buf_msg: &Buffer,
+    gbm_egl: &GbmEgl,
     state: &mut State,
-    fast_path: bool,
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let surface_size = (dma.width(), dma.height());
@@ -364,7 +331,6 @@ fn render_and_send(
     // SAFETY: bind_for_rendering left an FBO current on this thread;
     // the gl crate's function pointers were loaded by GbmEgl::new.
     unsafe {
-        gl::Viewport(0, 0, surface_size.0 as i32, surface_size.1 as i32);
         // Clear to transparent black. The host composites our buffer on
         // top of lower-z plugins using straight-alpha blending
         // (docs/protocol.md §12.1); transparent pixels let the layer
@@ -375,17 +341,7 @@ fn render_and_send(
     }
     state.font_ctx.render(&label, surface_size);
 
-    if fast_path {
-        unsafe {
-            gl::Flush();
-        }
-        let fence = SyncFence::create(gbm_egl)?;
-        conn.send_buffer(buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
-    } else {
-        dma.finish();
-        conn.send_buffer(buf_msg, dma.dmabuf_fd(), None)?;
-    }
-    Ok(())
+    conn.submit_frame(dma, gbm_egl)
 }
 
 fn main() {

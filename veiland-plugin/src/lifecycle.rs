@@ -35,10 +35,13 @@
 //! }
 //! ```
 
-use veiland_protocol::{Configure, ServerMessage};
+use veiland_protocol::{Buffer, Configure, ServerMessage};
 
+use crate::buffer::DmaBuffer;
 use crate::error::PluginError;
+use crate::render::GbmEgl;
 use crate::socket::Connection;
+use crate::sync::SyncFence;
 
 impl Connection {
     /// The full connect preamble in one call: read the socket fd from the
@@ -226,8 +229,40 @@ impl FramePacer {
 
     /// Tell the pacer a buffer was just submitted (one is now in flight), so
     /// it won't issue another [`Frame::Render`] until the host releases it.
-    /// Call this immediately after `conn.send_buffer(...)`.
+    /// Call this immediately after `conn.submit_frame(...)`.
     pub fn submitted(&mut self) {
         self.buffer_released = false;
+    }
+}
+
+impl Connection {
+    /// Submit the current dmabuf frame to the host.
+    ///
+    /// Builds the wire `Buffer` message from `dma` fresh every call (id = 0).
+    /// Picks sync model from the two cached capability booleans: fast path =
+    /// `glFlush` + fence fd; slow path = `glFinish`. Replaces the
+    /// `buffer_msg_for` + `fast_path` plumbing every plugin previously
+    /// copy-pasted.
+    pub fn submit_frame(&mut self, dma: &DmaBuffer, gbm_egl: &GbmEgl) -> Result<(), PluginError> {
+        let buf_msg = Buffer {
+            id: 0,
+            width: dma.width(),
+            height: dma.height(),
+            format: dma.format(),
+            modifier: dma.modifier(),
+            stride: dma.stride(),
+            offset: 0,
+        };
+        if self.host_supports_fence_fd() && gbm_egl.supports_fence_fd() {
+            // SAFETY: requires a current GL context, which all plugins have
+            // after GbmEgl::new(). glFlush flushes without blocking so the
+            // fence fd signals when the GPU actually finishes.
+            unsafe { gl::Flush() };
+            let fence = SyncFence::create(gbm_egl)?;
+            self.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))
+        } else {
+            dma.finish();
+            self.send_buffer(&buf_msg, dma.dmabuf_fd(), None)
+        }
     }
 }

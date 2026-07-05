@@ -17,10 +17,7 @@
 
 use serde::Deserialize;
 use std::time::Instant;
-use veiland_plugin::{
-    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence, gl as vgl,
-};
-use veiland_protocol::Buffer;
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, gl as vgl};
 
 const PLUGIN_NAME: &str = "snow";
 
@@ -418,10 +415,9 @@ fn run() -> Result<(), PluginError> {
     let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
     eprintln!("connected to host, hello sent");
 
-    let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
     eprintln!(
         "sync model: {} (host_cap={}, plugin_cap={})",
-        if fast_path {
+        if conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd() {
             "fast (fence fd)"
         } else {
             "slow (glFinish)"
@@ -474,25 +470,16 @@ fn run() -> Result<(), PluginError> {
         start: Instant::now(),
     };
 
-    let mut buf_msg = buffer_msg_for(&dma);
-
     let mut pacer = FramePacer::self_paced();
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {
-                render_and_send(
-                    &dma, &gbm_egl, &mut conn, &buf_msg, &gpu, &mut state, fast_path,
-                )?;
+                render_and_send(&dma, &mut conn, &gbm_egl, &gpu, &mut state)?;
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
-                // Reallocate the dmabuf to the output's true size. The
-                // flake math is resolution-independent (x_norm * w,
-                // radius * scale, read fresh each frame), so no geometry
-                // change is needed. Non-fatal on failure.
                 match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
                     Ok(true) => {
-                        buf_msg = buffer_msg_for(&dma);
                         eprintln!(
                             "veiland-{}: reallocated to {}x{}, stride={}",
                             PLUGIN_NAME,
@@ -520,28 +507,12 @@ fn run() -> Result<(), PluginError> {
     }
 }
 
-/// Build the wire `Buffer` message describing `dma`. Rebuilt after any
-/// reallocation. `id` stays 0 — v1 is single-buffer.
-fn buffer_msg_for(dma: &DmaBuffer) -> Buffer {
-    Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    }
-}
-
 fn render_and_send(
     dma: &DmaBuffer,
-    gbm_egl: &GbmEgl,
     conn: &mut Connection,
-    buf_msg: &Buffer,
+    gbm_egl: &GbmEgl,
     gpu: &GpuState,
     state: &mut State,
-    fast_path: bool,
 ) -> Result<(), PluginError> {
     dma.bind_for_rendering()?;
     let (w, h) = (dma.width(), dma.height());
@@ -549,7 +520,6 @@ fn render_and_send(
     update_vertices(state, w, h);
 
     unsafe {
-        gl::Viewport(0, 0, w as i32, h as i32);
         // Transparent — snow sits on top of the wallpaper via the host's
         // z-ordered composite.
         gl::ClearColor(0.0, 0.0, 0.0, 0.0);
@@ -618,17 +588,7 @@ fn render_and_send(
         gl::DrawArrays(gl::TRIANGLES, 0, (state.flakes.len() * 6) as i32);
     }
 
-    if fast_path {
-        unsafe {
-            gl::Flush();
-        }
-        let fence = SyncFence::create(gbm_egl)?;
-        conn.send_buffer(buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
-    } else {
-        dma.finish();
-        conn.send_buffer(buf_msg, dma.dmabuf_fd(), None)?;
-    }
-    Ok(())
+    conn.submit_frame(dma, gbm_egl)
 }
 
 fn main() {
