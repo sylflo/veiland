@@ -291,25 +291,9 @@ fn run() -> Result<(), PluginError> {
                 render_and_send(&dma, &mut conn, &gbm_egl, &mut state)?;
                 pacer.submitted();
             }
-            Frame::Reconfigure(c) => match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
-                Ok(true) => {
-                    eprintln!(
-                        "veiland-{}: reallocated to {}x{}, stride={}",
-                        PLUGIN_NAME,
-                        dma.width(),
-                        dma.height(),
-                        dma.stride(),
-                    );
-                }
-                Ok(false) => {}
-                Err(e) => {
-                    eprintln!(
-                        "veiland-{}: reallocation to {}x{} failed: {} — \
-                             keeping current buffer, text may stretch",
-                        PLUGIN_NAME, c.region_w, c.region_h, e
-                    );
-                }
-            },
+            Frame::Reconfigure(c) => {
+                dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME);
+            }
             Frame::Shutdown => {
                 eprintln!("host requested shutdown");
                 return Ok(());

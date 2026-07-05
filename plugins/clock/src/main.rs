@@ -345,25 +345,7 @@ fn run() -> Result<(), PluginError> {
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
-                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
-                    Ok(true) => {
-                        eprintln!(
-                            "veiland-{}: reallocated to {}x{}, stride={}",
-                            PLUGIN_NAME,
-                            dma.width(),
-                            dma.height(),
-                            dma.stride(),
-                        );
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        eprintln!(
-                            "veiland-{}: reallocation to {}x{} failed: {} — \
-                             keeping current buffer, text may stretch",
-                            PLUGIN_NAME, c.region_w, c.region_h, e
-                        );
-                    }
-                }
+                dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME);
                 state.time = CurrentTime {
                     unix_seconds: c.time_unix_seconds,
                     tz_offset_seconds: c.time_tz_offset_seconds,

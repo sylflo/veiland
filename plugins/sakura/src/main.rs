@@ -429,25 +429,7 @@ fn run() -> Result<(), PluginError> {
                 pacer.submitted();
             }
             Frame::Reconfigure(c) => {
-                match dma.resize_to(&gbm_egl, c.region_w, c.region_h) {
-                    Ok(true) => {
-                        eprintln!(
-                            "veiland-{}: reallocated to {}x{}, stride={}",
-                            PLUGIN_NAME,
-                            dma.width(),
-                            dma.height(),
-                            dma.stride(),
-                        );
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        eprintln!(
-                            "veiland-{}: reallocation to {}x{} failed: {} — \
-                             keeping current buffer, petals may scale wrong",
-                            PLUGIN_NAME, c.region_w, c.region_h, e
-                        );
-                    }
-                }
+                dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME);
                 state.scale_120 = c.scale_120;
             }
             Frame::Shutdown => {

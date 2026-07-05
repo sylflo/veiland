@@ -10,8 +10,7 @@
 //! describes a `DmaBuffer` when handing it to the host.
 //!
 //! v1 is single-buffer: the plugin creates one `DmaBuffer` at startup and
-//! reuses it for every frame. M5 will replace this with a 2–3 buffer pool
-//! plus `BufferReleased` driven recycling.
+//! reuses it for every frame.
 //!
 //! The format is ARGB8888 with LINEAR modifier — the v1 protocol allowlist
 //! (see `docs/protocol.md` §6.2). The M2 plugin used XRGB8888; we switched
@@ -223,6 +222,28 @@ impl DmaBuffer {
         *self = new;
         self.bind_for_rendering()?;
         Ok(true)
+    }
+
+    /// Resize to `width × height` with the standard non-fatal policy used by
+    /// every plugin's `Frame::Reconfigure` arm: log on success, ignore
+    /// `Ok(false)` (size unchanged), log-and-keep on error. Never propagates
+    /// an error — a transient allocation failure must not take down the locker.
+    pub fn resize_or_keep(&mut self, gbm_egl: &GbmEgl, width: u32, height: u32, plugin_name: &str) {
+        match self.resize_to(gbm_egl, width, height) {
+            Ok(true) => eprintln!(
+                "veiland-{}: reallocated to {}x{}, stride={}",
+                plugin_name,
+                self.width(),
+                self.height(),
+                self.stride(),
+            ),
+            Ok(false) => {}
+            Err(e) => eprintln!(
+                "veiland-{}: reallocation to {}x{} failed: {} — \
+                 keeping current buffer",
+                plugin_name, width, height, e
+            ),
+        }
     }
 
     /// Bind the buffer as the active GL framebuffer and set the viewport.
