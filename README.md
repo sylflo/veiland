@@ -183,7 +183,9 @@ pulls in are inert for veiland.
 
 ## Configuration
 
-See `docs/config.md` for the full config reference. A minimal config:
+Veiland looks for its config at `~/.config/veiland/config.toml` (or
+`$XDG_CONFIG_HOME/veiland/config.toml`). See `docs/config.md` for the
+full reference. A minimal config:
 
 ```toml
 [password]
@@ -191,24 +193,63 @@ position = "center"
 
 [[plugin]]
 name = "wallpaper"
-binary = "/path/to/veiland-wallpaper"
+binary = "veiland-wallpaper"
 z_index = 0
 [plugin.config]
-path = "/path/to/wallpaper.jpg"
+path = "/home/you/Pictures/wallpaper.jpg"
 
 [[plugin]]
 name = "clock"
-binary = "/path/to/veiland-clock"
+binary = "veiland-clock"
 z_index = 1
 ```
 
-Each plugin's `binary` is an absolute path. When installed via the
-NixOS module the plugins are on `PATH`, so resolve the store path with
-`readlink -f "$(which veiland-clock)"` (or point `binary` at the plugin
-directly, e.g. `${pkgs.veiland}/bin/veiland-clock` if you generate the
-config in Nix).
+Each plugin's `binary` is a **bare name**: veiland resolves it beside
+the installed `veiland` binary (then on `$PATH`), so the same config
+works whether your distro installs to `/usr/bin` or, on NixOS, a
+`/nix/store/.../bin` directory. To run a specific build instead, give a
+path containing a `/` (e.g. `target/debug/veiland-clock`) and it's used
+verbatim. Plugin **asset** paths like the wallpaper's `path`, though,
+are read directly with no `~` expansion — always give those an absolute
+path.
 
-Example configs (including a Shinkai-mockup scene) are in `docs/examples/`.
+### Example: falling cherry blossoms
+
+`docs/examples/sakura.toml` is a ready-made scene — a dusk-sky
+wallpaper, falling cherry-blossom petals, a clock, and a styled password
+pill. It uses bare plugin names, so it works on any install without
+editing the `binary` lines. The one thing to set is the wallpaper's
+absolute path.
+
+```sh
+# Copy the config and its wallpaper into place.
+mkdir -p ~/.config/veiland
+cp docs/examples/sakura.toml            ~/.config/veiland/config.toml
+cp docs/examples/assets/sakura-dusk.jpg ~/.config/veiland/
+```
+
+Then edit `~/.config/veiland/config.toml` and set the wallpaper `path`
+to where you copied the image (a full absolute path — no `~`):
+
+```toml
+[[plugin]]
+name = "wallpaper"
+binary = "veiland-wallpaper"
+z_index = -100
+[plugin.config]
+path = "/home/you/.config/veiland/sakura-dusk.jpg"
+```
+
+Lock the screen with `veiland` to see it. If the wallpaper path is
+wrong it's harmless — the petals, clock, and password pill still render
+over a black background, and veiland logs the bad path.
+
+The bundled `sakura-dusk.jpg` is a photo from
+[Unsplash](https://unsplash.com), used under the Unsplash License (free
+use, no attribution required). Swap in any PNG or JPEG you like.
+
+Other example configs (including a Shinkai-mockup scene) are in
+`docs/examples/`.
 
 ## Plugin development
 
