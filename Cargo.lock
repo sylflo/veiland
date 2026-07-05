@@ -1253,6 +1253,17 @@ name = "veiland-protocol"
 version = "0.1.0"
 
 [[package]]
+name = "veiland-rain"
+version = "0.1.0"
+dependencies = [
+ "gl",
+ "serde",
+ "serde_json",
+ "veiland-plugin",
+ "veiland-protocol",
+]
+
+[[package]]
 name = "veiland-red-box"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Minimal rain scene — wind-slanted motion-blur streaks.
+#
+# Drops cross the screen in ~1-1.7s and read as thin streaks with a dim
+# tail and brighter head. Per-drop depth varies length, speed, width,
+# and brightness, so the sheet reads as a volume. Best over a dark,
+# moody wallpaper.
+#
+# The values below match the plugin's tuned defaults, spelled out so
+# the knobs are documented.
+
+[[plugin]]
+name = "rain"
+binary = "target/debug/veiland-rain"
+z_index = 20
+
+[plugin.config]
+# Rain is a volume — denser than snow's 12-16 crystals.
+count = 90
+# Cool translucent blue-grey; rain reads by motion, not brightness.
+color = [0.72, 0.80, 0.95, 0.65]
+# Full streak length in logical px for the nearest drops; farther
+# drops shrink to ~45% of this.
+length_px = 36.0
+# Shared wind slant in degrees from vertical; positive leans right.
+# 0 = windless vertical rain, ~18 = driving storm.
+slant_deg = 10.0
