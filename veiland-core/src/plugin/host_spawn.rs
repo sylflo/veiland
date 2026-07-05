@@ -63,12 +63,12 @@ fn resolve_binary(binary: &Path) -> Result<PathBuf, HostError> {
     // 1. Beside the locker. current_exe() may fail (e.g. the exe was
     //    unlinked); if so, skip this step and fall through to $PATH rather
     //    than aborting the spawn.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.join(binary);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let candidate = dir.join(binary);
+        if candidate.is_file() {
+            return Ok(candidate);
         }
     }
 
