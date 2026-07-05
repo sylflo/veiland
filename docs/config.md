@@ -72,14 +72,28 @@ binary.
 
 ### `binary` (string, required)
 
-The path to the plugin's executable. veiland-core invokes
-`execv(binary, ...)` directly — no shell, no `$PATH` lookup, no
-tilde expansion. Write the full path.
+The plugin's executable. Two forms:
 
-If the binary doesn't exist or isn't executable, the spawn fails at
-runtime. veiland-core logs the failure and continues with the other
-plugins; the failed plugin's region falls back to the lock-surface
-clear color (black).
+- **A bare name** (no `/`, e.g. `veiland-clock`) is resolved by the
+  core: first beside the locker itself (the directory `veiland` was
+  installed into), then by searching `$PATH`. This is the portable,
+  copy-paste form — it works regardless of whether your distro installs
+  to `/usr/bin` or, on NixOS, a `/nix/store/.../bin` directory, because
+  the reference plugins always ship in the same directory as `veiland`.
+
+- **A path containing a `/`** (absolute `/usr/bin/veiland-clock`, or
+  relative `target/debug/veiland-clock`) is used verbatim — no lookup.
+  Use this to point at a specific build, e.g. a `target/debug` binary
+  while developing.
+
+There is no shell involved and no tilde (`~`) expansion in either form.
+Resolution happens in the core before spawning; whichever file is chosen
+is then invoked with `execv` directly.
+
+If the binary can't be resolved, doesn't exist, or isn't executable, the
+spawn fails at runtime. veiland-core logs the failure and continues with
+the other plugins; the failed plugin's region falls back to the
+lock-surface clear color (black).
 
 ### `z_index` (integer, required)
 

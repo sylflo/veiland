@@ -33,8 +33,13 @@ pub struct PluginEntry {
     /// Must be non-empty and unique within the config.
     pub name: String,
 
-    /// Absolute path to the plugin binary. No tilde expansion in
-    /// M6 — write the full path. Spawn failure is logged at runtime.
+    /// The plugin binary to spawn. A bare name (no `/`, e.g.
+    /// `veiland-clock`) is resolved by the core: first beside the locker
+    /// itself, then on `$PATH` (see `plugin::host_spawn::resolve_binary`).
+    /// A value containing a `/` (absolute `/usr/bin/veiland-clock` or
+    /// relative `target/debug/veiland-clock`) is used verbatim — the
+    /// escape hatch for dev builds. No tilde expansion. Spawn / resolution
+    /// failure is logged at runtime and leaves that plugin's layer empty.
     pub binary: PathBuf,
 
     /// Lower = behind. Ties broken by config-file order (stable sort).

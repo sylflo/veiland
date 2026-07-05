@@ -11,6 +11,7 @@
 //! host's side of the plugin protocol; `app/` calls them through the
 //! `plugin::` re-exports. Moved verbatim from main.rs; no logic change.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use khronos_egl as egl;
@@ -20,6 +21,74 @@ use veiland_protocol::{ClientMessage, Configure, HostCapabilities};
 use crate::config;
 
 use super::{HostConnection, HostError, PluginSlot, PluginState, ReceivedFds, spawn_plugin};
+
+/// Resolve a config `binary` value to the path we actually `execv`.
+///
+/// A value containing a `/` (absolute like `/usr/bin/veiland-clock`, or
+/// relative like `target/debug/veiland-clock`) is used verbatim — the
+/// escape hatch for dev builds and unusual layouts. `execv` handles the
+/// absolute case directly and the relative case against the core's cwd.
+///
+/// A bare name (no `/`, e.g. `veiland-clock`) is resolved so the shipped
+/// examples and the README are portable across distros without hardcoding
+/// a bindir:
+///   1. Beside the locker itself: `dirname(current_exe())/<name>`. On every
+///      packaged install the plugins ship in the same bindir as `veiland`
+///      (verified on NixOS: both in the same `/nix/store/.../bin`; on
+///      Debian/Arch both in `/usr/bin`). This is preferred so a bare name
+///      means "the plugin that shipped with *this* veiland", not "whatever
+///      is first on `$PATH`".
+///   2. `$PATH` fallback: the first `<dir>/<name>` that is a regular file.
+///      Covers dev shells with `target/debug` on `$PATH`.
+///
+/// Resolution runs in the parent, before `fork()` — the post-fork child is
+/// async-signal-safe-only and cannot stat the filesystem or read the env.
+/// Whatever this returns is a concrete path; `execv` still names exactly one
+/// file, chosen by a rule the core controls (not by `execvp`'s env-driven
+/// search). Returns `BinaryNotFound` if a bare name matches nothing; the
+/// caller treats that as a non-fatal per-plugin spawn failure.
+fn resolve_binary(binary: &Path) -> Result<PathBuf, HostError> {
+    use std::os::unix::ffi::OsStrExt;
+
+    // A `/` anywhere => the author means an exact path; don't second-guess it.
+    if binary.as_os_str().as_bytes().contains(&b'/') {
+        return Ok(binary.to_path_buf());
+    }
+
+    // An empty `binary` has no `/` but must not be exec'd as "".
+    if binary.as_os_str().is_empty() {
+        return Err(HostError::BinaryNotFound(String::new()));
+    }
+
+    // 1. Beside the locker. current_exe() may fail (e.g. the exe was
+    //    unlinked); if so, skip this step and fall through to $PATH rather
+    //    than aborting the spawn.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(binary);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    // 2. $PATH, first regular-file match wins.
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            if dir.as_os_str().is_empty() {
+                continue;
+            }
+            let candidate = dir.join(binary);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(HostError::BinaryNotFound(
+        binary.to_string_lossy().into_owned(),
+    ))
+}
 
 /// Does this plugin entry's `monitors` filter (if any) admit the
 /// given output? `None` means "any output"; `Some(list)` means
@@ -59,7 +128,18 @@ pub fn try_spawn_one(
                 None
             }
         });
-    let process = spawn_plugin(&entry.binary, &entry.name, config_json.as_deref())?;
+    // Resolve a bare `binary` name (no `/`) to a concrete path before we
+    // fork — the child can't stat the filesystem. A path with a `/` passes
+    // through unchanged. On BinaryNotFound this returns early; the caller
+    // logs it and leaves the plugin's layer empty (non-fatal).
+    let resolved_binary = resolve_binary(&entry.binary)?;
+    if resolved_binary != entry.binary {
+        eprintln!(
+            "veiland-core: plugin {:?}: resolved binary {:?} -> {:?}",
+            entry.name, entry.binary, resolved_binary
+        );
+    }
+    let process = spawn_plugin(&resolved_binary, &entry.name, config_json.as_deref())?;
     let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
     connection.handshake()?;
     eprintln!("plugin {:?}: handshake ok", entry.name);

@@ -36,6 +36,12 @@ pub enum HostError {
     /// Plugin closed the socket cleanly (zero-byte recvmsg). A
     /// normal lifecycle event — log at info, not error.
     PluginDisconnected,
+
+    /// A bare `binary` name in the config resolved to nothing: not found
+    /// beside the locker and not on `$PATH`. Non-fatal — the plugin's
+    /// layer stays empty and the locker keeps running. Carries the name
+    /// that failed to resolve so the log line is actionable.
+    BinaryNotFound(String),
 }
 
 impl std::fmt::Display for HostError {
@@ -52,6 +58,12 @@ impl std::fmt::Display for HostError {
             ),
             HostError::Render(msg) => write!(f, "render setup: {}", msg),
             HostError::PluginDisconnected => write!(f, "plugin disconnected"),
+            HostError::BinaryNotFound(name) => write!(
+                f,
+                "binary {:?} not found beside the locker or on $PATH \
+                 (write a path with a '/' to point at an exact file)",
+                name
+            ),
         }
     }
 }
