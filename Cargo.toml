@@ -4,6 +4,7 @@ members = [
     "plugins/blue-box",
     "plugins/clock",
     "plugins/embers",
+    "plugins/fireflies",
     "plugins/gradient",
     "plugins/green-box",
     "plugins/label",

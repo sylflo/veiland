@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Fireflies scene -- softly glowing wandering lights.
+#
+# Each firefly wanders via two layered sin waves per axis and blinks
+# independently. Between flashes a faint ambient halo marks their position.
+# Best over a dark wallpaper.
+
+[[plugin]]
+name = "fireflies"
+binary = "target/debug/veiland-fireflies"
+z_index = 20
+
+[plugin.config]
+# 25 gives a sparse natural field. 40+ is a dense summer-evening effect.
+count = 25
+# Classic warm yellow-green. Try [0.4, 0.9, 1.0, 0.9] for cold blue fireflies.
+color = [0.72, 1.0, 0.18, 0.95]
+# Core radius in logical px. The visible glow halo extends ~4x this.
+radius_px = 2.5
+# How brief the flash is. 0.0 = always softly glowing, 1.0 = very brief
+# sharp flash mostly dark. 0.4 is a gentle glow that briefly brightens.
+flash_sharpness = 0.4
