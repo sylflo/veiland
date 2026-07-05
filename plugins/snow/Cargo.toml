@@ -1,0 +1,15 @@
+[package]
+name = "veiland-snow"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Reference plugin — gently falling snow."
+repository = "https://github.com/sylflo/veiland"
+publish = false
+
+[dependencies]
+gl = "0.14"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1"
+veiland-plugin = { path = "../../veiland-plugin" }
+veiland-protocol = { path = "../../veiland-protocol" }

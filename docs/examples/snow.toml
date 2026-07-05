@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Minimal snow scene — procedural dendritic ice crystals.
+#
+# Each flake is a unique six-fold-symmetric crystal generated in the
+# fragment shader from a per-flake seed (no textures). Best over a dark
+# wallpaper so the white crystals and their icy rims read clearly.
+#
+# The values below match the plugin's tuned defaults, spelled out so the
+# knobs are documented. Detail needs size: below ~40px radius the fern
+# structure collapses toward a dot — prefer fewer, larger crystals.
+
+[[plugin]]
+name = "snow"
+binary = "target/debug/veiland-snow"
+z_index = 20
+
+[plugin.config]
+# Few large exquisite crystals, not a dense field.
+count = 14
+# White with slight translucency; the shader layers a brighter rim over
+# a more transparent fill on top of this.
+color = [1.0, 1.0, 1.0, 0.9]
+# Crystal radius (half-extent) in logical px at scale=1. The fern detail
+# needs ~40px+ to read; 60 is showpiece-large, ~34 a smaller denser
+# snowfall at the cost of visible detail. 45 is the middle ground.
+radius_px = 45.0

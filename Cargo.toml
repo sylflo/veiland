@@ -9,6 +9,7 @@ members = [
     "plugins/particles",
     "plugins/red-box",
     "plugins/sakura",
+    "plugins/snow",
     "plugins/stress",
     "plugins/vignette",
     "plugins/wallpaper",
