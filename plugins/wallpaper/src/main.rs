@@ -25,37 +25,10 @@ use veiland_protocol::Buffer;
 
 const PLUGIN_NAME: &str = "wallpaper";
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 struct Config {
     #[serde(default)]
     path: String,
-}
-
-fn load_config() -> Config {
-    match std::env::var("VEILAND_PLUGIN_CONFIG") {
-        Ok(s) => match serde_json::from_str::<Config>(&s) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "veiland-{}: failed to parse VEILAND_PLUGIN_CONFIG as JSON: {} \
-                     — falling back to black background",
-                    PLUGIN_NAME, e
-                );
-                Config {
-                    path: String::new(),
-                }
-            }
-        },
-        Err(_) => {
-            eprintln!(
-                "veiland-{}: VEILAND_PLUGIN_CONFIG unset — black background",
-                PLUGIN_NAME
-            );
-            Config {
-                path: String::new(),
-            }
-        }
-    }
 }
 
 /// CPU-side decoded image. Held only between `decode_image` and the
@@ -260,7 +233,7 @@ fn run() -> Result<(), PluginError> {
         std::process::id()
     );
 
-    let config = load_config();
+    let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!("veiland-{}: config path={:?}", PLUGIN_NAME, config.path);
 
     // Decode runs on a worker thread so the connection handshake and

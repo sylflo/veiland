@@ -153,49 +153,24 @@ impl From<VAlignCfg> for VAlign {
     }
 }
 
-/// Load the plugin's config from `VEILAND_PLUGIN_CONFIG`. Missing env
-/// var or unparseable JSON both fall back to defaults — a malformed
-/// config should produce a visible fallback label rather than no
-/// plugin at all (lockscreen-grade).
-fn load_config() -> Config {
-    match std::env::var("VEILAND_PLUGIN_CONFIG") {
-        Ok(s) => match serde_json::from_str::<Config>(&s) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "veiland-{}: failed to parse VEILAND_PLUGIN_CONFIG as JSON: {} \
-                     — falling back to defaults",
-                    PLUGIN_NAME, e
-                );
-                default_config()
-            }
-        },
-        Err(_) => {
-            eprintln!(
-                "veiland-{}: VEILAND_PLUGIN_CONFIG unset — using defaults",
-                PLUGIN_NAME
-            );
-            default_config()
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            text: default_text(),
+            font_family: default_font_family(),
+            font_size: default_font_size(),
+            color: default_color(),
+            halign: HAlignCfg::default(),
+            valign: VAlignCfg::default(),
+            position: default_position(),
+            rotation: 0.0,
+            shadow_offset: None,
+            shadow_color: default_shadow_color(),
+            shadow_blur: 0.0,
+            letter_spacing: 0.0,
+            font_weight: default_font_weight(),
+            italic: false,
         }
-    }
-}
-
-fn default_config() -> Config {
-    Config {
-        text: default_text(),
-        font_family: default_font_family(),
-        font_size: default_font_size(),
-        color: default_color(),
-        halign: HAlignCfg::default(),
-        valign: VAlignCfg::default(),
-        position: default_position(),
-        rotation: 0.0,
-        shadow_offset: None,
-        shadow_color: default_shadow_color(),
-        shadow_blur: 0.0,
-        letter_spacing: 0.0,
-        font_weight: default_font_weight(),
-        italic: false,
     }
 }
 
@@ -241,7 +216,7 @@ fn run() -> Result<(), PluginError> {
         std::process::id()
     );
 
-    let config = load_config();
+    let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!(
         "veiland-{}: config text={:?}, font={:?}, size={}, position={:?}",
         PLUGIN_NAME, config.text, config.font_family, config.font_size, config.position

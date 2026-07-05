@@ -72,33 +72,12 @@ fn default_radius_px() -> f32 {
     60.0
 }
 
-fn default_config() -> Config {
-    Config {
-        count: default_count(),
-        color: default_color(),
-        radius_px: default_radius_px(),
-    }
-}
-
-fn load_config() -> Config {
-    match std::env::var("VEILAND_PLUGIN_CONFIG") {
-        Ok(s) => match serde_json::from_str::<Config>(&s) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "veiland-{}: failed to parse VEILAND_PLUGIN_CONFIG as JSON: {} \
-                     — falling back to defaults",
-                    PLUGIN_NAME, e
-                );
-                default_config()
-            }
-        },
-        Err(_) => {
-            eprintln!(
-                "veiland-{}: VEILAND_PLUGIN_CONFIG unset — using defaults",
-                PLUGIN_NAME
-            );
-            default_config()
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            count: default_count(),
+            color: default_color(),
+            radius_px: default_radius_px(),
         }
     }
 }
@@ -428,7 +407,7 @@ fn run() -> Result<(), PluginError> {
         std::process::id()
     );
 
-    let config = load_config();
+    let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!(
         "veiland-{}: config count={} color={:?} radius_px={}",
         PLUGIN_NAME, config.count, config.color, config.radius_px

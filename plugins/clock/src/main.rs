@@ -176,47 +176,26 @@ impl From<VAlignCfg> for VAlign {
     }
 }
 
-fn default_config() -> Config {
-    Config {
-        time_format: default_time_format(),
-        date_format: default_date_format(),
-        font_family: default_font_family(),
-        time_font_size: default_time_font_size(),
-        date_font_size: default_date_font_size(),
-        time_color: default_time_color(),
-        date_color: default_date_color(),
-        time_position: default_time_position(),
-        date_position: default_date_position(),
-        halign: HAlignCfg::default(),
-        valign: VAlignCfg::default(),
-        shadow_offset: None,
-        shadow_color: default_shadow_color(),
-        shadow_blur: 0.0,
-        time_letter_spacing: 0.0,
-        date_letter_spacing: 0.0,
-        font_weight: default_font_weight(),
-    }
-}
-
-fn load_config() -> Config {
-    match std::env::var("VEILAND_PLUGIN_CONFIG") {
-        Ok(s) => match serde_json::from_str::<Config>(&s) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "veiland-{}: failed to parse VEILAND_PLUGIN_CONFIG as JSON: {} \
-                     — falling back to defaults",
-                    PLUGIN_NAME, e
-                );
-                default_config()
-            }
-        },
-        Err(_) => {
-            eprintln!(
-                "veiland-{}: VEILAND_PLUGIN_CONFIG unset — using defaults",
-                PLUGIN_NAME
-            );
-            default_config()
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            time_format: default_time_format(),
+            date_format: default_date_format(),
+            font_family: default_font_family(),
+            time_font_size: default_time_font_size(),
+            date_font_size: default_date_font_size(),
+            time_color: default_time_color(),
+            date_color: default_date_color(),
+            time_position: default_time_position(),
+            date_position: default_date_position(),
+            halign: HAlignCfg::default(),
+            valign: VAlignCfg::default(),
+            shadow_offset: None,
+            shadow_color: default_shadow_color(),
+            shadow_blur: 0.0,
+            time_letter_spacing: 0.0,
+            date_letter_spacing: 0.0,
+            font_weight: default_font_weight(),
         }
     }
 }
@@ -293,7 +272,7 @@ fn run() -> Result<(), PluginError> {
         std::process::id()
     );
 
-    let config = load_config();
+    let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!(
         "veiland-{}: config time_format={:?} date_format={:?} font={:?}",
         PLUGIN_NAME, config.time_format, config.date_format, config.font_family,

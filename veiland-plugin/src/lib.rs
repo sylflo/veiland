@@ -5,6 +5,7 @@
 //! for the wire protocol this crate implements the plugin side of.
 
 mod buffer;
+mod config;
 mod error;
 pub mod gl;
 mod lifecycle;
@@ -13,6 +14,7 @@ mod socket;
 mod sync;
 
 pub use buffer::DmaBuffer;
+pub use config::load_config;
 pub use error::PluginError;
 pub use lifecycle::{Frame, FramePacer};
 pub use render::GbmEgl;

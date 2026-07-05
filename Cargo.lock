@@ -1168,7 +1168,6 @@ dependencies = [
  "chrono",
  "gl",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
  "veiland-text",
@@ -1220,7 +1219,6 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
  "veiland-text",
@@ -1232,7 +1230,6 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
 ]
@@ -1245,6 +1242,8 @@ dependencies = [
  "gl",
  "khronos-egl",
  "nix",
+ "serde",
+ "serde_json",
  "veiland-protocol",
 ]
 
@@ -1258,7 +1257,6 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
 ]
@@ -1279,7 +1277,6 @@ dependencies = [
  "gl",
  "image",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
 ]
@@ -1290,7 +1287,6 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
 ]
@@ -1318,7 +1314,6 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
- "serde_json",
  "veiland-plugin",
  "veiland-protocol",
 ]
@@ -1330,7 +1325,6 @@ dependencies = [
  "gl",
  "image",
  "serde",
- "serde_json",
  "turbojpeg",
  "veiland-plugin",
  "veiland-protocol",

@@ -68,37 +68,16 @@ fn default_base_opacity() -> f32 {
     0.0
 }
 
-fn default_config() -> Config {
-    Config {
-        color: default_color(),
-        opacity_top_left: default_corner_opacity(),
-        opacity_top_right: default_corner_opacity(),
-        opacity_bottom_left: default_bottom_corner_opacity(),
-        opacity_bottom_right: default_bottom_corner_opacity(),
-        radius: default_radius(),
-        base_opacity: default_base_opacity(),
-    }
-}
-
-fn load_config() -> Config {
-    match std::env::var("VEILAND_PLUGIN_CONFIG") {
-        Ok(s) => match serde_json::from_str::<Config>(&s) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "veiland-{}: failed to parse VEILAND_PLUGIN_CONFIG as JSON: {} \
-                     — falling back to defaults",
-                    PLUGIN_NAME, e
-                );
-                default_config()
-            }
-        },
-        Err(_) => {
-            eprintln!(
-                "veiland-{}: VEILAND_PLUGIN_CONFIG unset — using defaults",
-                PLUGIN_NAME
-            );
-            default_config()
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            color: default_color(),
+            opacity_top_left: default_corner_opacity(),
+            opacity_top_right: default_corner_opacity(),
+            opacity_bottom_left: default_bottom_corner_opacity(),
+            opacity_bottom_right: default_bottom_corner_opacity(),
+            radius: default_radius(),
+            base_opacity: default_base_opacity(),
         }
     }
 }
@@ -219,7 +198,7 @@ fn run() -> Result<(), PluginError> {
         std::process::id()
     );
 
-    let config = load_config();
+    let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!(
         "veiland-{}: config color={:?} corners=[{},{},{},{}] radius={}",
         PLUGIN_NAME,

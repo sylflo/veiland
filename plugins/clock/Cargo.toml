@@ -11,7 +11,6 @@ publish = false
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 gl = "0.14"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1"
 veiland-plugin = { path = "../../veiland-plugin" }
 veiland-protocol = { path = "../../veiland-protocol" }
 veiland-text = { path = "../../veiland-text" }

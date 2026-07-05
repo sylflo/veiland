@@ -77,33 +77,12 @@ fn default_size_px() -> f32 {
     22.0
 }
 
-fn default_config() -> Config {
-    Config {
-        count: default_count(),
-        color: default_color(),
-        size_px: default_size_px(),
-    }
-}
-
-fn load_config() -> Config {
-    match std::env::var("VEILAND_PLUGIN_CONFIG") {
-        Ok(s) => match serde_json::from_str::<Config>(&s) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "veiland-{}: failed to parse VEILAND_PLUGIN_CONFIG as JSON: {} \
-                     — falling back to defaults",
-                    PLUGIN_NAME, e
-                );
-                default_config()
-            }
-        },
-        Err(_) => {
-            eprintln!(
-                "veiland-{}: VEILAND_PLUGIN_CONFIG unset — using defaults",
-                PLUGIN_NAME
-            );
-            default_config()
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            count: default_count(),
+            color: default_color(),
+            size_px: default_size_px(),
         }
     }
 }
@@ -425,7 +404,7 @@ fn run() -> Result<(), PluginError> {
         std::process::id()
     );
 
-    let config = load_config();
+    let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!(
         "veiland-{}: config count={} color={:?} size_px={}",
         PLUGIN_NAME, config.count, config.color, config.size_px
