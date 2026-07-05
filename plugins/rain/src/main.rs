@@ -21,7 +21,9 @@
 
 use serde::Deserialize;
 use std::time::Instant;
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, gl as vgl};
+use veiland_plugin::{
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, Rng, gl as vgl, math::px_to_clip,
+};
 
 const PLUGIN_NAME: &str = "rain";
 
@@ -100,21 +102,8 @@ struct Drop {
     slant_jitter: f32,
 }
 
-/// Tiny deterministic PRNG (xorshift32, Marsaglia).
-struct Rng(u32);
-impl Rng {
-    fn next_f32(&mut self) -> f32 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.0 = x.max(1); // avoid the zero fixed point
-        (x >> 8) as f32 / (1u32 << 24) as f32
-    }
-}
-
 fn seed_drops(count: u32) -> Vec<Drop> {
-    let mut rng = Rng(0x1F12_3BB5); // arbitrary seed, distinct from siblings'
+    let mut rng = Rng::new(0x1F12_3BB5); // arbitrary seed, distinct from siblings'
     (0..count)
         .map(|_| {
             let depth = rng.next_f32();
@@ -220,15 +209,6 @@ struct State {
     cpu_verts: Vec<f32>,
     scale_120: u32,
     start: Instant,
-}
-
-/// Convert pixel-space (origin top-left, Y down) to clip-space for the
-/// dmabuf FBO. The host composites the dmabuf with row 0 at the top, so
-/// pixel y=0 -> clip y=-1 and pixel y=h -> clip y=+1.
-fn px_to_clip(x: f32, y: f32, w: f32, h: f32) -> (f32, f32) {
-    let cx = (x / w) * 2.0 - 1.0;
-    let cy = (y / h) * 2.0 - 1.0;
-    (cx, cy)
 }
 
 /// Fill `cpu_verts` with current slanted-quad positions for every drop.

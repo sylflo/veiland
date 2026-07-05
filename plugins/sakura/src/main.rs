@@ -23,7 +23,9 @@
 
 use serde::Deserialize;
 use std::time::Instant;
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, gl as vgl};
+use veiland_plugin::{
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, Rng, gl as vgl, math::px_to_clip,
+};
 
 const PLUGIN_NAME: &str = "sakura";
 
@@ -102,22 +104,8 @@ struct Petal {
     spin: f32,
 }
 
-/// Tiny deterministic PRNG (xorshift32), same as veiland-particles — a
-/// hashed stagger is plenty for seeding a decorative field.
-struct Rng(u32);
-impl Rng {
-    fn next_f32(&mut self) -> f32 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.0 = x.max(1);
-        (x >> 8) as f32 / (1u32 << 24) as f32
-    }
-}
-
 fn seed_petals(count: u32) -> Vec<Petal> {
-    let mut rng = Rng(0x1234_5678);
+    let mut rng = Rng::new(0x1234_5678);
     (0..count)
         .map(|_| {
             let cycle = FALL_MIN_SECONDS + rng.next_f32() * (FALL_MAX_SECONDS - FALL_MIN_SECONDS);
@@ -266,15 +254,6 @@ struct State {
     cpu_verts: Vec<f32>,
     scale_120: u32,
     start: Instant,
-}
-
-/// Pixel-space (origin top-left, Y down) → clip-space, matching the
-/// other plugins' "no Y flip" convention (the host composites row 0 at
-/// the top of the screen).
-fn px_to_clip(x: f32, y: f32, w: f32, h: f32) -> (f32, f32) {
-    let cx = (x / w) * 2.0 - 1.0;
-    let cy = (y / h) * 2.0 - 1.0;
-    (cx, cy)
 }
 
 /// Fill `cpu_verts` for every petal: falling Y, sway X, tumble rotation
