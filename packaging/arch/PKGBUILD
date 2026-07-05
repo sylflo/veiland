@@ -85,7 +85,11 @@ package() {
   cd "$srcdir/veiland"
 
   # Binaries -> /usr/bin. install -D creates parent dirs; 755 = executable.
+  # The veiland-core crate builds a binary named `veiland` (its [[bin]]);
+  # the reference plugins keep their crate names.
+  install -Dm755 "target/release/veiland" "$pkgdir/usr/bin/veiland"
   for c in "${_crates[@]}"; do
+    [ "$c" = veiland-core ] && continue
     install -Dm755 "target/release/$c" "$pkgdir/usr/bin/$c"
   done
 

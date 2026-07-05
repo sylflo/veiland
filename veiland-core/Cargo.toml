@@ -7,6 +7,13 @@ description = "Wayland screen locker with process-isolated GPU plugins"
 repository = "https://github.com/sylflo/veiland"
 publish = false
 
+# The crate stays `veiland-core` (it pairs with `veiland-plugin` and
+# names the trusted core in the workspace/threat-model), but the binary
+# users invoke is just `veiland` — no compositor ships a `-core` command.
+[[bin]]
+name = "veiland"
+path = "src/main.rs"
+
 [features]
 default = []
 # Lets Escape unlock without authentication. Useful while iterating on

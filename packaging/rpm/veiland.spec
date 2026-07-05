@@ -86,8 +86,11 @@ cargo test --release --locked \
   -p veiland-sakura
 
 %install
-# Binaries -> /usr/bin
-for c in veiland-core veiland-wallpaper veiland-clock veiland-particles \
+# Binaries -> /usr/bin. The veiland-core crate builds a binary named
+# `veiland` (see its [[bin]] in Cargo.toml); the plugins keep their
+# crate names.
+install -Dm0755 target/release/veiland "%{buildroot}%{_bindir}/veiland"
+for c in veiland-wallpaper veiland-clock veiland-particles \
          veiland-vignette veiland-label veiland-sakura; do
   install -Dm0755 "target/release/$c" "%{buildroot}%{_bindir}/$c"
 done
@@ -102,7 +105,7 @@ install -Dm0644 packaging/veiland.example.toml \
 
 %files
 %license LICENSE
-%{_bindir}/veiland-core
+%{_bindir}/veiland
 %{_bindir}/veiland-wallpaper
 %{_bindir}/veiland-clock
 %{_bindir}/veiland-particles

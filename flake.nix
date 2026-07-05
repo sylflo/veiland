@@ -94,7 +94,7 @@
             homepage = "https://github.com/sylflo/veiland";
             license = pkgs.lib.licenses.gpl3Plus;
             platforms = pkgs.lib.platforms.linux;
-            mainProgram = "veiland-core";
+            mainProgram = "veiland";
           };
         };
       });

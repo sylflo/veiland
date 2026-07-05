@@ -52,11 +52,11 @@ import the module:
 }
 ```
 
-`services.veiland.enable = true` installs `veiland-core` and the
+`services.veiland.enable = true` installs the `veiland` binary and the
 reference plugins and registers the `veiland` PAM service for you — no
 manual `/etc/pam.d/veiland` needed. All that's left is to write a config
 (see [Configuration](#configuration)) and bind a key or idle daemon to
-`veiland-core`.
+`veiland`.
 
 To try it without installing anything:
 
@@ -75,7 +75,7 @@ Install from the AUR (available from the `v0.1.0` release onward):
 yay -S veiland        # or: paru -S veiland
 ```
 
-The package installs `veiland-core` and the reference plugins into
+The package installs the `veiland` binary and the reference plugins into
 `/usr/bin` and registers the `veiland` PAM service — no manual
 `/etc/pam.d/veiland` needed.
 

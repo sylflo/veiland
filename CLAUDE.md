@@ -43,7 +43,7 @@ The architecturally critical mechanism — cross-process DMA-BUF buffer sharing 
 
 ## Decisions already made — do not re-litigate
 
-- **Name:** veiland (`veiland-core` for the main binary, `veiland-plugin` for the plugin library, `veiland-<name>` for individual plugins).
+- **Name:** veiland. The crate is `veiland-core` (it pairs with `veiland-plugin` and names the trusted core in the workspace/threat-model), but the installed binary users invoke is `veiland` — set via `[[bin]]` in `veiland-core/Cargo.toml`. `veiland-plugin` is the plugin library, `veiland-<name>` the individual plugins.
 - **License:** GPL-3.0-or-later. Plugins communicate over a Unix socket, so plugin authors can use any license they want.
 - **Language:** Rust. Untrusted IPC input from plugins, long-lived security-sensitive process, concurrent event loops. The Wayland/EGL/GBM bindings live in a small number of FFI-wrapping modules; the rest is safe Rust.
 - **Graphics:** OpenGL only. Not Vulkan. Lockscreens composite a handful of textured quads — Vulkan's complexity buys nothing.

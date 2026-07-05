@@ -1,4 +1,4 @@
-target/release/veiland-core        usr/bin
+target/release/veiland             usr/bin
 target/release/veiland-wallpaper   usr/bin
 target/release/veiland-clock       usr/bin
 target/release/veiland-particles   usr/bin
