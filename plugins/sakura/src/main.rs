@@ -23,7 +23,7 @@
 
 use serde::Deserialize;
 use std::time::Instant;
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, gl as vgl};
 
 const PLUGIN_NAME: &str = "sakura";
 
@@ -134,58 +134,6 @@ fn seed_petals(count: u32) -> Vec<Petal> {
         .collect()
 }
 
-unsafe fn compile_shader(kind: gl::types::GLenum, src: &[u8]) -> gl::types::GLuint {
-    unsafe {
-        let shader = gl::CreateShader(kind);
-        let src_ptr = src.as_ptr() as *const _;
-        gl::ShaderSource(shader, 1, &src_ptr, std::ptr::null());
-        gl::CompileShader(shader);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetShaderInfoLog(
-                shader,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "shader compile failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        shader
-    }
-}
-
-unsafe fn link_program(vs: gl::types::GLuint, fs: gl::types::GLuint) -> gl::types::GLuint {
-    unsafe {
-        let program = gl::CreateProgram();
-        gl::AttachShader(program, vs);
-        gl::AttachShader(program, fs);
-        gl::LinkProgram(program);
-        let mut ok: gl::types::GLint = 0;
-        gl::GetProgramiv(program, gl::LINK_STATUS, &mut ok);
-        if ok == 0 {
-            let mut log = [0u8; 1024];
-            let mut len: gl::types::GLsizei = 0;
-            gl::GetProgramInfoLog(
-                program,
-                log.len() as i32,
-                &mut len,
-                log.as_mut_ptr() as *mut _,
-            );
-            panic!(
-                "program link failed: {}",
-                std::str::from_utf8(&log[..len as usize]).unwrap_or("<invalid utf8>")
-            );
-        }
-        program
-    }
-}
-
 /// Decode the embedded petal PNG to RGBA8. Returns None (logged) on decode
 /// failure — a corrupt build must not crash the locker; render() then draws
 /// nothing.
@@ -226,7 +174,7 @@ struct GpuState {
 /// Per vertex: `a_pos` (clip-space, rotation already baked in), `a_uv`
 /// (petal texture coords 0..1), `a_fade` (per-petal opacity). 5 floats,
 /// 6 verts/petal.
-unsafe fn build_gpu_state() -> GpuState {
+unsafe fn build_gpu_state() -> Result<GpuState, String> {
     let vs_src = b"#version 100\n\
         attribute vec2 a_pos;\n\
         attribute vec2 a_uv;\n\
@@ -257,9 +205,9 @@ unsafe fn build_gpu_state() -> GpuState {
         }\n\0";
 
     unsafe {
-        let vs = compile_shader(gl::VERTEX_SHADER, vs_src);
-        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src);
-        let program = link_program(vs, fs);
+        let vs = vgl::compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = vgl::compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = vgl::link_program(vs, fs)?;
         gl::UseProgram(program);
 
         let mut vbo: gl::types::GLuint = 0;
@@ -298,7 +246,7 @@ unsafe fn build_gpu_state() -> GpuState {
         let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
         let u_tex_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
 
-        GpuState {
+        Ok(GpuState {
             program,
             vbo,
             texture,
@@ -307,7 +255,7 @@ unsafe fn build_gpu_state() -> GpuState {
             a_fade_loc,
             u_color_loc,
             u_tex_loc,
-        }
+        })
     }
 }
 
@@ -454,7 +402,10 @@ fn run() -> Result<(), PluginError> {
     );
 
     dma.bind_for_rendering()?;
-    let gpu = unsafe { build_gpu_state() };
+    let gpu = unsafe { build_gpu_state() }.map_err(|e| {
+        eprintln!("veiland-{PLUGIN_NAME}: {e}");
+        PluginError::Render("shader build failed")
+    })?;
 
     let petals = seed_petals(config.count);
     let cpu_verts = vec![0.0_f32; petals.len() * 6 * 5];
