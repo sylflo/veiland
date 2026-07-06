@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Blobs scene -- large soft colored blobs drifting slowly.
+#
+# A metaball field: up to eight blob centers wander on glacial
+# Lissajous paths and their colors melt into each other where the
+# fields overlap. The ambient-blob / lava-lamp look. Fully opaque --
+# this IS the background; layer parallax or a clock on top.
+
+[[plugin]]
+name = "blobs"
+binary = "target/debug/veiland-blobs"
+z_index = -100
+
+[plugin.config]
+# Blob palette, 1-8 colors, cycled across blobs.
+colors = [
+    [0.12, 0.20, 0.55], # rich blue
+    [0.45, 0.15, 0.50], # magenta purple
+    [0.05, 0.42, 0.45], # bright teal
+    [0.50, 0.28, 0.12], # warm amber
+]
+# Background the blobs float over.
+background = [0.02, 0.03, 0.08]
+# Number of blobs, 1-8. 6 keeps the field busy without mud.
+count = 6
+# Blob radius as a fraction of screen height (each blob varies
+# +/-30% around this). Past ~0.35 the fields saturate the whole
+# screen and the look collapses into one big gradient.
+size = 0.25
+# Drift speed multiplier. 1.0 = orbits over a couple of minutes;
+# bump to 20 to eyeball the motion quickly.
+speed = 1.0
+# Falloff softness. Lower = tighter cores and darker gaps between
+# blobs; higher = hazier until everything merges into a wash.
+softness = 0.6
+# Layout and motion seed -- change for a different arrangement.
+seed = 2654435769

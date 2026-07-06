@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "plugins/blobs",
     "plugins/blue-box",
     "plugins/clock",
     "plugins/embers",
