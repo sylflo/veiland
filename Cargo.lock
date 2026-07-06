@@ -1163,15 +1163,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "veiland-blue-box"
-version = "0.1.0"
-dependencies = [
- "gl",
- "veiland-plugin",
- "veiland-protocol",
-]
-
-[[package]]
 name = "veiland-clock"
 version = "0.1.0"
 dependencies = [
@@ -1236,15 +1227,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "veiland-green-box"
-version = "0.1.0"
-dependencies = [
- "gl",
- "veiland-plugin",
- "veiland-protocol",
-]
-
-[[package]]
 name = "veiland-label"
 version = "0.1.0"
 dependencies = [
@@ -1298,15 +1280,6 @@ version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
- "veiland-plugin",
- "veiland-protocol",
-]
-
-[[package]]
-name = "veiland-red-box"
-version = "0.1.0"
-dependencies = [
- "gl",
  "veiland-plugin",
  "veiland-protocol",
 ]

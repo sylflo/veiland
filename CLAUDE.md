@@ -22,10 +22,11 @@ The locker works:
 Reference plugins:
 - wallpaper
 - clock
-- particles
-- vignette
 - label
-- plus test plugins (blue-box, green-box, red-box, gradient, stress, sakura).
+- vignette
+- particle family (particles, sakura, snow, rain, embers, fireflies)
+- ambient backgrounds/overlays (gradient, parallax, blobs)
+- plus one test plugin: stress (load generator).
 
 The codebase is structured as a Cargo workspace:
 - `veiland-core` (locker binary)
@@ -133,12 +134,10 @@ veiland/
   plugins/              # reference plugins
     wallpaper/
     clock/
-    particles/
-    vignette/
     label/
-    sakura/
-    gradient/
-    blue-box/ green-box/ red-box/   # test/demo
+    vignette/
+    particles/ sakura/ snow/ rain/ embers/ fireflies/   # particle family
+    gradient/ parallax/ blobs/      # ambient backgrounds/overlays
     stress/             # load generator (ignores region by design)
   docs/
     protocol.md

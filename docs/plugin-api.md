@@ -26,15 +26,16 @@ plugins), then a fuller walkthrough of `veiland-text`.
 The canonical reference is the existing plugin source. Read in
 order of complexity:
 
-- [`plugins/red-box`](../plugins/red-box/src/main.rs) — minimal
-  solid-colour plugin. ~250 lines. Shows the handshake, the
-  event-loop shape, and the buffer-lifecycle invariants.
-- [`plugins/gradient`](../plugins/gradient/src/main.rs) — adds a
-  time-varying uniform and the fast/slow sync-path fork.
+- [`plugins/gradient`](../plugins/gradient/src/main.rs) — minimal
+  animated fullscreen-shader plugin. ~350 lines. Shows the
+  handshake, the `FramePacer` event-loop shape, config loading,
+  and fence-aware frame submission via `Connection::submit_frame`.
+- [`plugins/vignette`](../plugins/vignette/src/main.rs) — the same
+  shape for a static effect: `FramePacer::on_demand()` instead of
+  self-paced, re-rendering only when the host asks.
 - [`plugins/label`](../plugins/label/src/main.rs) — adds
-  `veiland-text`, reads its config via `VEILAND_PLUGIN_CONFIG`,
-  and defers dmabuf allocation until after the first `Configure`
-  so the buffer matches the region.
+  `veiland-text` for glyph rendering on top of the same
+  lifecycle.
 
 The key types: `Connection` (socket framing), `GbmEgl` (render
 node + EGL context), `DmaBuffer` (the GPU buffer + FBO), and
