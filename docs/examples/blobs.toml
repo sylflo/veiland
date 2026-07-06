@@ -9,7 +9,7 @@
 
 [[plugin]]
 name = "blobs"
-binary = "target/debug/veiland-blobs"
+binary = "veiland-blobs"
 z_index = -100
 
 [plugin.config]

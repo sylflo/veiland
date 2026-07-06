@@ -8,7 +8,7 @@
 
 [[plugin]]
 name = "gradient"
-binary = "target/debug/veiland-gradient"
+binary = "veiland-gradient"
 z_index = -100
 
 [plugin.config]

@@ -10,7 +10,7 @@
 #     installed `veiland` binary (then on $PATH), so this works on any
 #     distro without hardcoding a bindir. If you're running an unpackaged
 #     dev build, replace each with a path instead, e.g.
-#     binary = "target/debug/veiland-sakura" (a value with a `/` is used
+#     binary = "veiland-sakura" (a value with a `/` is used
 #     verbatim).
 #   * The wallpaper `path` (a plugin config value, not a binary) IS opened
 #     directly with no `~` expansion, so it must be a full absolute path.

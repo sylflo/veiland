@@ -8,7 +8,7 @@
 
 [[plugin]]
 name = "fireflies"
-binary = "target/debug/veiland-fireflies"
+binary = "veiland-fireflies"
 z_index = 20
 
 [plugin.config]

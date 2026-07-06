@@ -9,12 +9,12 @@
 
 [[plugin]]
 name = "gradient"
-binary = "target/debug/veiland-gradient"
+binary = "veiland-gradient"
 z_index = -100
 
 [[plugin]]
 name = "parallax"
-binary = "target/debug/veiland-parallax"
+binary = "veiland-parallax"
 z_index = 10
 
 [plugin.config]

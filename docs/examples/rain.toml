@@ -12,7 +12,7 @@
 
 [[plugin]]
 name = "rain"
-binary = "target/debug/veiland-rain"
+binary = "veiland-rain"
 z_index = 20
 
 [plugin.config]

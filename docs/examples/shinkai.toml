@@ -48,7 +48,7 @@
 # --- Wallpaper: edge-to-edge image ---------------------------------
 [[plugin]]
 name = "wallpaper"
-binary = "target/debug/veiland-wallpaper"
+binary = "veiland-wallpaper"
 monitors = ["HDMI-A-1"]
 z_index = 0
 
@@ -59,7 +59,7 @@ path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/938805-3840x2160
 # --- Wallpaper: edge-to-edge image ---------------------------------
 [[plugin]]
 name = "wallpaper-2"
-binary = "target/debug/veiland-wallpaper"
+binary = "veiland-wallpaper"
 monitors = ["DP-1"]
 z_index = 0
 
@@ -70,7 +70,7 @@ path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/9ajx5sbkyx671.jp
 # --- Vignette: soft corner darkening -------------------------------
 [[plugin]]
 name = "vignette"
-binary = "target/debug/veiland-vignette"
+binary = "veiland-vignette"
 z_index = 10
 
 [plugin.config]
@@ -86,7 +86,7 @@ base_opacity = 0.2
 # --- Particles: drifting motes (DISABLED) --------------------------
 [[plugin]]
 name = "particles"
-binary = "target/debug/veiland-particles"
+binary = "veiland-particles"
 z_index = 20
 monitors = ["DP-1"]
 
@@ -99,7 +99,7 @@ color = [1.0, 1.0, 1.0, 1.0]
 # --- Sakura: falling cherry-blossom petals (DISABLED) --------------
 [[plugin]]
 name = "sakura"
-binary = "target/debug/veiland-sakura"
+binary = "veiland-sakura"
 z_index = 25
 monitors = ["HDMI-A-1"]
 
@@ -113,7 +113,7 @@ color = [1.0, 1.0, 1.0, 1.0]
 # --- Title (English) — small, dim, above the Japanese title --------
 [[plugin]]
 name = "title-english"
-binary = "target/debug/veiland-label"
+binary = "veiland-label"
 z_index = 30
 
 [plugin.config]
@@ -135,7 +135,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.8]
 # --- Title (Japanese) — large, bright, the main visual -------------
 [[plugin]]
 name = "title-japanese"
-binary = "target/debug/veiland-label"
+binary = "veiland-label"
 z_index = 31
 
 [plugin.config]
@@ -154,7 +154,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.9]
 # --- Quote (English) — below the title -----------------------------
 [[plugin]]
 name = "quote-english"
-binary = "target/debug/veiland-label"
+binary = "veiland-label"
 z_index = 40
 
 [plugin.config]
@@ -177,7 +177,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.9]
 # --- Quote (Japanese) — smaller, dimmer, below the English quote ---
 [[plugin]]
 name = "quote-japanese"
-binary = "target/debug/veiland-label"
+binary = "veiland-label"
 z_index = 41
 
 [plugin.config]
@@ -195,7 +195,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.8]
 # --- Clock: time + date, upper-left, above everything --------------
 [[plugin]]
 name = "clock"
-binary = "target/debug/veiland-clock"
+binary = "veiland-clock"
 z_index = 50
 
 [plugin.config]

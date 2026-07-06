@@ -12,7 +12,7 @@
 
 [[plugin]]
 name = "snow"
-binary = "target/debug/veiland-snow"
+binary = "veiland-snow"
 z_index = 20
 
 [plugin.config]

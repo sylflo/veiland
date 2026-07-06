@@ -11,7 +11,7 @@
 
 [[plugin]]
 name = "embers"
-binary = "target/debug/veiland-embers"
+binary = "veiland-embers"
 z_index = 20
 
 [plugin.config]

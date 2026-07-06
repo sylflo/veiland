@@ -20,7 +20,7 @@
 
 [[plugin]]
 name = "label-latin"
-binary = "/home/sylflo/Projects/veiland/target/debug/veiland-label"
+binary = "veiland-label"
 z_index = 10
 
 [plugin.config]
