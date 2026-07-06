@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Slow raymarched gyroid tunnel — the launch-thumbnail scene.
+#
+# The camera drifts through the tunnels of a gyroid (a triply periodic
+# minimal surface), fog swallowing the distance. Fully opaque bottom
+# layer: compose vignette, label, or particles on top.
+#
+# Thermal defaults are deliberate: the shader renders at half
+# resolution (the locker upsamples bilinearly) and submits at most 30
+# frames per second. A locker runs for hours; turn these up only for
+# capture sessions.
+
+[[plugin]]
+name = "raymarcher"
+binary = "veiland-raymarcher"
+z_index = 0
+
+[plugin.config]
+# Drift speed multiplier. 1.0 crosses one tunnel cell about every 18
+# seconds; 0 freezes the scene.
+speed = 1.0
+# Vertical field of view in degrees. Wider = more tunnel, more warp.
+fov_deg = 70.0
+# Palette stops (2-4). The first stop also tints the fog.
+colors = [
+  [0.08, 0.10, 0.18],
+  [0.55, 0.30, 0.15],
+  [0.20, 0.35, 0.40],
+]
+# Fog density multiplier. Fog hides the march's far boundary, so 0 is
+# possible but not recommended.
+fog = 1.0
+# Buffer resolution as a fraction of the region; the locker upsamples.
+render_scale = 0.5
+# Cap on submitted frames per second. 0 = compositor rate.
+max_fps = 30.0

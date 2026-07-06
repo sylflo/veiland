@@ -1285,6 +1285,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "veiland-raymarcher"
+version = "0.1.0"
+dependencies = [
+ "gl",
+ "serde",
+ "veiland-plugin",
+ "veiland-protocol",
+]
+
+[[package]]
 name = "veiland-sakura"
 version = "0.1.0"
 dependencies = [
