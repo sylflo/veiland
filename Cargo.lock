@@ -1246,6 +1246,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "veiland-parallax"
+version = "0.1.0"
+dependencies = [
+ "gl",
+ "serde",
+ "veiland-plugin",
+ "veiland-protocol",
+]
+
+[[package]]
 name = "veiland-particles"
 version = "0.1.0"
 dependencies = [

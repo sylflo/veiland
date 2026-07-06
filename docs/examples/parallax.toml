@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Parallax scene -- three layers of soft bokeh circles drifting at
+# different speeds over a flowing gradient background.
+#
+# The near layer is large, fast, and bright; deeper layers shrink,
+# slow down, and fade. The relative motion is the depth cue. Swap the
+# gradient for the wallpaper plugin to float the circles over an image.
+
+[[plugin]]
+name = "gradient"
+binary = "target/debug/veiland-gradient"
+z_index = -100
+
+[[plugin]]
+name = "parallax"
+binary = "target/debug/veiland-parallax"
+z_index = 10
+
+[plugin.config]
+# Circle color; alpha is the master opacity for the whole effect.
+color = [1.0, 1.0, 1.0, 0.2]
+# Near-layer max circle radius in px; deeper layers scale down.
+size_px = 80.0
+# Fraction of grid cells holding a circle. 0.5 is a balanced field;
+# lower is sparser, 1.0 fills every cell.
+density = 0.5
+# Near-layer drift in px/s. 8 is a slow float; deeper layers move
+# slower automatically.
+speed = 8.0
+# Drift direction in degrees, math convention: 0 = right, 90 = up.
+angle_deg = 30.0
+# Edge feather as a fraction of each circle's radius. 0.5 is a soft
+# bokeh look; 1.0 is fully diffuse, 0.1 is crisp dots.
+softness = 0.5
+# Layout seed -- change for a different arrangement.
+seed = 2654435769

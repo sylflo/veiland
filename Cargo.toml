@@ -8,6 +8,7 @@ members = [
     "plugins/gradient",
     "plugins/green-box",
     "plugins/label",
+    "plugins/parallax",
     "plugins/particles",
     "plugins/rain",
     "plugins/red-box",
