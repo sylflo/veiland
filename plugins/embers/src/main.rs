@@ -28,8 +28,7 @@
 use serde::Deserialize;
 use std::time::Instant;
 use veiland_plugin::{
-    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, Rng, gl as vgl,
-    math::px_to_clip,
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, Rng, gl as vgl, math::px_to_clip,
 };
 
 const PLUGIN_NAME: &str = "embers";
@@ -248,10 +247,8 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
             gl::GetAttribLocation(glow_program, c"a_pos".as_ptr()) as gl::types::GLuint;
         let glow_a_t_loc =
             gl::GetAttribLocation(glow_program, c"a_t".as_ptr()) as gl::types::GLuint;
-        let glow_u_color_loc =
-            gl::GetUniformLocation(glow_program, c"u_color".as_ptr());
-        let glow_u_peak_loc =
-            gl::GetUniformLocation(glow_program, c"u_peak".as_ptr());
+        let glow_u_color_loc = gl::GetUniformLocation(glow_program, c"u_color".as_ptr());
+        let glow_u_peak_loc = gl::GetUniformLocation(glow_program, c"u_peak".as_ptr());
 
         // Spark program
         let svs = vgl::compile_shader(gl::VERTEX_SHADER, spark_vs)?;
@@ -267,8 +264,7 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
             gl::GetAttribLocation(spark_program, c"a_local".as_ptr()) as gl::types::GLuint;
         let spark_a_fade_loc =
             gl::GetAttribLocation(spark_program, c"a_fade".as_ptr()) as gl::types::GLuint;
-        let spark_u_color_loc =
-            gl::GetUniformLocation(spark_program, c"u_color".as_ptr());
+        let spark_u_color_loc = gl::GetUniformLocation(spark_program, c"u_color".as_ptr());
 
         Ok(GpuState {
             glow_program,
@@ -324,10 +320,7 @@ fn rebuild_glow_verts(state: &mut State, w: u32, h: u32) {
     // 4 verts: bottom-left, bottom-right, top-left, top-right.
     // t=0 at bottom (opaque), t=1 at top (transparent).
     state.glow_verts = [
-        x0, cy_bot, 0.0,
-        x1, cy_bot, 0.0,
-        x0, cy_top, 1.0,
-        x1, cy_top, 1.0,
+        x0, cy_bot, 0.0, x1, cy_bot, 0.0, x0, cy_top, 1.0, x1, cy_top, 1.0,
     ];
     state.glow_dirty = true;
 }
@@ -349,8 +342,8 @@ fn update_spark_verts(state: &mut State, surface_w: u32, surface_h: u32) {
 
         // Horizontal drift + wobble.
         let drift = s.drift_px * scale * phase;
-        let wobble = WOBBLE_PX * scale
-            * (phase * std::f32::consts::TAU * 1.5 + s.wobble_phase).sin();
+        let wobble =
+            WOBBLE_PX * scale * (phase * std::f32::consts::TAU * 1.5 + s.wobble_phase).sin();
         let cx_px = s.x_norm * w + drift + wobble;
 
         // Fade: in over first FADE_FRACTION, out over last FADE_FRACTION.
@@ -378,12 +371,36 @@ fn update_spark_verts(state: &mut State, surface_w: u32, surface_h: u32) {
         let v = &mut state.spark_verts[off..off + 30];
 
         // 5 floats/vert: px, py, lx, ly, fade.
-        v[0]  = cx0; v[1]  = cy0; v[2]  = -1.0; v[3]  = -1.0; v[4]  = alpha;
-        v[5]  = cx1; v[6]  = cy1; v[7]  =  1.0; v[8]  = -1.0; v[9]  = alpha;
-        v[10] = cx2; v[11] = cy2; v[12] = -1.0; v[13] =  1.0; v[14] = alpha;
-        v[15] = cx1; v[16] = cy1; v[17] =  1.0; v[18] = -1.0; v[19] = alpha;
-        v[20] = cx3; v[21] = cy3; v[22] =  1.0; v[23] =  1.0; v[24] = alpha;
-        v[25] = cx2; v[26] = cy2; v[27] = -1.0; v[28] =  1.0; v[29] = alpha;
+        v[0] = cx0;
+        v[1] = cy0;
+        v[2] = -1.0;
+        v[3] = -1.0;
+        v[4] = alpha;
+        v[5] = cx1;
+        v[6] = cy1;
+        v[7] = 1.0;
+        v[8] = -1.0;
+        v[9] = alpha;
+        v[10] = cx2;
+        v[11] = cy2;
+        v[12] = -1.0;
+        v[13] = 1.0;
+        v[14] = alpha;
+        v[15] = cx1;
+        v[16] = cy1;
+        v[17] = 1.0;
+        v[18] = -1.0;
+        v[19] = alpha;
+        v[20] = cx3;
+        v[21] = cy3;
+        v[22] = 1.0;
+        v[23] = 1.0;
+        v[24] = alpha;
+        v[25] = cx2;
+        v[26] = cy2;
+        v[27] = -1.0;
+        v[28] = 1.0;
+        v[29] = alpha;
     }
 }
 
@@ -465,7 +482,11 @@ fn run() -> Result<(), PluginError> {
         start: Instant::now(),
         glow_dirty: true,
     };
-    rebuild_glow_verts(&mut state, first_configure.region_w, first_configure.region_h);
+    rebuild_glow_verts(
+        &mut state,
+        first_configure.region_w,
+        first_configure.region_h,
+    );
 
     let mut pacer = FramePacer::self_paced();
     loop {
@@ -529,12 +550,20 @@ fn render_and_send(
         let stride_g = (3 * std::mem::size_of::<f32>()) as i32;
         gl::EnableVertexAttribArray(gpu.glow_a_pos_loc);
         gl::VertexAttribPointer(
-            gpu.glow_a_pos_loc, 2, gl::FLOAT, gl::FALSE, stride_g,
+            gpu.glow_a_pos_loc,
+            2,
+            gl::FLOAT,
+            gl::FALSE,
+            stride_g,
             std::ptr::null(),
         );
         gl::EnableVertexAttribArray(gpu.glow_a_t_loc);
         gl::VertexAttribPointer(
-            gpu.glow_a_t_loc, 1, gl::FLOAT, gl::FALSE, stride_g,
+            gpu.glow_a_t_loc,
+            1,
+            gl::FLOAT,
+            gl::FALSE,
+            stride_g,
             (2 * std::mem::size_of::<f32>()) as *const _,
         );
         gl::Uniform3f(
@@ -563,17 +592,29 @@ fn render_and_send(
         let stride_s = (5 * std::mem::size_of::<f32>()) as i32;
         gl::EnableVertexAttribArray(gpu.spark_a_pos_loc);
         gl::VertexAttribPointer(
-            gpu.spark_a_pos_loc, 2, gl::FLOAT, gl::FALSE, stride_s,
+            gpu.spark_a_pos_loc,
+            2,
+            gl::FLOAT,
+            gl::FALSE,
+            stride_s,
             std::ptr::null(),
         );
         gl::EnableVertexAttribArray(gpu.spark_a_local_loc);
         gl::VertexAttribPointer(
-            gpu.spark_a_local_loc, 2, gl::FLOAT, gl::FALSE, stride_s,
+            gpu.spark_a_local_loc,
+            2,
+            gl::FLOAT,
+            gl::FALSE,
+            stride_s,
             (2 * std::mem::size_of::<f32>()) as *const _,
         );
         gl::EnableVertexAttribArray(gpu.spark_a_fade_loc);
         gl::VertexAttribPointer(
-            gpu.spark_a_fade_loc, 1, gl::FLOAT, gl::FALSE, stride_s,
+            gpu.spark_a_fade_loc,
+            1,
+            gl::FLOAT,
+            gl::FALSE,
+            stride_s,
             (4 * std::mem::size_of::<f32>()) as *const _,
         );
         gl::Uniform4f(

@@ -25,8 +25,7 @@
 use serde::Deserialize;
 use std::time::Instant;
 use veiland_plugin::{
-    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, Rng, gl as vgl,
-    math::px_to_clip,
+    Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, Rng, gl as vgl, math::px_to_clip,
 };
 
 const PLUGIN_NAME: &str = "fireflies";
@@ -109,25 +108,25 @@ struct Firefly {
 
 fn seed_fireflies(count: u32) -> Vec<Firefly> {
     let mut rng = Rng::new(0x6C624955); // arbitrary seed, distinct from siblings'
-    (0..count).map(|_| {
-        let wave = |rng: &mut Rng| -> (f32, f32, f32) {
-            let amp = WANDER_AMP_MIN_PX
-                + rng.next_f32() * (WANDER_AMP_MAX_PX - WANDER_AMP_MIN_PX);
-            let freq = WANDER_FREQ_MIN
-                + rng.next_f32() * (WANDER_FREQ_MAX - WANDER_FREQ_MIN);
-            let phase = rng.next_f32() * std::f32::consts::TAU;
-            (amp, freq, phase)
-        };
-        Firefly {
-            x_home: rng.next_f32(),
-            y_home: rng.next_f32(),
-            wx: [wave(&mut rng), wave(&mut rng)],
-            wy: [wave(&mut rng), wave(&mut rng)],
-            blink_freq: BLINK_FREQ_MIN
-                + rng.next_f32() * (BLINK_FREQ_MAX - BLINK_FREQ_MIN),
-            blink_phase: rng.next_f32() * std::f32::consts::TAU,
-        }
-    }).collect()
+    (0..count)
+        .map(|_| {
+            let wave = |rng: &mut Rng| -> (f32, f32, f32) {
+                let amp =
+                    WANDER_AMP_MIN_PX + rng.next_f32() * (WANDER_AMP_MAX_PX - WANDER_AMP_MIN_PX);
+                let freq = WANDER_FREQ_MIN + rng.next_f32() * (WANDER_FREQ_MAX - WANDER_FREQ_MIN);
+                let phase = rng.next_f32() * std::f32::consts::TAU;
+                (amp, freq, phase)
+            };
+            Firefly {
+                x_home: rng.next_f32(),
+                y_home: rng.next_f32(),
+                wx: [wave(&mut rng), wave(&mut rng)],
+                wy: [wave(&mut rng), wave(&mut rng)],
+                blink_freq: BLINK_FREQ_MIN + rng.next_f32() * (BLINK_FREQ_MAX - BLINK_FREQ_MIN),
+                blink_phase: rng.next_f32() * std::f32::consts::TAU,
+            }
+        })
+        .collect()
 }
 
 struct GpuState {
@@ -183,16 +182,19 @@ unsafe fn build_gpu_state() -> Result<GpuState, String> {
         gl::GenBuffers(1, &mut vbo);
         gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
 
-        let a_pos_loc =
-            gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
-        let a_local_loc =
-            gl::GetAttribLocation(program, c"a_local".as_ptr()) as gl::types::GLuint;
-        let a_fade_loc =
-            gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
-        let u_color_loc =
-            gl::GetUniformLocation(program, c"u_color".as_ptr());
+        let a_pos_loc = gl::GetAttribLocation(program, c"a_pos".as_ptr()) as gl::types::GLuint;
+        let a_local_loc = gl::GetAttribLocation(program, c"a_local".as_ptr()) as gl::types::GLuint;
+        let a_fade_loc = gl::GetAttribLocation(program, c"a_fade".as_ptr()) as gl::types::GLuint;
+        let u_color_loc = gl::GetUniformLocation(program, c"u_color".as_ptr());
 
-        Ok(GpuState { program, vbo, a_pos_loc, a_local_loc, a_fade_loc, u_color_loc })
+        Ok(GpuState {
+            program,
+            vbo,
+            a_pos_loc,
+            a_local_loc,
+            a_fade_loc,
+            u_color_loc,
+        })
     }
 }
 
@@ -216,9 +218,9 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
     for (i, f) in state.fireflies.iter().enumerate() {
         // Wander: home + sum of two sin waves per axis.
         let wx = f.wx[0].0 * scale * (f.wx[0].1 * now + f.wx[0].2).sin()
-               + f.wx[1].0 * scale * (f.wx[1].1 * now + f.wx[1].2).sin();
+            + f.wx[1].0 * scale * (f.wx[1].1 * now + f.wx[1].2).sin();
         let wy = f.wy[0].0 * scale * (f.wy[0].1 * now + f.wy[0].2).sin()
-               + f.wy[1].0 * scale * (f.wy[1].1 * now + f.wy[1].2).sin();
+            + f.wy[1].0 * scale * (f.wy[1].1 * now + f.wy[1].2).sin();
         let cx_px = f.x_home * w + wx;
         let cy_px = f.y_home * h + wy;
 
@@ -243,12 +245,36 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
         let off = i * 6 * 5;
         let v = &mut state.cpu_verts[off..off + 30];
 
-        v[0]  = cx0; v[1]  = cy0; v[2]  = -1.0; v[3]  = -1.0; v[4]  = brightness;
-        v[5]  = cx1; v[6]  = cy1; v[7]  =  1.0; v[8]  = -1.0; v[9]  = brightness;
-        v[10] = cx2; v[11] = cy2; v[12] = -1.0; v[13] =  1.0; v[14] = brightness;
-        v[15] = cx1; v[16] = cy1; v[17] =  1.0; v[18] = -1.0; v[19] = brightness;
-        v[20] = cx3; v[21] = cy3; v[22] =  1.0; v[23] =  1.0; v[24] = brightness;
-        v[25] = cx2; v[26] = cy2; v[27] = -1.0; v[28] =  1.0; v[29] = brightness;
+        v[0] = cx0;
+        v[1] = cy0;
+        v[2] = -1.0;
+        v[3] = -1.0;
+        v[4] = brightness;
+        v[5] = cx1;
+        v[6] = cy1;
+        v[7] = 1.0;
+        v[8] = -1.0;
+        v[9] = brightness;
+        v[10] = cx2;
+        v[11] = cy2;
+        v[12] = -1.0;
+        v[13] = 1.0;
+        v[14] = brightness;
+        v[15] = cx1;
+        v[16] = cy1;
+        v[17] = 1.0;
+        v[18] = -1.0;
+        v[19] = brightness;
+        v[20] = cx3;
+        v[21] = cy3;
+        v[22] = 1.0;
+        v[23] = 1.0;
+        v[24] = brightness;
+        v[25] = cx2;
+        v[26] = cy2;
+        v[27] = -1.0;
+        v[28] = 1.0;
+        v[29] = brightness;
     }
 }
 
