@@ -16,7 +16,14 @@ CRATES = \
  -p veiland-particles \
  -p veiland-vignette \
  -p veiland-label \
- -p veiland-sakura
+ -p veiland-sakura \
+ -p veiland-snow \
+ -p veiland-rain \
+ -p veiland-embers \
+ -p veiland-fireflies \
+ -p veiland-gradient \
+ -p veiland-parallax \
+ -p veiland-blobs
 
 %:
 	dh $@

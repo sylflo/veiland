@@ -24,6 +24,28 @@
       forAllSystems = f:
         nixpkgs.lib.genAttrs systems
           (system: f (import nixpkgs { inherit system; }));
+
+      # The shipped crate set: the locker plus every real plugin. Used
+      # by the package build, the test phase, and the clippy check, so
+      # the list lives in exactly one place. The stress test plugin is
+      # deliberately not compiled or installed.
+      realCrates = [
+        "veiland-core"
+        "veiland-wallpaper"
+        "veiland-clock"
+        "veiland-particles"
+        "veiland-vignette"
+        "veiland-label"
+        "veiland-sakura"
+        "veiland-snow"
+        "veiland-rain"
+        "veiland-embers"
+        "veiland-fireflies"
+        "veiland-gradient"
+        "veiland-parallax"
+        "veiland-blobs"
+      ];
+      crateFlags = nixpkgs.lib.concatMap (c: [ "-p" c ]) realCrates;
     in
     {
       packages = forAllSystems (pkgs: {
@@ -37,30 +59,12 @@
           # no cargoHash to maintain, no network in the sandbox.
           cargoLock.lockFile = ./Cargo.lock;
 
-          # Build only the real set. The demo/test plugins (blue-box,
-          # green-box, red-box, gradient, stress) are deliberately not
-          # compiled or installed.
-          cargoBuildFlags = [
-            "-p" "veiland-core"
-            "-p" "veiland-wallpaper"
-            "-p" "veiland-clock"
-            "-p" "veiland-particles"
-            "-p" "veiland-vignette"
-            "-p" "veiland-label"
-            "-p" "veiland-sakura"
-          ];
+          # Build only the real set (see `realCrates` above).
+          cargoBuildFlags = crateFlags;
 
           # Restrict the test phase to the same set (the workspace's other
           # crates aren't part of what we ship).
-          cargoTestFlags = [
-            "-p" "veiland-core"
-            "-p" "veiland-wallpaper"
-            "-p" "veiland-clock"
-            "-p" "veiland-particles"
-            "-p" "veiland-vignette"
-            "-p" "veiland-label"
-            "-p" "veiland-sakura"
-          ];
+          cargoTestFlags = crateFlags;
 
           # `spawn_true_exits_zero` shells out to `/bin/true`, which the
           # hermetic Nix build sandbox does not provide (no /bin, no
@@ -146,18 +150,12 @@
           pname = "veiland-clippy-check";
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.clippy ];
           # Replace build + install with a single clippy invocation over
-          # the real-set crates (same -p list the package builds), denying
-          # on any warning. Skip the test phase; tests run in the package.
+          # the real-set crates (the same `realCrates` the package
+          # builds), denying on any warning. Skip the test phase; tests
+          # run in the package.
           buildPhase = ''
             runHook preBuild
-            cargo clippy \
-              -p veiland-core \
-              -p veiland-wallpaper \
-              -p veiland-clock \
-              -p veiland-particles \
-              -p veiland-vignette \
-              -p veiland-label \
-              -p veiland-sakura \
+            cargo clippy ${nixpkgs.lib.concatMapStringsSep " " (c: "-p ${c}") realCrates} \
               --all-targets -- -D warnings
             runHook postBuild
           '';

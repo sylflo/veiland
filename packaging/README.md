@@ -14,10 +14,10 @@ everything else.
 - `veiland.example.toml` — installed to `/usr/share/veiland/`
 
 All packages build the **real set** from source
-(`veiland-core` + wallpaper, clock, particles, vignette, label, sakura)
+(`veiland-core` + wallpaper, clock, particles, vignette, label,
+sakura, snow, rain, embers, fireflies, gradient, parallax, blobs)
 into `/usr/bin`, and bundle `/etc/pam.d/veiland` so PAM works on
-install. Demo plugins (blue/green/red-box, gradient, stress) are not
-packaged.
+install. The stress test plugin is not packaged.
 
 Packages are built and validated in CI (`.github/workflows/packages.yml`)
 inside each distro's container

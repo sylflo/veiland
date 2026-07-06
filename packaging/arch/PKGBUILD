@@ -5,8 +5,7 @@
 # reference plugins) from source into /usr/bin and installs the veiland
 # PAM service so password authentication works on install.
 #
-# Demo/test plugins (blue/green/red-box, gradient, stress) are not built
-# or packaged.
+# The stress test plugin is not built or packaged.
 
 pkgname=veiland
 pkgver=0.1.0
@@ -51,6 +50,13 @@ _crates=(
   veiland-vignette
   veiland-label
   veiland-sakura
+  veiland-snow
+  veiland-rain
+  veiland-embers
+  veiland-fireflies
+  veiland-gradient
+  veiland-parallax
+  veiland-blobs
 )
 
 build() {

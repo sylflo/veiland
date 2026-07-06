@@ -4,8 +4,7 @@
 # + reference plugins) from source into /usr/bin and installs the
 # veiland PAM service so password authentication works on install.
 #
-# Demo/test plugins (blue/green/red-box, gradient, stress) are not built
-# or packaged.
+# The stress test plugin is not built or packaged.
 
 Name:           veiland
 Version:        0.1.0
@@ -57,7 +56,8 @@ The locker itself owns PAM authentication, keyboard input, and the
 unlock decision; plugins never see keystrokes or the password.
 
 This package installs veiland-core and the reference plugins
-(wallpaper, clock, particles, vignette, label, sakura).
+(wallpaper, clock, particles, vignette, label, sakura, snow, rain,
+embers, fireflies, gradient, parallax, blobs).
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -71,7 +71,14 @@ cargo build --release --locked \
   -p veiland-particles \
   -p veiland-vignette \
   -p veiland-label \
-  -p veiland-sakura
+  -p veiland-sakura \
+  -p veiland-snow \
+  -p veiland-rain \
+  -p veiland-embers \
+  -p veiland-fireflies \
+  -p veiland-gradient \
+  -p veiland-parallax \
+  -p veiland-blobs
 
 %check
 export CARGO_HOME=%{_builddir}/cargo-home
@@ -83,7 +90,14 @@ cargo test --release --locked \
   -p veiland-particles \
   -p veiland-vignette \
   -p veiland-label \
-  -p veiland-sakura
+  -p veiland-sakura \
+  -p veiland-snow \
+  -p veiland-rain \
+  -p veiland-embers \
+  -p veiland-fireflies \
+  -p veiland-gradient \
+  -p veiland-parallax \
+  -p veiland-blobs
 
 %install
 # Binaries -> /usr/bin. The veiland-core crate builds a binary named
@@ -91,7 +105,10 @@ cargo test --release --locked \
 # crate names.
 install -Dm0755 target/release/veiland "%{buildroot}%{_bindir}/veiland"
 for c in veiland-wallpaper veiland-clock veiland-particles \
-         veiland-vignette veiland-label veiland-sakura; do
+         veiland-vignette veiland-label veiland-sakura \
+         veiland-snow veiland-rain veiland-embers \
+         veiland-fireflies veiland-gradient veiland-parallax \
+         veiland-blobs; do
   install -Dm0755 "target/release/$c" "%{buildroot}%{_bindir}/$c"
 done
 
@@ -112,6 +129,13 @@ install -Dm0644 packaging/veiland.example.toml \
 %{_bindir}/veiland-vignette
 %{_bindir}/veiland-label
 %{_bindir}/veiland-sakura
+%{_bindir}/veiland-snow
+%{_bindir}/veiland-rain
+%{_bindir}/veiland-embers
+%{_bindir}/veiland-fireflies
+%{_bindir}/veiland-gradient
+%{_bindir}/veiland-parallax
+%{_bindir}/veiland-blobs
 %config(noreplace) %{_sysconfdir}/pam.d/veiland
 %dir %{_datadir}/veiland
 %{_datadir}/veiland/config.example.toml
