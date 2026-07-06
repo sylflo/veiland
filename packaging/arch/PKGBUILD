@@ -57,6 +57,7 @@ _crates=(
   veiland-gradient
   veiland-parallax
   veiland-blobs
+  veiland-raymarcher
 )
 
 build() {

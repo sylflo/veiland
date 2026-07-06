@@ -15,7 +15,8 @@ everything else.
 
 All packages build the **real set** from source
 (`veiland-core` + wallpaper, clock, particles, vignette, label,
-sakura, snow, rain, embers, fireflies, gradient, parallax, blobs)
+sakura, snow, rain, embers, fireflies, gradient, parallax, blobs,
+raymarcher)
 into `/usr/bin`, and bundle `/etc/pam.d/veiland` so PAM works on
 install. The stress test plugin is not packaged.
 

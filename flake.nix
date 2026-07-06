@@ -44,6 +44,7 @@
         "veiland-gradient"
         "veiland-parallax"
         "veiland-blobs"
+        "veiland-raymarcher"
       ];
       crateFlags = nixpkgs.lib.concatMap (c: [ "-p" c ]) realCrates;
     in

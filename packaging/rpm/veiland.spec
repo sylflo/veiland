@@ -57,7 +57,7 @@ unlock decision; plugins never see keystrokes or the password.
 
 This package installs veiland-core and the reference plugins
 (wallpaper, clock, particles, vignette, label, sakura, snow, rain,
-embers, fireflies, gradient, parallax, blobs).
+embers, fireflies, gradient, parallax, blobs, raymarcher).
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -78,7 +78,8 @@ cargo build --release --locked \
   -p veiland-fireflies \
   -p veiland-gradient \
   -p veiland-parallax \
-  -p veiland-blobs
+  -p veiland-blobs \
+  -p veiland-raymarcher
 
 %check
 export CARGO_HOME=%{_builddir}/cargo-home
@@ -97,7 +98,8 @@ cargo test --release --locked \
   -p veiland-fireflies \
   -p veiland-gradient \
   -p veiland-parallax \
-  -p veiland-blobs
+  -p veiland-blobs \
+  -p veiland-raymarcher
 
 %install
 # Binaries -> /usr/bin. The veiland-core crate builds a binary named
@@ -108,7 +110,7 @@ for c in veiland-wallpaper veiland-clock veiland-particles \
          veiland-vignette veiland-label veiland-sakura \
          veiland-snow veiland-rain veiland-embers \
          veiland-fireflies veiland-gradient veiland-parallax \
-         veiland-blobs; do
+         veiland-blobs veiland-raymarcher; do
   install -Dm0755 "target/release/$c" "%{buildroot}%{_bindir}/$c"
 done
 
@@ -136,6 +138,7 @@ install -Dm0644 packaging/veiland.example.toml \
 %{_bindir}/veiland-gradient
 %{_bindir}/veiland-parallax
 %{_bindir}/veiland-blobs
+%{_bindir}/veiland-raymarcher
 %config(noreplace) %{_sysconfdir}/pam.d/veiland
 %dir %{_datadir}/veiland
 %{_datadir}/veiland/config.example.toml

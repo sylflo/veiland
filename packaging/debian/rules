@@ -23,7 +23,8 @@ CRATES = \
  -p veiland-fireflies \
  -p veiland-gradient \
  -p veiland-parallax \
- -p veiland-blobs
+ -p veiland-blobs \
+ -p veiland-raymarcher
 
 %:
 	dh $@
