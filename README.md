@@ -30,6 +30,20 @@ Veiland-core is a Wayland client that owns the lock surface, handles PAM, and co
 
 All security-critical operations (input handling, password buffer, PAM, unlock decision) run in the trusted core process. Plugins are untrusted and sandboxed by process boundaries — the kernel enforces both crash isolation and memory isolation for free.
 
+## Security model
+
+Two boundaries do the work: the compositor enforces the lock, and the process boundary contains the plugins.
+
+**The session fails closed.** Under [`ext-session-lock-v1`](https://wayland.app/protocols/ext-session-lock-v1), the compositor — not veiland — enforces the lock. The spec is explicit: *"if the client dies while the session is locked, the compositor must not unlock the session in response."* If veiland crashes, the session stays locked and no window content is ever revealed; the worst case is a locked screen you recover from a TTY. That guarantee comes from the compositor, not from veiland being bug-free.
+
+**Plugins sit outside the trust boundary.** The compositor unlocks whenever the lock client asks it to — so what matters is what runs inside that client. In veiland, plugins don't: they are separate processes, not loadable modules, and the protocol between them and the core is deliberately narrow.
+
+- **They cannot read your password.** It lives in `mlock`'d memory in the core process, is zeroed after each PAM call, and never appears in any buffer a plugin can see. No protocol message carries keyboard input in either direction — plugins never receive keystrokes at all.
+- **They cannot trigger an unlock.** No plugin-to-core message maps to "unlock". The API surface is absent, not filtered.
+- **They cannot execute code in the core.** A plugin hands over GPU buffers; bytes in a buffer become pixel values through a GPU sampler, never instructions. Every field a plugin sends is validated before it reaches EGL or the kernel — implausible sizes, strides, and modifiers are refused.
+
+**What a hostile plugin can still try, and how it's bounded.** Malformed messages or resource exhaustion get its socket closed and a fallback drawn for its region; in-flight buffers and dimensions are capped, and the locker never blocks on a dead plugin. A plugin could draw a fake "unlocked" desktop inside its own region — which is why the password UI is painted by the core on top of all plugin output: a plugin can draw beneath it, never over it.
+
 ## Installing
 
 ### NixOS (flake module)
