@@ -6,9 +6,9 @@
 # makepkg/dpkg-buildpackage/rpmbuild). This is separate from ci.yml (the
 # Nix gate) and does not affect it.
 #
-# Arch is implemented; debian and fedora are placeholders until their
-# packaging lands (Steps 3-4 of docs/packaging-plan.md) - they run a
-# stub so the matrix shape is proven now.
+# On push/PR the packages are kept as workflow artifacts (validation).
+# When a Release is published, each job also attaches its package to that
+# release as a downloadable asset (see the "Attach to release" steps).
 
 name: packages
 
@@ -16,10 +16,18 @@ on:
   push:
     branches: [master]
   pull_request:
+  # When a GitHub Release is published (from a pushed tag), rebuild the
+  # packages against the tagged tree and attach them as release assets.
+  release:
+    types: [published]
 
 concurrency:
   group: packages-${{ github.ref }}
   cancel-in-progress: true
+
+# The release-upload steps need write access to create release assets.
+permissions:
+  contents: write
 
 jobs:
   arch:
@@ -66,6 +74,17 @@ jobs:
           name: veiland-arch
           path: ${{ github.workspace }}/**/*.pkg.tar.*
           if-no-files-found: warn
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          # makepkg wrote the package under the temp workdir; collect it.
+          mkdir -p dist
+          find / -name '*.pkg.tar.*' -not -path '*/dist/*' -exec cp {} dist/ \; 2>/dev/null || true
+          gh release upload "${{ github.event.release.tag_name }}" dist/*.pkg.tar.* --clobber
 
   debian:
     name: Debian (.deb)
@@ -126,6 +145,12 @@ jobs:
           path: dist/*.deb
           if-no-files-found: warn
 
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.deb --clobber
+
   fedora:
     name: Fedora (.rpm)
     runs-on: ubuntu-latest
@@ -164,3 +189,9 @@ jobs:
           name: veiland-fedora
           path: dist/*.rpm
           if-no-files-found: warn
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.rpm --clobber
