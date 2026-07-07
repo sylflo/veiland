@@ -257,7 +257,7 @@ Two boundaries do the work: the compositor enforces the lock, and the process bo
 
 **Plugins sit outside the trust boundary.** The compositor unlocks whenever the lock client asks it to, so what matters is what runs inside that client. In veiland, plugins don't: they are separate processes, not loadable modules, and the protocol between them and the core is deliberately narrow.
 
-- **They cannot read your password.** It lives in `mlock`'d memory in the core process, is zeroed after each PAM call, and never appears in any buffer a plugin can see. No protocol message carries keyboard input in either direction; plugins never receive keystrokes at all.
+- **They cannot read your password.** The typed password lives in an `mlock`'d buffer in the core process, zeroed after each PAM call, and never appears in any buffer or message a plugin can see. No protocol message carries keyboard input in either direction; plugins never receive keystrokes at all. (Handing the password to PAM requires copying it into a `CString`; the core scrubs its own copy on drop, but the per-prompt copy PAM receives and libpam's own internal copy are outside the core's control. A plugin cannot read the core's heap regardless — this is about scrub-on-free hygiene, not plugin access.)
 - **They cannot trigger an unlock.** No plugin-to-core message maps to "unlock". The API surface is absent, not filtered.
 - **They cannot execute code in the core.** A plugin hands over GPU buffers; bytes in a buffer become pixel values through a GPU sampler, never instructions. Every field a plugin sends is validated before it reaches EGL or the kernel; implausible sizes, strides, and modifiers are refused.
 

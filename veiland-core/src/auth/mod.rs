@@ -2,10 +2,15 @@
 
 //! Password-buffer hygiene: mlock'd, zeroed on drop, encapsulated.
 //!
-//! The bytes never leave this module — there is no method that returns
-//! &[u8]. The only consumer will be `authenticate` (M4 step 3), added
-//! as a method on Session so PAM is fed the buffer without anyone else
-//! ever holding a reference to it.
+//! The buffer never leaves this module — there is no method that returns
+//! &[u8]. The only consumer is `authenticate`, a method on Session, so
+//! PAM is fed the buffer without anyone else holding a reference to it.
+//!
+//! Feeding PAM does require copying the plaintext out of the mlock'd
+//! buffer into a CString (PAM's conversation API takes an owned CString
+//! by value). We scrub the copy we own on drop (see PasswordConv::drop).
+//! Two copies remain that we cannot scrub: the per-prompt clone handed to
+//! PAM, and libpam's own internal copy. Neither is mlock'd or zeroized.
 
 use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 use std::{
@@ -45,6 +50,10 @@ struct PasswordConv {
 
 impl ConversationHandler for PasswordConv {
     fn prompt_echo_off(&mut self, _prompt: &CStr) -> Result<CString, ErrorCode> {
+        // This clone, and libpam's own internal copy of it, are outside
+        // our control once returned: PAM takes the CString by value and
+        // drops it with the plain (non-scrubbing) destructor. Our own
+        // long-lived copy (self.password) is scrubbed in Drop below.
         Ok(self.password.clone())
     }
 
@@ -55,6 +64,18 @@ impl ConversationHandler for PasswordConv {
     fn text_info(&mut self, _msg: &CStr) {}
 
     fn error_msg(&mut self, _msg: &CStr) {}
+}
+
+impl Drop for PasswordConv {
+    fn drop(&mut self) {
+        // Scrub the plaintext copy we hold. try_authenticate's temporary
+        // CString is moved into this field, so this covers it too. Take
+        // the CString out (Drop only gives &mut self), consume it into its
+        // backing bytes, and zero them before the allocation is freed.
+        let cs = std::mem::take(&mut self.password);
+        let mut bytes = cs.into_bytes_with_nul();
+        bytes.zeroize();
+    }
 }
 
 impl Session {
