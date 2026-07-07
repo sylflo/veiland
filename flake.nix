@@ -114,8 +114,8 @@
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.default ];
 
           # Tools the package build doesn't need but a developer does:
-          # a Rust toolchain on PATH, plus the GIF/video recording tooling
-          # from the old shell.nix (dev-only, never in the package).
+          # a Rust toolchain on PATH, plus recording tooling (dev-only,
+          # never in the package).
           packages = with pkgs; [
             rustc
             cargo
@@ -123,6 +123,10 @@
             rustfmt
             rust-analyzer
 
+            # Capture the animated plugin scenes for the README gallery and
+            # launch GIFs: wf-recorder grabs a Wayland output to mp4, ffmpeg
+            # converts mp4 -> GIF (palettegen/paletteuse for clean colors).
+            # Every scene animates, so a still screenshot won't do.
             wf-recorder
             ffmpeg
           ];
