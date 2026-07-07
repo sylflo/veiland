@@ -35,3 +35,19 @@ fog = 1.0
 render_scale = 0.5
 # Cap on submitted frames per second. 0 = compositor rate.
 max_fps = 30.0
+
+# --- Password field: the input pill ---------------------------------
+# A wide, low, fully-rounded pill with a dark translucent fill and a
+# faint light outline, tuned to read over the busy tunnel. Painted by
+# the core on top of the raymarcher output.
+[password]
+y_percent = 68
+box_width = 440
+box_height = 70
+outline_thickness = 2
+rounding = -1                              # full pill
+inner_color = "rgba(16, 20, 34, 0.50)"
+outer_color = "rgba(150, 170, 200, 0.45)"
+dot_color = "rgba(235, 238, 245, 1.0)"
+dot_diameter = 10
+dot_spacing = 22
