@@ -67,24 +67,26 @@ jobs:
           sudo -u builder makepkg --noconfirm --nodeps --skipinteg \
             --noextract -f
           ls -la ./*.pkg.tar.*
+          # makepkg built under the temp workdir, outside the workspace.
+          # Copy the package into $GITHUB_WORKSPACE/dist so the later
+          # upload steps have a stable, in-workspace path (matching the
+          # debian/fedora jobs).
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp ./*.pkg.tar.* "$GITHUB_WORKSPACE/dist/"
+          ls -la "$GITHUB_WORKSPACE/dist/"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: veiland-arch
-          path: ${{ github.workspace }}/**/*.pkg.tar.*
-          if-no-files-found: warn
+          path: dist/*.pkg.tar.*
+          if-no-files-found: error
 
       - name: Attach to release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eux
-          # makepkg wrote the package under the temp workdir; collect it.
-          mkdir -p dist
-          find / -name '*.pkg.tar.*' -not -path '*/dist/*' -exec cp {} dist/ \; 2>/dev/null || true
-          gh release upload "${{ github.event.release.tag_name }}" dist/*.pkg.tar.* --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.pkg.tar.* --clobber
 
   debian:
     name: Debian (.deb)
