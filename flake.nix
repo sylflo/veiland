@@ -129,6 +129,10 @@
             # Every scene animates, so a still screenshot won't do.
             wf-recorder
             ffmpeg
+
+            # GitHub CLI for cutting releases (gh release create ...) and
+            # other repo operations without leaving the shell.
+            gh
           ];
 
           shellHook = ''
