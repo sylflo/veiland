@@ -6,17 +6,13 @@
 [![CI](https://github.com/sylflo/veiland/actions/workflows/ci.yml/badge.svg)](https://github.com/sylflo/veiland/actions/workflows/ci.yml)
 
 <!--
-  hero.mp4 : THE shot. Raymarcher scene as a full lock screen with the
-  password pill visible, so it reads as a locker, not a demo. Shipped as
-  H.264 mp4, not a GIF: a full-screen shader changes every pixel every
-  frame, so a GIF of it is 20-40 MB, while the mp4 is well under 1 MB at
-  better quality. Config: docs/examples/raymarcher.toml (has a [password]
-  pill). On github.com the <video> renders as a click-to-play player.
+  hero.gif : THE shot. Raymarcher scene as a full lock screen with the
+  password pill visible, so it reads as a locker, not a demo. Config:
+  docs/examples/raymarcher.toml (has a [password] pill). GIF (not video)
+  so it autoplays and loops natively on github.com; kept to 900px/10fps
+  to hold the size down, since a full-screen shader is worst-case for GIF.
 -->
-<video src="docs/assets/readme/hero.mp4" autoplay loop muted playsinline width="1280">
-  <!-- Fallback for renderers that don't support inline video (crates.io, some mirrors). -->
-  <a href="docs/assets/readme/hero.mp4">Watch the veiland raymarcher lock screen (mp4)</a>
-</video>
+![veiland: a raymarched tunnel behind the lock pill](docs/assets/readme/hero.gif)
 
 Veiland (from "veil", something that obscures what's behind it) locks your
 Wayland session and hands the *look* of the lock screen to plugins: small
