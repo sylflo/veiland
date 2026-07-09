@@ -40,12 +40,8 @@ jobs:
         # package's makedepends. makepkg refuses to run as root, so we
         # add an unprivileged 'builder' user below.
         run: |
-          # github-cli: the container image has no gh; the "Attach to
-          # release" step below needs it (the runner's pre-installed gh is
-          # not on PATH inside the container).
           pacman -Syu --noconfirm base-devel git rust cargo pkgconf \
-            pam libglvnd mesa libdrm wayland libxkbcommon libjpeg-turbo \
-            github-cli
+            pam libglvnd mesa libdrm wayland libxkbcommon libjpeg-turbo
           useradd -m builder
 
       - uses: actions/checkout@v4
@@ -86,6 +82,14 @@ jobs:
           path: dist/*.pkg.tar.*
           if-no-files-found: error
 
+      - name: Install gh
+        if: github.event_name == 'release'
+        # Only needed to attach release assets; the container has no gh
+        # and the runner's pre-installed gh is not on PATH inside it.
+        # Kept out of the build-tooling step so push/PR validation, which
+        # never uploads, doesn't install it.
+        run: pacman -Sy --noconfirm github-cli
+
       - name: Attach to release
         if: github.event_name == 'release'
         env:
@@ -110,12 +114,9 @@ jobs:
           # toolchain via rustup instead (see below), leaving Cargo.lock
           # and the other distros/flake untouched. curl+ca-certificates
           # are for the rustup installer.
-          # gh: the container image has no github CLI; the "Attach to
-          # release" step below needs it (the runner's pre-installed gh is
-          # not on PATH inside the container).
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts pkg-config \
-            curl ca-certificates gh \
+            curl ca-certificates \
             libpam0g-dev libgl-dev libegl-dev libgbm-dev \
             libdrm-dev libwayland-dev libxkbcommon-dev libturbojpeg0-dev
 
@@ -154,6 +155,22 @@ jobs:
           path: dist/*.deb
           if-no-files-found: warn
 
+      - name: Install gh
+        if: github.event_name == 'release'
+        # gh is not in Debian's repos; install it from GitHub's official
+        # apt repo. Only needed to attach release assets, so gated on the
+        # release event and kept out of the always-run build-tooling step.
+        run: |
+          set -eux
+          mkdir -p -m 755 /etc/apt/keyrings
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            > /etc/apt/sources.list.d/github-cli.list
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh
+
       - name: Attach to release
         if: github.event_name == 'release'
         env:
@@ -167,9 +184,7 @@ jobs:
     steps:
       - name: Install build tooling
         run: |
-          # gh: needed by the "Attach to release" step below (the runner's
-          # pre-installed gh is not on PATH inside the container).
-          dnf -y install rpm-build rpmdevtools tar git gh \
+          dnf -y install rpm-build rpmdevtools tar git \
             cargo rust pkgconf-pkg-config \
             pam-devel mesa-libGL-devel mesa-libEGL-devel mesa-libgbm-devel \
             libdrm-devel wayland-devel libxkbcommon-devel turbojpeg-devel
@@ -203,6 +218,12 @@ jobs:
           name: veiland-fedora
           path: dist/*.rpm
           if-no-files-found: warn
+
+      - name: Install gh
+        if: github.event_name == 'release'
+        # Only needed to attach release assets; kept out of the always-run
+        # build-tooling step so push/PR validation doesn't install it.
+        run: dnf -y install gh
 
       - name: Attach to release
         if: github.event_name == 'release'
