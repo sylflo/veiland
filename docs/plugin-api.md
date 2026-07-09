@@ -37,10 +37,12 @@ order of complexity:
   `veiland-text` for glyph rendering on top of the same
   lifecycle.
 
-The key types: `Connection` (socket framing), `GbmEgl` (render
-node + EGL context), `DmaBuffer` (the GPU buffer + FBO), and
-`SyncFence` (only used on the fast sync path). See the rustdoc
-on each.
+The key types: `Connection` (socket framing + `submit_frame`), `GbmEgl`
+(render node + EGL context), `DmaBuffer` (the GPU buffer + FBO),
+`FramePacer` (the FrameDone/BufferReleased pacing your event loop drives),
+and `SyncFence` (the fast sync path — `submit_frame` chooses the sync model
+and handles the fence for you, so you only touch `SyncFence` directly on the
+low-level `send_buffer` path). See the rustdoc on each.
 
 ## `veiland-text`
 
@@ -158,9 +160,14 @@ reference plugins (`veiland-clock`, `veiland-label`) take `position` as a
 pixels would silently mean "centre" only at one specific resolution.
 
 When the surface is resized, reallocate your dmabuf to the new size with
-`DmaBuffer::resize_to(&gbm_egl, w, h)` in your `Frame::Reconfigure` arm
-(returns `true` if it reallocated → rebuild your cached `Buffer` message);
-otherwise the host stretches your old buffer and text goes soft.
+`DmaBuffer::resize_or_keep(&gbm_egl, w, h, plugin_name)` in your
+`Frame::Reconfigure` arm; otherwise the host stretches your old buffer and
+text goes soft. `resize_or_keep` reallocates only when the size changed,
+logs it, and keeps the current buffer on a transient failure — it never
+returns an error or panics, and you don't rebuild anything by hand
+(`submit_frame` reads the buffer's fields fresh each frame). Reach for the
+lower-level `DmaBuffer::resize_to(&gbm_egl, w, h) -> Result<bool, _>` only
+if you want to react to the reallocation yourself.
 
 See [`plugins/label`](../plugins/label/src/main.rs)'s
 `build_label` for the reference shape.

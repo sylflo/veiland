@@ -38,15 +38,17 @@ a mistake. This is the verified shape (see `plugins/gradient` for a
 complete, minimal, working example):
 
 ```rust
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError, SyncFence};
-use veiland_protocol::Buffer;
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginError};
+
+const PLUGIN_NAME: &str = "my-plugin";
 
 fn run() -> Result<(), PluginError> {
     // 1. GPU context + buffer. GbmEgl::new() opens the render node and
     //    sets up EGL. DmaBuffer::new allocates an ARGB8888 GPU buffer
-    //    wrapped as an FBO you render into.
+    //    wrapped as an FBO you render into. Start at a fallback size; the
+    //    first Configure carries the real region size (see step 4).
     let gbm_egl = GbmEgl::new()?;
-    let dma = DmaBuffer::new(&gbm_egl, WIDTH, HEIGHT)?;
+    let mut dma = DmaBuffer::new(&gbm_egl, WIDTH, HEIGHT)?;
 
     // 2. Build your GL program(s). dma.bind_for_rendering() makes the
     //    buffer's FBO the active render target first.
@@ -55,47 +57,31 @@ fn run() -> Result<(), PluginError> {
 
     // 3. Connect to the host: reads the socket fd from the environment,
     //    negotiates the protocol version + capabilities, sends Hello.
-    let mut conn = Connection::connect("my-plugin", env!("CARGO_PKG_VERSION"))?;
+    let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
 
-    // 3b. Decide the sync path ONCE, and keep it fixed for the whole
-    //     connection. Fast path needs BOTH sides to support fence fds.
-    let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
-
-    // 4. Build the Buffer wire message. In v1 it's constant (one buffer
-    //    reused every frame), so build it once. id = 0 in v1.
-    let buf_msg = Buffer {
-        id: 0,
-        width: dma.width(),
-        height: dma.height(),
-        format: dma.format(),
-        modifier: dma.modifier(),
-        stride: dma.stride(),
-        offset: 0,
-    };
-
-    // 5. The event loop. FramePacer owns the FrameDone/BufferReleased
+    // 4. The event loop. FramePacer owns the FrameDone/BufferReleased
     //    pacing; you drive a three-arm match. Pick self_paced() if you
     //    animate, on_demand() if you're mostly static.
     let mut pacer = FramePacer::self_paced();
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {
-                // draw into `dma`, then submit the buffer:
+                // Draw into `dma`, then hand it to the host in one call.
                 dma.bind_for_rendering()?;
                 // ... gl::Clear, gl::DrawArrays, etc. ...
-                if fast_path {
-                    // gl::Flush(); then attach a fence:
-                    let fence = SyncFence::create(&gbm_egl)?;
-                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
-                } else {
-                    dma.finish(); // glFinish — GPU fully drained before send
-                    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
-                }
-                pacer.submitted(); // REQUIRED after every send_buffer
+
+                // submit_frame builds the wire Buffer message fresh, picks
+                // the sync path (fence fd if both sides support it, else
+                // glFinish), and sends. This is the whole submit step.
+                conn.submit_frame(&dma, &gbm_egl)?;
+                pacer.submitted(); // REQUIRED after every submit_frame
             }
             Frame::Reconfigure(c) => {
                 // Host re-sent Configure (scale/region/time changed).
-                // Update your state; no render is forced this turn.
+                // Resize to the region if it changed; never panics, logs
+                // and keeps the old buffer on a transient failure.
+                dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME);
+                // ... update any state derived from the Configure ...
             }
             Frame::Shutdown => return Ok(()),
         }
@@ -104,11 +90,19 @@ fn run() -> Result<(), PluginError> {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("veiland-my-plugin: {e}");
+        eprintln!("veiland-{PLUGIN_NAME}: {e}");
         std::process::exit(1);
     }
 }
 ```
+
+`conn.submit_frame(&dma, &gbm_egl)` is the one call to reach for. It replaces
+the plumbing every plugin used to copy-paste: building the `Buffer` wire
+message by hand, caching a `fast_path` bool, and branching on
+`glFlush`+fence vs `glFinish`. You almost never construct a `Buffer` yourself
+anymore. If you need the raw control (a custom sync scheme, multiple buffers),
+the lower-level path is still public and documented below under **The
+low-level submit path** — `plugins/stress` uses it.
 
 ## The SDK surface — the only types you need
 
@@ -118,13 +112,26 @@ loop. The public exports:
 
 | Type | What it is |
 |---|---|
-| `Connection` | The socket to the host. Handshake + send/recv. |
+| `Connection` | The socket to the host. Handshake + send/recv + `submit_frame`. |
 | `DmaBuffer` | A GPU buffer wrapped as an FBO you render into. |
 | `GbmEgl` | Your EGL context + GBM device. Created first. |
 | `FramePacer` | The FrameDone/BufferReleased pacing state machine. |
 | `Frame` | One loop turn: `Render`, `Reconfigure(Configure)`, `Shutdown`. |
-| `SyncFence` | A GPU fence for the fast sync path. |
+| `SyncFence` | A GPU fence for the low-level sync path (`submit_frame` uses it for you). |
 | `PluginError` | The error type everything returns. |
+
+Plus three free/convenience helpers that most plugins use so they don't
+hand-roll the boilerplate:
+
+| Item | What it does |
+|---|---|
+| `conn.submit_frame(&dma, &gbm_egl)` | Build the `Buffer` message + pick sync path + send, in one call. The normal way to submit. |
+| `dma.resize_or_keep(&gbm_egl, w, h, name)` | The `Frame::Reconfigure` one-liner: resize if changed, log, never panic. |
+| `veiland_plugin::load_config::<C>(name)` | Read `VEILAND_PLUGIN_CONFIG`, deserialize, fall back to `Default` on missing/invalid. |
+
+`Configure` is not exported by `veiland-plugin` — it's a `veiland-protocol`
+type (`use veiland_protocol::Configure`), reached as the `Frame::Reconfigure`
+payload. You rarely need to name it directly.
 
 Verified method signatures (do not guess these):
 
@@ -132,9 +139,14 @@ Verified method signatures (do not guess these):
 // Connection
 Connection::connect(name: &str, version: &str) -> Result<Connection, PluginError>
 conn.wait_for_configure() -> Result<Option<Configure>, PluginError> // None = shutdown before first Configure
+conn.submit_frame(&DmaBuffer, &GbmEgl) -> Result<(), PluginError> // the normal submit path
 conn.host_supports_fence_fd() -> bool
-conn.send_buffer(&Buffer, dmabuf_fd: BorrowedFd, fence_fd: Option<BorrowedFd>) -> Result<(), PluginError>
+conn.send_buffer(&Buffer, dmabuf_fd: BorrowedFd, fence_fd: Option<BorrowedFd>) -> Result<(), PluginError> // low-level
 conn.send_buffer_destroy(id: u32) -> Result<(), PluginError>
+
+// Convenience helpers (what real plugins use)
+veiland_plugin::load_config::<C: DeserializeOwned + Default>(name: &str) -> C
+dma.resize_or_keep(&GbmEgl, width: u32, height: u32, name: &str) // never returns/panics
 
 // GbmEgl
 GbmEgl::new() -> Result<GbmEgl, PluginError>
@@ -167,12 +179,14 @@ fence.as_fd() -> BorrowedFd
    it render again before the host has released the buffer, corrupting
    the single-buffer handshake.
 
-2. **Pick the sync path once, keep it fixed.** `fast_path =
-   conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd()`. If
-   fast: `gl::Flush()`, then `send_buffer(..., Some(fence.as_fd()))`. If
-   slow: `dma.finish()`, then `send_buffer(..., None)`. Never mix per
-   frame. Sending a fence the host didn't negotiate — or omitting one it
-   expects — is a protocol violation.
+2. **Submit with `conn.submit_frame(&dma, &gbm_egl)`.** It builds the
+   `Buffer` message, picks the sync path (fence fd if both sides support
+   it, else `glFinish`), and sends — correctly, every frame. Prefer it.
+   Only if you drop to the low-level `send_buffer` path (see below) do you
+   own the sync choice yourself, and then the rule is: pick it once from
+   `conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd()` and keep
+   it fixed. Sending a fence the host didn't negotiate — or omitting one
+   it expects — is a protocol violation.
 
 3. **`self_paced()` vs `on_demand()` is your plugin's personality:**
    - `self_paced()` — you animate. Renders again on every
@@ -200,6 +214,43 @@ fence.as_fd() -> BorrowedFd
    from `recv`/`pacer.next` means the host went away — return `Ok(())`,
    don't panic. Propagate errors with `?` up to `run()` and exit
    non-zero from `main`.
+
+## The low-level submit path
+
+`conn.submit_frame(&dma, &gbm_egl)` is what you should use. This section is
+only for the rare plugin that needs manual control (a custom sync scheme,
+multiple buffers). `plugins/stress` is the one reference plugin on this path.
+
+Under the hood, `submit_frame` does exactly this — the pattern to replicate
+if you go manual:
+
+```rust
+// Decide the sync path ONCE, before the loop, and keep it fixed.
+let fast_path = conn.host_supports_fence_fd() && gbm_egl.supports_fence_fd();
+
+// Build the Buffer wire message. In v1 one buffer is reused every frame,
+// so its fields only change on resize; id = 0, offset = 0 in v1.
+let buf_msg = Buffer {
+    id: 0,
+    width: dma.width(), height: dma.height(),
+    format: dma.format(), modifier: dma.modifier(),
+    stride: dma.stride(), offset: 0,
+};
+
+// In the Render arm, after drawing:
+if fast_path {
+    unsafe { gl::Flush() };                 // flush without blocking
+    let fence = SyncFence::create(&gbm_egl)?;
+    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), Some(fence.as_fd()))?;
+} else {
+    dma.finish();                           // glFinish: GPU fully drained
+    conn.send_buffer(&buf_msg, dma.dmabuf_fd(), None)?;
+}
+pacer.submitted();                          // still REQUIRED
+```
+
+If you resize on this path, rebuild `buf_msg` after any `resize_to` that
+returns `true` — the new buffer's fd/stride/modifier moved.
 
 ## The Configure message — what the host tells you
 
@@ -231,26 +282,33 @@ Notes that trip people up:
   don't care.
 - **Resizing:** on a cold lock the host may spawn you at a 1080p
   fallback, then re-send Configure with the true size. Call
-  `dma.resize_to(&gbm_egl, c.region_w, c.region_h)` in the
-  `Reconfigure` arm to render at native resolution. It returns `true` if
-  it reallocated (rebuild your cached `Buffer` message then, since
-  fd/stride/modifier move with the new buffer).
+  `dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME)` in
+  the `Reconfigure` arm to render at native resolution. It resizes only
+  when the size changed, logs the reallocation, and on a transient
+  allocation failure keeps the current buffer instead of crashing — it
+  never returns an error or panics. You don't rebuild anything by hand:
+  `submit_frame` reads the buffer's current fd/stride/modifier fresh each
+  frame. (The lower-level `dma.resize_to(...) -> Result<bool, _>` still
+  exists if you want to react to the reallocation yourself.)
 
 ## Config from the user
 
 The user's config for your plugin arrives as JSON in the
 `VEILAND_PLUGIN_CONFIG` environment variable (a JSON-serialized TOML
-table). Read it once at startup:
+table). Use the SDK helper — it reads the env var, deserializes, and
+falls back to `Default` on missing or invalid config, so it never
+crashes:
 
 ```rust
-let cfg: MyConfig = std::env::var("VEILAND_PLUGIN_CONFIG")
-    .ok()
-    .and_then(|s| serde_json::from_str(&s).ok())
-    .unwrap_or_default(); // missing/invalid config -> defaults, never crash
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct MyConfig { /* your fields, each with a sensible Default */ }
+
+let cfg: MyConfig = veiland_plugin::load_config(PLUGIN_NAME);
 ```
 
-See `plugins/clock` or `plugins/particles` for the full pattern
-(parse, warn on failure, fall back to defaults).
+See `plugins/clock` or `plugins/particles` for a real config struct
+(fields, defaults, `#[serde(default)]`).
 
 ## Coordinate math — the part that looks scarier than it is
 
@@ -275,18 +333,24 @@ does all the interesting work per pixel.
 
 ## Where to look
 
-- **`plugins/gradient`** — the minimal complete plugin. Start here.
+- **`plugins/gradient`** — the minimal complete plugin, `submit_frame` +
+  `resize_or_keep` + `load_config`. Start here.
 - **`plugins/particles`** — a self-paced animated plugin with per-item
-  state and config.
+  state and config (also `sakura`, `snow`, `rain`, `embers`, `fireflies`
+  for more particle/effect variants).
 - **`plugins/wallpaper`** — an on-demand plugin that loads an image.
+- **`plugins/vignette`, `plugins/blobs`, `plugins/parallax`** —
+  transparent overlays; good references for premultiplied-alpha shaders.
+- **`plugins/stress`** — the one plugin on the low-level `send_buffer`
+  path; read it only if you need manual sync control.
 - **`docs/protocol.md`** — the wire protocol (the authority).
 - **`docs/plugin-api.md`** — the full SDK API reference.
 - **`docs/config.md`** — how users configure plugins.
 
 ## Quick checklist before you call it done
 
-- [ ] `pacer.submitted()` after every `send_buffer`
-- [ ] Sync path chosen once and consistent (fence+Flush OR finish+no-fence)
+- [ ] `pacer.submitted()` after every submit (`submit_frame`/`send_buffer`)
+- [ ] Submitting via `conn.submit_frame(&dma, &gbm_egl)` (not hand-rolled sync)
 - [ ] `self_paced()`/`on_demand()` matches whether you animate
 - [ ] Transparency premultiplied; shader comments ASCII-only
 - [ ] No panic/unwrap on host messages; `Disconnected` exits cleanly
