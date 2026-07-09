@@ -29,7 +29,8 @@ veiland is unaffiliated with the Wayland project.
 - **Plugins are isolated processes.** Every layer (wallpaper, particles,
   glow, clock) is a separate program, not code loaded into the locker. If
   one crashes or misbehaves, that layer disappears and the rest keeps
-  running. None of them can read your password or touch the auth path.
+  running. No plugin ever receives a keystroke or the password, and none
+  can trigger an unlock, that stays in the core (see [Security](#security-model)).
 - **Write your own on your own machine.** A plugin is just a program that
   talks to the core over a socket, so you drop one next to your config and
   point veiland at it. No rebuild of the locker, no upstream approval. The
@@ -347,6 +348,16 @@ fn main() -> anyhow::Result<()> {
 
 See `docs/plugin-api.md` for the full API reference, including how to load
 image assets and write procedural shader plugins.
+
+**Writing plugins with an AI assistant.** If you use Claude Code (or another
+coding assistant) to build a plugin,
+[`docs/plugin-authoring-claude.md`](docs/plugin-authoring-claude.md) is
+purpose-built context for exactly that: drop it into your plugin project as
+`CLAUDE.md`, or point your assistant at it. It carries the verified SDK
+signatures, the canonical plugin shape, and the non-negotiable rules (sync-path
+choice, `pacer.submitted()`, premultiplied alpha, no-panic-on-host-message) an
+assistant needs to get a plugin right on the first try instead of guessing at
+the API.
 
 ## Compatibility
 
