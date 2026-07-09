@@ -120,6 +120,33 @@ fn main() -> ExitCode {
     #[cfg(feature = "debug-unlock")]
     eprintln!("veiland-core: WARNING: debug-unlock feature enabled — Escape unlocks without auth");
 
+    // --- 0. Harden the core process against same-UID inspection -------------
+    // Plugins run as the same UID as the core, so the process boundary is not
+    // by itself a wall against hostile same-user code: on a system with
+    // ptrace_scope=0 a plugin could PTRACE_ATTACH the core or read
+    // /proc/<pid>/mem, and mlock only prevents swapping, not reading. Marking
+    // the core non-dumpable changes the ownership of its /proc/<pid>/{mem,maps,
+    // environ} to root and denies same-UID ptrace, and suppresses core dumps of
+    // the mlock'd password buffer. This runs before any plugin is spawned.
+    //
+    // It is defense-in-depth, not an absolute boundary — root, a kernel bug, or
+    // a debugger started with privileges still wins. Set VEILAND_ALLOW_DUMP=1 to
+    // skip it when you need to attach a debugger or collect a core dump.
+    if std::env::var_os("VEILAND_ALLOW_DUMP").is_some() {
+        eprintln!(
+            "veiland-core: WARNING: VEILAND_ALLOW_DUMP set — core is dumpable; the \
+            password buffer is readable via ptrace/proc-mem by same-UID code"
+        );
+    } else if let Err(e) = nix::sys::prctl::set_dumpable(false) {
+        // Best-effort: if the kernel refuses, log and continue rather than
+        // refuse to lock the screen. The lock is more important than the
+        // hardening, and the rest of the threat model still holds.
+        eprintln!(
+            "veiland-core: WARNING: prctl(PR_SET_DUMPABLE, 0) failed ({e}); core \
+            remains dumpable and readable via ptrace/proc-mem by same-UID code"
+        );
+    }
+
     // --- 1. Load plugin config ----------------------------------------------
     // Plugins are declared in $VEILAND_CONFIG (dev override) or
     // $XDG_CONFIG_HOME/veiland/config.toml. See docs/config.md.

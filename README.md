@@ -255,13 +255,25 @@ Two boundaries do the work: the compositor enforces the lock, and the process bo
 
 **The session fails closed.** Under [`ext-session-lock-v1`](https://wayland.app/protocols/ext-session-lock-v1), the compositor, not veiland, enforces the lock. The spec is explicit: *"if the client dies while the session is locked, the compositor must not unlock the session in response."* If veiland crashes, the session stays locked and no window content is ever revealed; the worst case is a locked screen you recover from a TTY. That guarantee comes from the compositor, not from veiland being bug-free.
 
-**Plugins sit outside the trust boundary.** The compositor unlocks whenever the lock client asks it to, so what matters is what runs inside that client. In veiland, plugins don't: they are separate processes, not loadable modules, and the protocol between them and the core is deliberately narrow.
+**Plugins sit outside the trust boundary.** The compositor unlocks whenever the lock client asks it to, so what matters is what runs inside that client. In veiland, plugins don't: they are separate processes, not loadable modules, and the protocol between them and the core is deliberately narrow. This is what the process boundary buys, by construction:
 
-- **They cannot read your password.** The typed password lives in an `mlock`'d buffer in the core process, zeroed after each PAM call, and never appears in any buffer or message a plugin can see. No protocol message carries keyboard input in either direction; plugins never receive keystrokes at all. (Handing the password to PAM requires copying it into a `CString`; the core scrubs its own copy on drop, but the per-prompt copy PAM receives and libpam's own internal copy are outside the core's control. A plugin cannot read the core's heap regardless — this is about scrub-on-free hygiene, not plugin access.)
-- **They cannot trigger an unlock.** No plugin-to-core message maps to "unlock". The API surface is absent, not filtered.
-- **They cannot execute code in the core.** A plugin hands over GPU buffers; bytes in a buffer become pixel values through a GPU sampler, never instructions. Every field a plugin sends is validated before it reaches EGL or the kernel; implausible sizes, strides, and modifiers are refused.
+- **No unlock path.** No plugin-to-core message maps to "unlock". The API surface is absent, not filtered.
+- **No keystrokes.** No protocol message carries keyboard input in either direction; plugins never receive keystrokes at all. The password never appears in any buffer or message a plugin is handed.
+- **No code execution in the core.** A plugin hands over GPU buffers; bytes in a buffer become pixel values through a GPU sampler, never instructions. Every field a plugin sends is validated before it reaches EGL or the kernel; implausible sizes, strides, and modifiers are refused.
+- **No cross-plugin reads.** Each plugin owns its own dmabufs; the core composites but never redistributes one plugin's buffer to another.
 
-**What a hostile plugin can still try, and how it's bounded.** Malformed messages or resource exhaustion get its socket closed and a fallback drawn for its region; in-flight buffers and dimensions are capped, and the locker never blocks on a dead plugin. A plugin could draw a fake "unlocked" desktop inside its own region, which is why the password UI is painted by the core on top of all plugin output: a plugin can draw beneath it, never over it.
+**Where the boundary stops — read this before installing a third-party plugin.** Plugins run as *your* user, the same UID as the core. So the process boundary is not, by itself, a wall against hostile same-user code:
+
+- On a system with `ptrace_scope=0`, a same-UID process can `PTRACE_ATTACH` the core or read `/proc/<pid>/mem`. `mlock` prevents the password buffer from being *swapped to disk*; it does nothing against being *read* by a process allowed to inspect the core. Veiland calls `prctl(PR_SET_DUMPABLE, 0)` at startup, which denies same-UID ptrace/proc-mem and suppresses core dumps of the buffer — set `VEILAND_ALLOW_DUMP=1` to opt out for debugging. This raises the bar significantly, but it is defense-in-depth: root, a kernel bug, or a debugger started with privileges still wins.
+
+  So we draw the line honestly:
+
+  - **First-party plugins** (the ones in this repo) are code we wrote and review. We vouch for them the way we vouch for the core.
+  - **Third-party plugins** are same-user code you chose to install, like any other program you run as your user. Process isolation plus a non-dumpable core gives you real containment against *bugs and accidents* and raises the cost of *deliberate* snooping — but against a genuinely hostile third-party plugin we reduce risk, we do not eliminate it. Zero risk there is not something we can guarantee short of a full sandbox (seccomp/landlock), which veiland does not yet ship. Install third-party plugins with the same care you'd give any untrusted binary.
+
+**What a hostile plugin can still try inside the boundary, and how it's bounded.** Malformed messages or resource exhaustion get its socket closed and a fallback drawn for its region; in-flight buffers and dimensions are capped, and the locker never blocks on a dead plugin. A plugin could draw a fake "unlocked" desktop inside its own region, which is why the password UI is painted by the core on top of all plugin output: a plugin can draw beneath it, never over it.
+
+*(One scrub-hygiene footnote, unrelated to plugins: handing the password to PAM requires copying it into a `CString`. The core scrubs its own copy on drop, but the per-prompt copy PAM receives and libpam's own internal copy are outside the core's control.)*
 
 ## Configuration
 

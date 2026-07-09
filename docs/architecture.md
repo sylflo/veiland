@@ -160,6 +160,18 @@ unlock decision path is keyboard event → password buffer → PAM → state
 change. Plugins receive no keyboard events; the API surface is absent
 by protocol design, not runtime filter.
 
+The process boundary is a *protocol* boundary, not a same-UID security
+boundary: plugins run as the same user as the core, so `mlock` (which
+stops swapping, not reading) does not stop a hostile same-UID plugin
+from `PTRACE_ATTACH`-ing the core or reading `/proc/<pid>/mem` when
+`ptrace_scope=0`. The core mitigates this with `prctl(PR_SET_DUMPABLE, 0)`
+at startup (`main.rs` §0; opt out with `VEILAND_ALLOW_DUMP=1`), which
+denies same-UID ptrace/proc-mem and suppresses core dumps of the buffer.
+That is defense-in-depth, not an absolute wall — there is no seccomp or
+landlock sandbox yet, so a determined hostile *third-party* plugin is a
+residual risk. First-party plugins are reviewed in-tree; third-party
+plugins are same-user code the user chose to trust.
+
 ## Diagrams
 
 - [`diagrams/component.md`](diagrams/component.md) — ownership and data

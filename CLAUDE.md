@@ -62,12 +62,17 @@ When in doubt about where functionality goes: if it touches auth, it's in the co
 
 ## Threat model
 
-**What a malicious or compromised plugin cannot do**, by construction:
+**What a plugin cannot do by construction** (holds even against a hostile plugin, because the mechanism is absent, not filtered):
 
 - **Trigger an unlock.** The unlock decision is `keyboard event → password buffer → PAM call → state change`. Plugins receive no keyboard events. No IPC message maps to "unlock." The API surface is absent, not just sandboxed.
-- **Read the password buffer.** It lives in `mlock`'d memory in the core process. Process boundary enforces this.
+- **Receive keystrokes / see the password in a message.** No protocol message carries keyboard input in any direction. The password never appears in any buffer or message a plugin is handed.
 - **Read another plugin's buffer.** Each plugin owns its dmabufs; the core composites but doesn't redistribute.
 - **Execute code in the core's address space.** The dmabuf path is `data → GPU sampler → pixel output`. Bytes inside a dmabuf become pixel values, never instructions.
+
+**What the process boundary does NOT do — be precise about this.** Plugins run as the same UID as the core. The boundary gives crash isolation and accidental-bug containment (both genuinely valuable), but it is **not** a security boundary against hostile same-user code:
+
+- The password buffer being `mlock`'d prevents *swapping*, not *reading*. With `ptrace_scope=0`, a same-UID plugin could `PTRACE_ATTACH` the core or read `/proc/<pid>/mem`. The core calls `prctl(PR_SET_DUMPABLE, 0)` at startup (see `main.rs` §0, opt out with `VEILAND_ALLOW_DUMP=1`) to deny that and suppress core dumps of the buffer — defense-in-depth, not an absolute wall. Root, a kernel bug, or a privileged debugger still wins. There is no seccomp/landlock sandbox yet.
+- So: **first-party plugins** (this repo) are code we review and vouch for. **Third-party plugins** are same-user code the user chose to install; we reduce risk, we don't guarantee zero. Do not write prose (README, docs, comments) that claims a plugin "cannot read the password" as an unqualified fact — qualify it as "cannot by protocol construction; a hostile same-UID plugin is a residual risk we harden against but do not eliminate."
 
 **What a malicious plugin can try**, and how we defend:
 
@@ -76,7 +81,7 @@ When in doubt about where functionality goes: if it touches auth, it's in the co
 - **Driver-level GPU exploit.** Refuse values that obviously shouldn't make sense (sizes > 8192², stride < width × bpp, unknown modifiers).
 - **UI deception.** Plugin draws a "Login successful" screen while the lock is still active. Reserve a small core-painted trusted region plugins cannot reach.
 
-**Bottom line.** Process isolation protects against the dramatic attacks (code execution, password read, unlock trigger). DoS, resource exhaustion, and UI deception are real. "Plugins are untrusted input" applies to every byte they send, every fd they pass, every dimension they declare.
+**Bottom line.** Process isolation makes the dramatic attacks (unlock trigger, code execution in the core, seeing the password in a message) absent by construction, and `PR_SET_DUMPABLE` raises the bar against casual same-UID memory snooping. It is not a substitute for a sandbox against a determined hostile third-party plugin. DoS, resource exhaustion, and UI deception are real. "Plugins are untrusted input" applies to every byte they send, every fd they pass, every dimension they declare.
 
 ## How plugin rendering works
 
