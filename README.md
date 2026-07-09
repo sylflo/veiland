@@ -29,8 +29,10 @@ veiland is unaffiliated with the Wayland project.
 - **Plugins are isolated processes.** Every layer (wallpaper, particles,
   glow, clock) is a separate program, not code loaded into the locker. If
   one crashes or misbehaves, that layer disappears and the rest keeps
-  running. No plugin ever receives a keystroke or the password, and none
-  can trigger an unlock, that stays in the core (see [Security](#security-model)).
+  running. By protocol construction no plugin ever receives a keystroke or
+  the password, and none can trigger an unlock, that stays in the core. What
+  the process boundary does and does not buy against hostile same-UID code is
+  spelled out in the [Security model](#security-model).
 - **Write your own on your own machine.** A plugin is just a program that
   talks to the core over a socket, so you drop one next to your config and
   point veiland at it. No rebuild of the locker, no upstream approval. The
@@ -248,8 +250,10 @@ into them with its own EGL/OpenGL context, and sends the buffer file
 descriptors to the core via `SCM_RIGHTS`. The core imports the fds as
 `EGLImage` textures and composites them. All security-critical operations
 (input handling, the password buffer, PAM, the unlock decision) run in the
-trusted core; plugins are untrusted and sandboxed by the process boundary,
-so the kernel enforces both crash isolation and memory isolation for free.
+trusted core; plugins are untrusted and isolated by the process boundary, so
+the kernel gives crash isolation for free. Memory isolation against hostile
+same-UID code needs more than the boundary alone, see the
+[Security model](#security-model).
 
 The locker is in production and works end to end: an `ext-session-lock-v1`
 lock surface, PAM authentication, a configurable password indicator,
