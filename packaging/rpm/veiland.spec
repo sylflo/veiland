@@ -7,7 +7,7 @@
 # The stress test plugin is not built or packaged.
 
 Name:           veiland
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Wayland screen locker with process-isolated GPU plugins
 
@@ -144,5 +144,9 @@ install -Dm0644 packaging/veiland.example.toml \
 %{_datadir}/veiland/config.example.toml
 
 %changelog
+* Thu Jul 10 2026 sylflo <veiland@sylvain-chateau.com> - 0.1.1-1
+- Run PAM authentication on a worker thread so a wrong password no longer
+  freezes the animation.
+
 * Sat Jul 04 2026 sylflo <veiland@sylvain-chateau.com> - 0.1.0-1
 - Initial package: veiland-core + reference plugins, bundled PAM service.
