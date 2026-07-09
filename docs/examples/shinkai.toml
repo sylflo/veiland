@@ -21,9 +21,14 @@
 #
 # Asset path notes:
 #
-# * The wallpaper path below references the user's local checkout of
-#   system_config (Shinkai 4K reference asset). Adjust to wherever
-#   the JPG lives on your system. Anything PNG or JPEG works.
+# * Wallpapers: THIS SCENE SHIPS NO WALLPAPER IMAGES. It was built around
+#   Makoto Shinkai film stills ("Your Name"), which are copyrighted (CoMix
+#   Wave Films) and cannot be redistributed, so the two `path` values below
+#   are placeholders. Supply your own two images (one per monitor) and set
+#   both paths to their absolute locations. Anything PNG or JPEG works; any
+#   dusk-sky / anime-landscape wallpaper fits the scene. If a path is wrong
+#   the wallpaper plugin just paints black and logs it, and the rest of the
+#   scene (vignette, particles, sakura, labels, clock, pill) still renders.
 #
 # * Fonts: the labels ask for "Noto Sans CJK JP" — present on most
 #   distros via the noto-fonts-cjk package. Latin glyphs render from
@@ -53,7 +58,8 @@ monitors = ["HDMI-A-1"]
 z_index = 0
 
 [plugin.config]
-path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/938805-3840x2160-desktop-4k-makoto-shinkai-wallpaper-photo.jpg"
+# Placeholder: set to your own wallpaper for this monitor (absolute path).
+path = "/home/you/.config/veiland/shinkai-1.jpg"
 
 
 # --- Wallpaper: edge-to-edge image ---------------------------------
@@ -64,7 +70,8 @@ monitors = ["DP-1"]
 z_index = 0
 
 [plugin.config]
-path = "/home/sylflo/Projects/system_config/dotfiles/wallpapers/9ajx5sbkyx671.jpg"
+# Placeholder: set to your own wallpaper for this monitor (absolute path).
+path = "/home/you/.config/veiland/shinkai-2.jpg"
 
 
 # --- Vignette: soft corner darkening -------------------------------
