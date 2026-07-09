@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "veiland-protocol-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Own workspace root: keeps the nightly/libfuzzer-only build out of the
+# main workspace so `cargo build` at the repo root never touches it.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.veiland-protocol]
+path = ".."
+
+# Fuzz targets are built with the release profile; keep debug assertions
+# on so any debug_assert! in the codec fires during fuzzing.
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+
+[[bin]]
+name = "client_decode"
+path = "fuzz_targets/client_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_decode"
+path = "fuzz_targets/server_decode.rs"
+test = false
+doc = false
+bench = false

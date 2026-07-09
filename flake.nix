@@ -11,9 +11,17 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Nightly Rust toolchains for the fuzz dev shell only. cargo-fuzz
+    # needs nightly (sanitizer instrumentation + `-Z build-std`); the
+    # package build and default dev shell stay on nixpkgs' stable rustc.
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, fenix }:
     let
       # DMA-BUF / GBM are Linux-only, so we only target Linux arches.
       systems = [ "x86_64-linux" "aarch64-linux" ];
@@ -139,6 +147,56 @@
             echo "veiland dev shell"
           '';
         };
+
+        # Fuzzing shell: `nix develop .#fuzz`, then
+        #   cargo fuzz run client_decode
+        # from veiland-protocol/fuzz/. cargo-fuzz drives a nightly rustc
+        # under the hood, so we put a nightly toolchain (with rust-src,
+        # needed for its `-Z build-std`) plus cargo-fuzz on PATH. The
+        # system libs the protocol crate links come from the package via
+        # inputsFrom, same as the default shell.
+        fuzz =
+          let
+            system = pkgs.stdenv.hostPlatform.system;
+            # Nightly with rust-src: cargo-fuzz rebuilds std with the
+            # sanitizer via `-Z build-std`, which needs the std source.
+            toolchain = fenix.packages.${system}.complete.withComponents [
+              "cargo"
+              "rustc"
+              "rust-src"
+              "clippy"
+              "rustfmt"
+              "rust-analyzer"
+            ];
+          in
+          pkgs.mkShell {
+            name = "veiland-fuzz";
+
+            # Same system libs as the package (the protocol crate itself
+            # links nothing, but veiland-protocol builds clean inside the
+            # workspace env and this keeps parity with the default shell).
+            inputsFrom = [ self.packages.${system}.default ];
+
+            packages = [
+              toolchain
+              pkgs.cargo-fuzz
+            ];
+
+            # cargo-fuzz's instrumented binaries link the C++ sanitizer
+            # runtime (libclang_rt, libstdc++) dynamically, and on NixOS
+            # those aren't on any default loader path. Point the loader at
+            # the compiler's own runtime libs so `cargo fuzz run` doesn't
+            # die with a missing-.so error at launch.
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+              pkgs.stdenv.cc.cc.lib
+            ];
+
+            shellHook = ''
+              echo "veiland fuzz shell (nightly + cargo-fuzz)"
+              echo "  cd veiland-protocol/fuzz"
+              echo "  cargo fuzz run client_decode"
+            '';
+          };
       });
 
       checks = forAllSystems (pkgs: {
