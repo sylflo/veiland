@@ -332,7 +332,7 @@ Plugins layer by `z_index` (low to high), and a `monitors = ["DP-1"]` key
 targets specific outputs. That's how a scene can run one wallpaper on one
 monitor and a different one on another. The example configs in
 [`docs/examples/`](docs/examples) are the fastest way to see the full config
-surface; `shinkai.toml` composes seven plugins across two monitors.
+surface; `shinkai.toml` composes ten plugin instances across two monitors.
 
 ## Plugin development
 

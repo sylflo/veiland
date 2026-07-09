@@ -121,7 +121,7 @@ veiland/
   CLAUDE.md
   README.md
   LICENSE
-  shell.nix
+  flake.nix             # package + dev shell + `nix flake check` (the CI gate)
   Cargo.toml            # workspace root
   veiland-core/         # locker binary
     src/
