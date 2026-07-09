@@ -13,10 +13,12 @@
 # font (install noto-fonts-cjk or distro equivalent; see
 # install noto-fonts-cjk or distro equivalent).
 #
-# Run: VEILAND_CONFIG=docs/examples/label.toml cargo run -p veiland-core
+# Run: VEILAND_CONFIG=docs/examples/label.toml veiland
 #
-# Note: binary paths are absolute and target/debug/. Adjust if you
-# build elsewhere or rename the workspace target directory.
+# Note: each `binary` is a bare plugin name, resolved beside the running
+# veiland binary (then on $PATH), so this works on any install. To run an
+# unpackaged dev build, replace with a path (a value with a `/` is used
+# verbatim), e.g. target/debug/veiland-label.
 
 [[plugin]]
 name = "label-latin"
@@ -38,7 +40,7 @@ shadow_blur = 0.0
 
 [[plugin]]
 name = "label-japanese"
-binary = "/home/sylflo/Projects/veiland/target/debug/veiland-label"
+binary = "veiland-label"
 z_index = 20
 
 [plugin.config]
