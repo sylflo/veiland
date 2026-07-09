@@ -55,6 +55,17 @@ Copy one, set your wallpaper path, and lock.
 **The full lineup:** wallpaper, clock, label, vignette, particles, sakura,
 snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher.
 
+**Planned** (roughly in order, not promises):
+
+- **now-playing** — current track, artist, and album art from your media
+  player.
+- **status** — glanceable battery, keyboard layout, and caps-lock state.
+- **weather** — current conditions and temperature for your location.
+- **avatar** — profile picture and username, shown on the lock screen.
+
+Writing one is the same job as the plugins above; see
+[Plugin development](#plugin-development).
+
 ## Quick start
 
 **1. Install** (pick your distro):
