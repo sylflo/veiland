@@ -50,16 +50,27 @@ pub(crate) enum RunState {
 }
 
 /// Visual state of the password field. Drives colour overrides in the renderer.
-/// `Checking` is reserved for a future async-PAM path; no visual change today.
+/// `Checking` is set while the auth worker runs the PAM call off the event
+/// loop; today it renders like `Idle` (the win is that scenes keep animating).
 #[derive(Default, PartialEq, Clone, Copy)]
 pub(crate) enum AuthState {
     #[default]
     Idle,
-    // Reserved for a future async-PAM path; not constructed yet. See type doc.
-    #[allow(dead_code)]
     Checking,
     Failed,
 }
+
+/// One password attempt handed to the auth worker thread. The mlock'd
+/// buffer stays behind on the main thread; only this owned CString
+/// crosses over (see `auth::Session::take_password`).
+pub(crate) struct AuthRequest {
+    user: String,
+    password: std::ffi::CString,
+}
+
+/// The worker's verdict for one attempt, sent back over a calloop
+/// channel and handled on the main thread. `true` = authenticated.
+pub(crate) type AuthOutcome = bool;
 
 pub(crate) struct AppData {
     conn: Connection,
@@ -79,6 +90,14 @@ pub(crate) struct AppData {
     renderer: Renderer,
     plugins: Vec<Vec<Option<PluginSlot>>>,
     auth: auth::Session,
+    /// Sends password attempts to the long-lived auth worker thread.
+    /// The worker runs the blocking PAM call off the event loop; its
+    /// verdict comes back over a calloop channel (registered in main()).
+    auth_tx: std::sync::mpsc::Sender<AuthRequest>,
+    /// True while a verdict is pending. Locks the keyboard handler
+    /// (handle_key early-returns) so only one PAM attempt runs at a
+    /// time and the buffer can't be mutated mid-flight.
+    is_checking: bool,
     modifiers: Modifiers,
     /// Calloop handle for registering new plugin sockets on hotplug.
     /// Cloned once at startup; the original handle stays with the
@@ -260,6 +279,32 @@ fn main() -> ExitCode {
         }
     };
 
+    // --- Auth worker -------------------------------------------------------
+    // The PAM call blocks (~2s on failure, pam_unix FAIL_DELAY). Run it on
+    // a dedicated worker thread so the event loop keeps dispatching and
+    // plugins keep animating. Requests go out on a plain mpsc channel;
+    // verdicts come back on a calloop channel so the reply lands as an
+    // event-loop wakeup on the main thread, where the lock object lives.
+    // One long-lived thread: libpam FFI is not reentrant and the fail
+    // delay is deliberate, so attempts are serialized, not parallelized.
+    use smithay_client_toolkit::reexports::calloop::channel as calloop_channel;
+    let (auth_tx, auth_rx) = std::sync::mpsc::channel::<AuthRequest>();
+    let (verdict_tx, verdict_rx) = calloop_channel::channel::<AuthOutcome>();
+    std::thread::Builder::new()
+        .name("veiland-auth".into())
+        .spawn(move || {
+            // Exits when auth_tx (held by AppData) drops at shutdown.
+            while let Ok(req) = auth_rx.recv() {
+                let ok = auth::verify("veiland", &req.user, req.password).is_ok();
+                // If the main thread is gone, the receiver is dropped and
+                // send fails — nothing left to tell, so just stop.
+                if verdict_tx.send(ok).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("spawn auth worker thread");
+
     // --- 5. AppData and lock surface ----------------------------------------
     let mut state = AppData {
         conn: conn.clone(),
@@ -277,6 +322,8 @@ fn main() -> ExitCode {
         renderer,
         plugins: Vec::new(),
         auth,
+        auth_tx,
+        is_checking: false,
         loop_handle: event_loop.handle(),
         qh: qh.clone(),
         config: config.clone(),
@@ -376,6 +423,18 @@ fn main() -> ExitCode {
             state.register_plugin_source(o, p);
         }
     }
+
+    // Register the auth worker's reply channel as an event source. Each
+    // verdict wakes the loop on the main thread; handle_auth_verdict acts
+    // on it (unlock or mark failed) where the Wayland lock object lives.
+    event_loop
+        .handle()
+        .insert_source(verdict_rx, |event, _, state: &mut AppData| {
+            if let calloop_channel::Event::Msg(ok) = event {
+                state.handle_auth_verdict(ok);
+            }
+        })
+        .expect("register auth verdict channel with calloop");
 
     // --- 7. Main loop --------------------------------------------------------
     while matches!(state.run, RunState::Running) {

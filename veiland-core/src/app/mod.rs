@@ -657,12 +657,69 @@ impl AppData {
         }
     }
 
+    /// Act on the auth worker's verdict for one attempt. Runs on the main
+    /// thread (calloop channel handler), so it may touch the Wayland lock
+    /// object and repaint. `ok` is true when PAM authenticated.
+    ///
+    /// Security-critical: this is where the unlock decision is committed.
+    /// The worker only computes a verdict; taking the session lock and
+    /// unlocking happens here, on the trusted main thread.
+    pub(crate) fn handle_auth_verdict(&mut self, ok: bool) {
+        // A verdict can arrive after we've already left the running state
+        // (compositor forced unlock, teardown). Ignore stale verdicts.
+        if !matches!(self.run, RunState::Running) {
+            return;
+        }
+
+        // Verdict resolved: unlock the keyboard handler either way.
+        self.is_checking = false;
+
+        if ok {
+            if let Some(lock) = self.session_lock.take() {
+                lock.unlock();
+                self.conn.roundtrip().expect("flush unlock");
+            }
+            self.run = RunState::UnlockedCleanly;
+            return;
+        }
+
+        // Failure: buffer was already cleared by take_password(). User
+        // retypes. Show the fail indicator, then reset to Idle after
+        // 1500ms (same timer as before).
+        self.auth_state = crate::AuthState::Failed;
+
+        use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+        let _ = self.loop_handle.insert_source(
+            Timer::from_duration(std::time::Duration::from_millis(1500)),
+            |_, _, state: &mut crate::AppData| {
+                state.auth_state = crate::AuthState::Idle;
+                for entry in state.lock_surfaces.iter_mut().flatten() {
+                    entry.needs_paint = true;
+                }
+                state.repaint_lock_surfaces();
+                TimeoutAction::Drop
+            },
+        );
+
+        for entry in self.lock_surfaces.iter_mut().flatten() {
+            entry.needs_paint = true;
+        }
+        self.repaint_lock_surfaces();
+    }
+
     /// Handle one key event from the keyboard: the keystroke →
     /// password-buffer → PAM → unlock path. Called from both
     /// `press_key` and `repeat_key`. Security-critical: see CLAUDE.md
     /// "Trust boundaries" — this is the only place the password buffer
     /// is fed and the only place the unlock decision is made.
     pub(crate) fn handle_key(&mut self, event: &KeyEvent) {
+        // While a verdict is pending, lock input entirely: one PAM attempt
+        // at a time, and the password buffer can't be mutated mid-flight.
+        // Cleared in handle_auth_verdict when the worker replies.
+        if self.is_checking {
+            return;
+        }
+
         // Reject modified keys. Plain Shift is fine (for capitals); Ctrl/Alt/Super are not.
         if self.modifiers.ctrl || self.modifiers.alt || self.modifiers.logo {
             return;
@@ -688,34 +745,31 @@ impl AppData {
                         return;
                     }
                 };
-                match self.auth.authenticate("veiland", &user) {
-                    Ok(()) => {
-                        if let Some(lock) = self.session_lock.take() {
-                            lock.unlock();
-                            self.conn.roundtrip().expect("flush unlock");
-                        }
-                        self.run = RunState::UnlockedCleanly;
-                    }
-                    Err(_) => {
-                        // Buffer already cleared by authenticate(). User retypes.
-                        buffer_changed = true;
-                        self.auth_state = crate::AuthState::Failed;
-
-                        use smithay_client_toolkit::reexports::calloop::timer::{
-                            TimeoutAction, Timer,
-                        };
-                        let _ = self.loop_handle.insert_source(
-                            Timer::from_duration(std::time::Duration::from_millis(1500)),
-                            |_, _, state: &mut crate::AppData| {
-                                state.auth_state = crate::AuthState::Idle;
-                                for entry in state.lock_surfaces.iter_mut().flatten() {
-                                    entry.needs_paint = true;
-                                }
-                                TimeoutAction::Drop
-                            },
-                        );
-                    }
+                // Copy the password out of the mlock'd buffer (which is
+                // cleared here, synchronously) and hand it to the worker.
+                // The blocking PAM call runs off the event loop; the
+                // verdict comes back to handle_auth_verdict. None means an
+                // interior NUL slipped in — treat as nothing to verify.
+                let Some(password) = self.auth.take_password() else {
+                    return;
+                };
+                if self
+                    .auth_tx
+                    .send(crate::AuthRequest { user, password })
+                    .is_err()
+                {
+                    // Worker thread is gone — should not happen while
+                    // running. Don't lock input on a request we can't
+                    // service; leave state Idle.
+                    eprintln!("auth: worker thread unavailable, dropping attempt");
+                    return;
                 }
+                // Lock input and show the checking state until the verdict
+                // returns. Buffer is already cleared, so the indicator
+                // reflects char_count() == 0.
+                self.is_checking = true;
+                self.auth_state = crate::AuthState::Checking;
+                buffer_changed = true;
             }
             Keysym::BackSpace => {
                 if self.auth_state == crate::AuthState::Failed {

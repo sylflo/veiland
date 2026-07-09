@@ -68,8 +68,8 @@ impl ConversationHandler for PasswordConv {
 
 impl Drop for PasswordConv {
     fn drop(&mut self) {
-        // Scrub the plaintext copy we hold. try_authenticate's temporary
-        // CString is moved into this field, so this covers it too. Take
+        // Scrub the plaintext copy we hold. verify() moves its CString
+        // into this field, so this covers it too. Take
         // the CString out (Drop only gives &mut self), consume it into its
         // backing bytes, and zero them before the allocation is freed.
         let cs = std::mem::take(&mut self.password);
@@ -90,27 +90,17 @@ impl Session {
         Ok(Session { buf, len: 0 })
     }
 
-    pub fn authenticate(&mut self, service: &str, user: &str) -> Result<(), AuthError> {
-        let result = self.try_authenticate(service, user);
+    /// Copy the password out of the mlock'd buffer into an owned CString
+    /// and clear the buffer. Runs on the main thread; the returned CString
+    /// is what crosses the thread boundary to the auth worker.
+    ///
+    /// Returns None if the buffer is empty or contains an interior NUL
+    /// (nothing worth verifying). The buffer is cleared either way, so the
+    /// "zeroed after every attempt" invariant holds regardless of outcome.
+    pub fn take_password(&mut self) -> Option<CString> {
+        let password = CString::new(&self.buf[..self.len]).ok();
         self.clear();
-        if result.is_err() {
-            eprintln!("auth: authentication failed");
-        }
-        result
-    }
-
-    fn try_authenticate(&self, service: &str, user: &str) -> Result<(), AuthError> {
-        let password = CString::new(&self.buf[..self.len]).map_err(|_| AuthError::PamFailed)?;
-
-        let conv = PasswordConv { password };
-        let mut ctx = Context::new(service, Some(user), conv).map_err(|_| AuthError::PamFailed)?;
-
-        ctx.authenticate(Flag::NONE)
-            .map_err(|_| AuthError::PamFailed)?;
-        ctx.acct_mgmt(Flag::NONE)
-            .map_err(|_| AuthError::PamFailed)?;
-
-        Ok(())
+        password
     }
 
     pub fn push_utf8(&mut self, s: &str) {
@@ -187,6 +177,22 @@ impl Drop for Session {
             let _ = nix::sys::mman::munlock(ptr, CAPACITY);
         }
     }
+}
+
+/// Run the PAM conversation for one attempt. Blocks: `authenticate`
+/// sleeps on failure (pam_unix FAIL_DELAY, ~2s), which is why this runs
+/// on the auth worker thread, not the event loop. `password` is moved in
+/// and scrubbed by `PasswordConv`'s Drop when this returns.
+pub fn verify(service: &str, user: &str, password: CString) -> Result<(), AuthError> {
+    let conv = PasswordConv { password };
+    let mut ctx = Context::new(service, Some(user), conv).map_err(|_| AuthError::PamFailed)?;
+
+    ctx.authenticate(Flag::NONE)
+        .map_err(|_| AuthError::PamFailed)?;
+    ctx.acct_mgmt(Flag::NONE)
+        .map_err(|_| AuthError::PamFailed)?;
+
+    Ok(())
 }
 
 // Deliberately no Debug derive: prevents accidentally printing the

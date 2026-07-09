@@ -93,7 +93,12 @@ checks; a length mismatch causes out-of-bounds access.
 ## The calloop event loop
 
 `main()` owns one `calloop::EventLoop<AppData>`. All Wayland events and
-plugin socket events run on the same thread; there are no worker threads.
+plugin socket events run on the same thread. The one worker thread is the
+auth worker: the blocking PAM call runs there so a wrong password (which
+`pam_unix` delays ~2s) doesn't stall the loop. `KeyboardHandler::key`
+copies the password out of the mlock'd buffer, sends it to the worker, and
+sets `AuthState::Checking`; the verdict comes back over a `calloop::channel`
+source and the unlock decision is committed on this thread (see below).
 
 ```
 EventLoop::dispatch(16ms timeout, &mut AppData)
@@ -101,7 +106,8 @@ EventLoop::dispatch(16ms timeout, &mut AppData)
        └─ SCTK delegate handlers on AppData
             SessionLockHandler::configure  → EGL surface setup, repaint
             CompositorHandler::frame       → repaint (frame callback)
-            KeyboardHandler::key           → password buffer, PAM, unlock
+            KeyboardHandler::key           → password buffer; on Enter,
+                                             send attempt to auth worker
             OutputHandler::new_output      → push to pending_outputs_arrived
             OutputHandler::output_destroyed→ hotplug-out teardown
   └─ Generic(plugin_fd)     → drive_plugin(output_idx, plugin_idx)
@@ -109,6 +115,9 @@ EventLoop::dispatch(16ms timeout, &mut AppData)
             → PluginState::handle_message
                  → import_dmabuf (on Buffer)
                  → repaint_lock_surfaces (after new texture)
+  └─ Channel(auth verdict)  → handle_auth_verdict(ok)
+       → on Ok: take session lock, unlock, UnlockedCleanly
+       → on Err: AuthState::Failed + 1500ms reset timer
 
 After dispatch returns:
   process_pending_hotplug()  → drain pending_outputs_arrived,

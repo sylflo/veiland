@@ -59,12 +59,6 @@ snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher.
 
 **Planned** (roughly in order, not promises):
 
-- **async authentication** *(core, not a plugin)* — the PAM check currently
-  runs synchronously in the event loop, so a wrong password pauses all
-  animation for the PAM fail delay (about two seconds) before the failure
-  indicator appears. Nothing fails open — the pause is purely visual — and
-  the fix is moving the check to a worker so scenes keep animating while
-  PAM verifies.
 - **now-playing** — current track, artist, and album art from your media
   player.
 - **status** — glanceable battery, keyboard layout, and caps-lock state.
@@ -262,7 +256,8 @@ same-UID code needs more than the boundary alone, see the
 [Security model](#security-model).
 
 The locker is in production and works end to end: an `ext-session-lock-v1`
-lock surface, PAM authentication, a configurable password indicator,
+lock surface, PAM authentication (run on a worker thread so a wrong password
+never freezes the animation), a configurable password indicator,
 process-isolated GPU plugins over DMA-BUF, multi-monitor support with
 per-plugin output targeting, and HiDPI-aware text rendering via
 `veiland-text` (cosmic-text backend).
@@ -295,7 +290,7 @@ Two boundaries do the work: the compositor enforces the lock, and the process bo
 
 **What a hostile plugin can still try inside the boundary, and how it's bounded.** Malformed messages or resource exhaustion get its socket closed and a fallback drawn for its region; in-flight buffers and dimensions are capped, and the locker never blocks on a dead plugin. A plugin could draw a fake "unlocked" desktop inside its own region, which is why the password UI is painted by the core on top of all plugin output: a plugin can draw beneath it, never over it.
 
-*(One scrub-hygiene footnote, unrelated to plugins: handing the password to PAM requires copying it into a `CString`. The core scrubs its own copy on drop, but the per-prompt copy PAM receives and libpam's own internal copy are outside the core's control.)*
+*(One scrub-hygiene footnote, unrelated to plugins: handing the password to PAM requires copying it into a `CString`. The PAM call runs on a dedicated worker thread so a wrong password doesn't freeze the animation; the core scrubs its own copy on that thread when the call returns, but the per-prompt copy PAM receives and libpam's own internal copy are outside the core's control. The copy lives in the same process either way, so it is covered by the same `PR_SET_DUMPABLE, 0` protection as the rest of the address space.)*
 
 ## Configuration
 
