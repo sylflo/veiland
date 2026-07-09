@@ -40,8 +40,12 @@ jobs:
         # package's makedepends. makepkg refuses to run as root, so we
         # add an unprivileged 'builder' user below.
         run: |
+          # github-cli: the container image has no gh; the "Attach to
+          # release" step below needs it (the runner's pre-installed gh is
+          # not on PATH inside the container).
           pacman -Syu --noconfirm base-devel git rust cargo pkgconf \
-            pam libglvnd mesa libdrm wayland libxkbcommon libjpeg-turbo
+            pam libglvnd mesa libdrm wayland libxkbcommon libjpeg-turbo \
+            github-cli
           useradd -m builder
 
       - uses: actions/checkout@v4
@@ -106,9 +110,12 @@ jobs:
           # toolchain via rustup instead (see below), leaving Cargo.lock
           # and the other distros/flake untouched. curl+ca-certificates
           # are for the rustup installer.
+          # gh: the container image has no github CLI; the "Attach to
+          # release" step below needs it (the runner's pre-installed gh is
+          # not on PATH inside the container).
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts pkg-config \
-            curl ca-certificates \
+            curl ca-certificates gh \
             libpam0g-dev libgl-dev libegl-dev libgbm-dev \
             libdrm-dev libwayland-dev libxkbcommon-dev libturbojpeg0-dev
 
@@ -160,7 +167,9 @@ jobs:
     steps:
       - name: Install build tooling
         run: |
-          dnf -y install rpm-build rpmdevtools tar git \
+          # gh: needed by the "Attach to release" step below (the runner's
+          # pre-installed gh is not on PATH inside the container).
+          dnf -y install rpm-build rpmdevtools tar git gh \
             cargo rust pkgconf-pkg-config \
             pam-devel mesa-libGL-devel mesa-libEGL-devel mesa-libgbm-devel \
             libdrm-devel wayland-devel libxkbcommon-devel turbojpeg-devel
@@ -173,7 +182,10 @@ jobs:
           # %{name}-%{version}.tar.gz whose top dir is %{name}-%{version}.
           set -eux
           rpmdev-setuptree
-          ver=0.1.0
+          # Derive the version from the spec so the tarball name always
+          # matches what %autosetup expects (was hardcoded and drifted
+          # behind a version bump, breaking %prep).
+          ver=$(rpmspec -q --qf '%{version}\n' packaging/rpm/veiland.spec | head -1)
           git config --global --add safe.directory "$PWD"
           # Stage a clean copy of the tree under veiland-$ver/ and tar it.
           git archive --format=tar --prefix="veiland-$ver/" HEAD \
