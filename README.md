@@ -59,13 +59,19 @@ snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher.
 
 **Planned** (roughly in order, not promises):
 
+- **async authentication** *(core, not a plugin)* — the PAM check currently
+  runs synchronously in the event loop, so a wrong password pauses all
+  animation for the PAM fail delay (about two seconds) before the failure
+  indicator appears. Nothing fails open — the pause is purely visual — and
+  the fix is moving the check to a worker so scenes keep animating while
+  PAM verifies.
 - **now-playing** — current track, artist, and album art from your media
   player.
 - **status** — glanceable battery, keyboard layout, and caps-lock state.
 - **weather** — current conditions and temperature for your location.
 - **avatar** — profile picture and username, shown on the lock screen.
 
-Writing one is the same job as the plugins above; see
+Writing one of those plugins is the same job as the shipped ones; see
 [Plugin development](#plugin-development).
 
 ## Quick start
