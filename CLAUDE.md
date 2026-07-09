@@ -16,7 +16,7 @@ The locker works:
 - password indicator
 - process-isolated GPU plugins over DMA-BUF,
 - multi-monitor
-- hotplug is buggy
+- reliability: Hyprland (NVIDIA) survives suspend/resume, DPMS off/on, and monitor unplug/replug (incl. fast replug, unplug-all, hotplug-in while locked). Unplug/replug also passes on Sway; Sway suspend/DPMS sweep still pending. See the two "Formerly-known issue" notes below for the hotplug crashes found and fixed here.
 
 
 Reference plugins:
@@ -38,7 +38,10 @@ The codebase is structured as a Cargo workspace:
 **Known limitations / open work:**
 
 - **Per-plugin frame rate:** all plugins run at the compositor's repaint rate. Deferred.
-- **Hyprland fast-replug:** unplug + replug within ~5–10s sometimes panics at `eglSwapBuffers` with `invalid object N`. Lock survives via compositor compliance; recovery is TTY-kill. Deferred to the Wayland-integration refactor.
+
+**Formerly-known issue, now resolved:** the Hyprland fast-replug crash (unplug + replug within ~5–10s panicking at `eglSwapBuffers` with `invalid object N`) was caused by the `update_output` rebind path handling Hyprland re-advertising a surviving monitor's `wl_output` under a new global. The output-tracking refactor `cb0e608` (2026-06-13) tracks outputs by registry numeric ID and dropped that compositor-specific rebind path, so the quirk now falls out as a plain remove + add. Testing on Hyprland (2026-07-09) no longer reproduces the crash, including fast/no-wait replug. Keep an eye on it under the dmabuf-import care bar, but it is not a documented open limitation anymore.
+
+**Formerly-known issue, now resolved (2026-07-10):** unplugging *all* monitors then replugging panicked at `eglSwapBuffers: BadSurface` (`lock.rs` bootstrap swap) on both Hyprland and Sway — during the rapid teardown+rebuild the freshly-created EGL surface was already stale by the time we swapped, and both swap sites `.expect()`ed. Fix: both swaps (`lock.rs` bootstrap, `mod.rs` repaint) now match on `Err(egl::Error::BadSurface)` and skip+retry (log, `return`, leave `needs_paint`) instead of crashing; other EGL errors still panic. Session stayed locked throughout regardless (compositor compliance). Residual, non-crash: after unplug-*all* the scene takes a moment to repaint (outputs + plugins rebuilt from scratch; the skip-retry doesn't request an immediate frame callback). Single-monitor unplug is instant. That recovery latency is a deferred polish item, not a bug.
 
 The architecturally critical mechanism — cross-process DMA-BUF buffer sharing — is validated and in production. Changes touching the dmabuf import/sampling path warrant the same care as the auth path.
 

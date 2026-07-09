@@ -155,10 +155,31 @@ impl SessionLockHandler for AppData {
             // firing immediately repaints with plugin content.
         }
 
-        self.renderer
+        match self
+            .renderer
             .egl
             .swap_buffers(self.renderer.egl_display, egl_surface)
-            .expect("eglSwapBuffers");
+        {
+            Ok(()) => {}
+            // A hotplug storm (e.g. unplug-all -> replug) can leave this
+            // freshly-created surface stale to EGL by the time we swap.
+            // Don't crash the locker: skip this swap and let the next
+            // paint retry (needs_paint is already true above). The
+            // size_changed resend below is likewise pointless for a
+            // surface we could not present, so return.
+            Err(egl::Error::BadSurface) => {
+                eprintln!(
+                    "veiland-core: bootstrap swap_buffers for {:?} returned \
+                    BadSurface (stale after hotplug); skipping, will retry",
+                    self.lock_surfaces[output_idx]
+                        .as_ref()
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("<gone>")
+                );
+                return;
+            }
+            Err(e) => panic!("eglSwapBuffers: {e:?}"),
+        }
 
         // If the surface size is new or changed, tell this output's
         // plugins to render at it. Done last, after every borrow on

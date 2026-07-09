@@ -558,10 +558,31 @@ impl AppData {
             }
         }
 
-        self.renderer
+        match self
+            .renderer
             .egl
             .swap_buffers(self.renderer.egl_display, egl_surface)
-            .expect("eglSwapBuffers (repaint)");
+        {
+            Ok(()) => {}
+            // Same transient case as the bootstrap swap in lock.rs: a
+            // surface invalidated mid-repaint by a hotplug storm. Skip
+            // and retry next paint. Returning here is load-bearing: it
+            // skips release_sampled_buffers (we presented nothing) and
+            // leaves needs_paint = true (cleared only on the Ok path
+            // below), so the next paint retries.
+            Err(egl::Error::BadSurface) => {
+                eprintln!(
+                    "veiland-core: repaint swap_buffers for {:?} returned \
+                    BadSurface (stale after hotplug); skipping, will retry",
+                    self.lock_surfaces[output_idx]
+                        .as_ref()
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("<gone>")
+                );
+                return;
+            }
+            Err(e) => panic!("eglSwapBuffers (repaint): {e:?}"),
+        }
 
         // Egress fence + BufferReleased for every plugin in this
         // output's row. Moved out of the Buffer-arrival path (M5

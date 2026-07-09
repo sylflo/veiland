@@ -390,6 +390,28 @@ river, and other wlroots-based compositors) should work but are not
 regularly tested. GNOME's support for `ext-session-lock-v1` has historically
 been partial, so treat it as untested.
 
+### Reliability
+
+The failure mode that matters most for a locker is ending up at an exposed
+desktop, or a screen you cannot type into, after the machine wakes. On
+**Hyprland** (NVIDIA, multi-monitor) the lock survives and stays usable
+across:
+
+- suspend / resume,
+- display power-off / on (DPMS, e.g. an idle daemon blanking the screen),
+- monitor unplug / replug, including unplugging every monitor at once and
+  hot-plugging a display in while locked.
+
+Monitor unplug / replug is also tested on **Sway**; the full suspend/DPMS
+sweep there is still pending. Unplugging or replugging a single monitor
+recovers immediately. The one rough edge is the extreme case of unplugging
+*every* monitor at once and plugging back in: the session stays locked
+throughout, but the scene takes a moment to repaint (every output and its
+plugins are rebuilt from scratch) rather than coming back instantly. And
+regardless of the app, `ext-session-lock-v1` means the compositor keeps the
+session locked even if veiland itself crashes (see
+[Security model](#security-model)).
+
 ## Design principles
 
 1. **Process isolation is non-negotiable.** A crashing or malicious plugin
