@@ -43,6 +43,37 @@ veiland is unaffiliated with the Wayland project.
   your refresh rate. Fourteen plugins ship in the box; see the
   [gallery](#gallery).
 
+## Why another locker?
+
+Short and personal, because veiland scratches a specific itch.
+
+I wanted particle animations on my lock screen. The lockers I tried
+are good software, and the comparison below is about architecture, not
+quality:
+
+- [swaylock](https://github.com/swaywm/swaylock) is the minimal,
+  battle-tested default: a static color or image, on purpose. Wanting
+  more has historically meant forking it (swaylock-effects).
+- [gtklock](https://github.com/jovanlanik/gtklock) has a real module
+  system, but modules are `.so` files loaded into the locker's own
+  process, and GTK3 rendering is CPU-side — full-screen animation at
+  refresh rate isn't what it's built for.
+- [hyprlock](https://github.com/hyprwm/hyprlock) is what I actually
+  ran: GPU-accelerated and animated. But its widgets are compiled into
+  the binary, so every feature it doesn't have is an upstream PR. I
+  wanted *n* plugins, and *n* features shouldn't cost *n* PRs — mine
+  or anyone else's.
+
+Veiland is that itch built out: the extension mechanism *is* the
+architecture. Plugins are separate, GPU-accelerated programs, so
+animation is first-class and adding a layer needs nobody's approval,
+including mine. The process isolation started as the way to make that
+freedom safe and grew into the [security model](#security-model) — the
+freedom came first, the hardening followed.
+
+If this misrepresents one of these projects, open an issue; that is
+never the intent.
+
 ## Gallery
 
 Every scene below is a ready-made config in [`docs/examples/`](docs/examples).
