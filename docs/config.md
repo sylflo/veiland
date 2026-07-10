@@ -53,9 +53,9 @@ binary = "/usr/bin/veiland-wallpaper"  # required
 z_index = 0                       # required
 region = { x = 0, y = 0, w = 1920, h = 1080 }  # optional
 
-[[plugin.config]]                 # optional, plugin-specific
+[plugin.config]                   # optional, plugin-specific
 # arbitrary keys here, passed through to the plugin
-image = "/home/alice/Pictures/wallpaper.jpg"
+path = "/home/alice/Pictures/wallpaper.jpg"
 ```
 
 ### `name` (string, required)
@@ -364,12 +364,13 @@ region = { x = 660, y = 500, w = 600, h = 80 }
 (Those exact plugin names are illustrative — see the reference plugins
 for the real binaries.)
 
-### A test fixture for the compositor
+### Ready-made scenes
 
-See `docs/examples/boxes.toml` for the staircase of overlapping
-red/blue/green test plugins. That
-fixture exercises region clipping, z-index ordering, and alpha
-blending end-to-end.
+The configs in `docs/examples/` are complete working scenes (the same
+ones shown in the README gallery). `shinkai.toml` is the layering
+reference: wallpaper (`z_index = 0`), vignette (10), particles (20),
+sakura (25), and labels (30, 31) stacked on one surface — copy it and
+swap plugins to build your own.
 
 ### Password field overrides
 
@@ -511,5 +512,5 @@ By design:
 
 - `docs/protocol.md` — the plugin ↔ host wire protocol. Read if
   you're writing a plugin.
-- `docs/examples/boxes.toml` — a test fixture showing a
-  three-plugin overlapping-region setup.
+- `docs/examples/` — complete working scene configs, one per README
+  gallery entry.
