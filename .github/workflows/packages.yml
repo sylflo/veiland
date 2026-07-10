@@ -94,7 +94,7 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.pkg.tar.* --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.pkg.tar.* --clobber --repo "${{ github.repository }}"
 
   debian:
     name: Debian (.deb)
@@ -175,7 +175,10 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.deb --clobber
+        # --repo is required: without it gh infers owner/repo by shelling
+        # out to git, which fails in the container (the checkout is flagged
+        # dubious-ownership, so git reports "not a git repository").
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.deb --clobber --repo "${{ github.repository }}"
 
   fedora:
     name: Fedora (.rpm)
@@ -229,4 +232,4 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.rpm --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.rpm --clobber --repo "${{ github.repository }}"
