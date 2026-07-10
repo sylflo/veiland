@@ -267,31 +267,35 @@ i32   region_x
 i32   region_y
 u32   region_w           (1..=8192)
 u32   region_h           (1..=8192)
-u32   scale              (integer scale factor; 1, 2, 3)
+u32   scale_120          (output scale in 120ths; 1..=9999)
 i64   time_unix_seconds
 i32   time_tz_offset_seconds
 str   output_name        (max 64 bytes)
 ```
 
-Scale is an integer in v1. Fractional scaling is a future extension that will
-add a new field or message variant; v1 plugins that only handle integer scale
-remain correct.
+`scale_120` carries the output scale in 120ths, matching
+`wp_fractional_scale_v1`'s encoding: 120 = 1×, 180 = 1.5×, 240 = 2×.
+Convert to a float multiplier with `scale_120 as f32 / 120.0`. Values
+outside `1..=9999` are rejected at decode.
 
 The region dimensions (`region_w`, `region_h`) are already in physical pixels;
-plugins do not multiply them by `scale`. `scale` is for converting
+plugins do not multiply them by `scale_120`. `scale_120` is for converting
 *plugin-internal* logical sizes (font sizes, shadow radii, asset selection)
-into physical pixels. The host sources `scale` from `wl_output.scale`; values
-outside `1..=3` are clamped to `3` (with a warn log on the host side) so the
-encoder never produces an out-of-range Configure.
+into physical pixels. The host sources it from
+`wp_fractional_scale_v1.preferred_scale` where the compositor advertises that
+protocol, and falls back to the integer `wl_output.scale` × 120 otherwise;
+both paths clamp on the host side so the encoder never produces an
+out-of-range Configure.
 
-A re-`Configure` may arrive at any time with a different `scale` (e.g. the
+A re-`Configure` may arrive at any time with a different `scale_120` (e.g. the
 user changes their monitor's scale factor in the compositor settings). The
 plugin should latch the new value and use it on the next `FrameDone` — there
 is no separate "scale-changed" message and no requirement to re-render
 immediately on receipt. `veiland-label` is the reference shape:
-`scale` is stored on plugin state at every `Configure`, and every render
-multiplies logical-pixel config values (`font_size`, `position`, shadow
-offset) by the current scale.
+`scale_120` is stored on plugin state at every `Configure`, and every render
+multiplies logical-pixel config values (`font_size`, shadow offset) by the
+current scale factor. (`position` is a fraction of the surface, not a pixel
+value, and is deliberately not scaled — see `docs/plugin-api.md` §HiDPI.)
 
 `output_name` is the `xdg_output.name` string for the output this plugin
 instance is rendering for (e.g. `"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`). Each
@@ -379,7 +383,7 @@ limited to:
 - Unknown tag.
 - Payload shorter or longer than the tag's schema requires.
 - Invalid UTF-8 in a `str`.
-- Out-of-range field (width, height, scale, etc.).
+- Out-of-range field (width, height, scale_120, etc.).
 - Wrong number of fds attached.
 - Message arriving before its prerequisite (`Buffer` before `Hello`, etc.).
 - Reuse of an in-use resource id (see §6.2).
