@@ -13,8 +13,8 @@ pub enum HostError {
     /// Syscall-layer error already wrapped as `std::io::Error`.
     Io(std::io::Error),
 
-    /// `recvmsg` / `sendmsg` / `fork` error from `nix`. Distinct from
-    /// `Io` because `nix::Error` is not an `io::Error`.
+    /// `recvmsg` / `sendmsg` / `socketpair` error from `nix`. Distinct
+    /// from `Io` because `nix::Error` is not an `io::Error`.
     Nix(nix::Error),
 
     /// Decode failure from `veiland-protocol`. Bytes did not parse.

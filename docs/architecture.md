@@ -31,7 +31,7 @@ veiland-core  (binary)
     connection.rs   HostConnection: SCM_RIGHTS send/recv, handshake,
                     protocol framing
     dmabuf.rs       import_dmabuf / release_texture (EGLImage ↔ GL texture)
-    spawn.rs        spawn_plugin: socketpair + fork + exec
+    spawn.rs        spawn_plugin: socketpair + Command (fork + exec)
     host_spawn.rs   try_spawn_one: config → spawn_plugin + HostConnection
     sync.rs         EGL fence import / wait / release
 

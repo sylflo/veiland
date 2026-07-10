@@ -4,7 +4,7 @@
 //! (socketpair + handshake + Hello + initial Configure) and tear one
 //! down (Shutdown → grace → SIGTERM → SIGKILL).
 //!
-//! These sit one layer above `spawn.rs` (the raw socketpair/fork/exec):
+//! These sit one layer above `spawn.rs` (the raw socketpair + spawn):
 //! `spawn.rs` produces a `PluginProcess`, and `try_spawn_one` drives the
 //! protocol handshake on top of it to produce a fully-connected
 //! `PluginSlot`. They live in the `plugin` module because they are the
@@ -41,12 +41,14 @@ use super::{HostConnection, HostError, PluginSlot, PluginState, ReceivedFds, spa
 ///   2. `$PATH` fallback: the first `<dir>/<name>` that is a regular file.
 ///      Covers dev shells with `target/debug` on `$PATH`.
 ///
-/// Resolution runs in the parent, before `fork()` — the post-fork child is
-/// async-signal-safe-only and cannot stat the filesystem or read the env.
-/// Whatever this returns is a concrete path; `execv` still names exactly one
-/// file, chosen by a rule the core controls (not by `execvp`'s env-driven
-/// search). Returns `BinaryNotFound` if a bare name matches nothing; the
-/// caller treats that as a non-fatal per-plugin spawn failure.
+/// Resolution runs in the parent, before the spawn — the post-fork child
+/// is async-signal-safe-only and cannot stat the filesystem or read the
+/// env. Whatever this returns is a concrete path containing a `/`, so
+/// `Command` execs exactly one file, chosen by a rule the core controls
+/// (a bare name would trigger `Command`'s `execvp`-style `$PATH` search,
+/// which we never rely on). Returns `BinaryNotFound` if a bare name
+/// matches nothing; the caller treats that as a non-fatal per-plugin
+/// spawn failure.
 fn resolve_binary(binary: &Path) -> Result<PathBuf, HostError> {
     use std::os::unix::ffi::OsStrExt;
 
@@ -129,7 +131,7 @@ pub fn try_spawn_one(
             }
         });
     // Resolve a bare `binary` name (no `/`) to a concrete path before we
-    // fork — the child can't stat the filesystem. A path with a `/` passes
+    // spawn — the child can't stat the filesystem. A path with a `/` passes
     // through unchanged. On BinaryNotFound this returns early; the caller
     // logs it and leaves the plugin's layer empty (non-fatal).
     let resolved_binary = resolve_binary(&entry.binary)?;
