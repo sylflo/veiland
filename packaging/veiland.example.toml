@@ -14,8 +14,8 @@ name = "wallpaper"
 binary = "/usr/bin/veiland-wallpaper"
 z_index = -100                      # always behind everything
 
-[[plugin.config]]
-image = "/usr/share/backgrounds/veiland.jpg"   # edit: point at your image
+[plugin.config]
+path = "/usr/share/backgrounds/veiland.jpg"   # edit: point at your image
 
 [[plugin]]
 name = "clock"
