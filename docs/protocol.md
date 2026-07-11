@@ -48,7 +48,9 @@ Rust code and this document disagree, the document wins and the code is a bug.
 - **Byte order:** all multi-byte integers are little-endian.
 - **Maximum message size:** 64 KiB payload. The host MUST reject larger
   messages and close the plugin's socket. Plugins SHOULD never need to send
-  anything close to this — typical messages are tens of bytes.
+  anything close to this — typical messages are tens of bytes. (Not yet
+  enforced explicitly by the reference host — see §13; it relies on kernel
+  truncation + decode failure, which disconnects the plugin all the same.)
 
 ## 3. Encoding primitives
 
@@ -173,7 +175,9 @@ unrelated and never seen). A plugin MAY re-send the same `id` after receiving
 the corresponding `BufferReleased`, either with the same fd (signaling
 "buffer contents have changed, re-sample") or with a different fd (replacing
 the buffer). Sending a `Buffer` with an `id` the host is currently using
-(i.e. not yet released) is a protocol violation.
+(i.e. not yet released) is a protocol violation. (Not yet enforced by the
+reference host — see §13; it is single-buffer and replaces the texture on
+each `Buffer` regardless of id, so reuse is currently tolerated.)
 
 **Choosing ids (non-normative).** The `id` is opaque to the host. Plugins MAY
 use any `u32` scheme; the simplest is `id = 0` for a single-buffer plugin,
@@ -241,6 +245,9 @@ what it observes the plugin doing on the first `Buffer`:
 
 A plugin that flip-flops between 1-fd and 2-fd across messages is a protocol
 violation. The path is a connection-level decision, not a per-message one.
+(The lock-in and the "2 fds with `HOST_CAP_FENCE_FD` off" rejection are not
+yet enforced by the reference host — see §13; it accepts 1 or 2 fds on every
+`Buffer` and does not consult the negotiated capability after the handshake.)
 
 > **Modifier `INVALID` (`u64::MAX`)** is a special DRM sentinel meaning
 > "unknown / unspecified" — what `gbm_bo_create` returns when called without
@@ -470,3 +477,36 @@ alpha — glyph coverage composites correctly only once under
 double-applied coverage and produced a halo around text edges.
 Premultiplying in the fragment shader is one extra multiply per pixel
 and the failure mode (washed-out blending) is visible immediately.
+
+## 13. Known deviations (reference host)
+
+The reference host (`veiland-core`) is intentionally more lenient than
+this spec in three places. Each is called out inline above; they are
+collected here as the backlog. All three are **lenient** — the host
+accepts input the spec says to reject — so none can crash the locker,
+leak, or affect the unlock decision, and the reference SDK never triggers
+any of them (it picks one fd-path at connect time, is single-buffer, and
+sends only tiny messages). Enforcing them touches the untrusted IPC hot
+path, so it is deferred rather than rushed. Until it lands, a plugin
+author MUST NOT rely on the host closing the socket in these cases.
+
+- **Fd-count capability lock-in (§6.2).** The host accepts 1 or 2 fds on
+  every `Buffer` and does not consult the negotiated `HOST_CAP_FENCE_FD`
+  after the handshake, so it neither locks in the fast/slow path from the
+  first `Buffer` nor rejects a 2-fd `Buffer` when the capability is off.
+  A flip-flopping plugin is tolerated. (`veiland-core/src/plugin/connection.rs`,
+  the `recv_message` variant/fd-count match.)
+
+- **In-use buffer-id reuse (§6.2).** The host tracks `current_buffer_id`
+  but does not reject a `Buffer` whose id is still in use; it imports and
+  replaces the texture regardless. Benign under the single-buffer model.
+  (`veiland-core/src/plugin/state.rs`, the `Buffer` arm of `handle_message`.)
+
+- **Explicit >64 KiB rejection (§2).** The host does not check `MSG_TRUNC`;
+  an oversized `SOCK_SEQPACKET` message is truncated by the kernel into the
+  fixed 64 KiB receive buffer and then fails to decode, which disconnects
+  the plugin all the same. This is correct for every message shape defined
+  today (the largest legal message is a ~104-byte `Hello`), but it is
+  truncation + decode-failure, not an explicit size check — and would need
+  revisiting if a large message type is ever added.
+  (`veiland-core/src/plugin/connection.rs`, the fixed-size `recvmsg` buffer.)
