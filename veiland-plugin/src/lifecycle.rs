@@ -20,16 +20,19 @@
 //!     Some(c) => c,
 //!     None => return Ok(()), // shutdown before first configure
 //! };
-//! let dma = DmaBuffer::new(&gbm_egl, cfg.region_w, cfg.region_h)?;
-//! let mut pacer = FramePacer::new();
+//! let mut dma = DmaBuffer::new(&gbm_egl, cfg.region_w, cfg.region_h)?;
+//! let mut pacer = FramePacer::self_paced();
 //! loop {
 //!     match pacer.next(&mut conn)? {
 //!         Frame::Render => {
-//!             // ... render into `dma`, then submit the buffer ...
-//!             conn.send_buffer(&buf_msg, dma.dmabuf_fd(), fence)?;
+//!             // ... render into `dma`, then hand it off. `conn.submit_frame`
+//!             // picks the sync model (fence fd vs glFinish) for you.
+//!             conn.submit_frame(&dma, &gbm_egl)?;
 //!             pacer.submitted();
 //!         }
-//!         Frame::Reconfigure(c) => { scale = c.scale_120; }
+//!         Frame::Reconfigure(c) => {
+//!             dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME);
+//!         }
 //!         Frame::Shutdown => return Ok(()),
 //!     }
 //! }
