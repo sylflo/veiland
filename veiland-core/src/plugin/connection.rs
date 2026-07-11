@@ -63,6 +63,18 @@ impl HostConnection {
         Ok(())
     }
 
+    /// Set or clear the socket's send deadline (`SO_SNDTIMEO`). While set,
+    /// a `sendmsg` that cannot enqueue the whole message within `timeout`
+    /// fails with `SendTimeout` instead of blocking forever. Unlike the
+    /// read deadline, this stays on for the life of the plugin: the host
+    /// writes from the main calloop thread with no readiness gate, so a
+    /// plugin that stops draining its socket would otherwise wedge the
+    /// whole locker. See `SEND_TIMEOUT` in `host_spawn.rs`.
+    pub fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), HostError> {
+        self.socket.set_write_timeout(timeout)?;
+        Ok(())
+    }
+
     pub fn handshake(&mut self) -> Result<(), HostError> {
         // 1. Read plugin's version first (server side reads, then writes).
         let mut version_in = [0u8; 4];
@@ -129,14 +141,23 @@ impl HostConnection {
     fn send_message_no_fd(&mut self, msg: &ServerMessage) -> Result<(), HostError> {
         let mut buf = Vec::new();
         msg.encode(&mut buf);
-        sendmsg::<()>(
+        match sendmsg::<()>(
             self.socket.as_raw_fd(),
             &[IoSlice::new(&buf)],
             &[],
             MsgFlags::empty(),
             None,
-        )?;
-        Ok(())
+        ) {
+            Ok(_) => Ok(()),
+            // EAGAIN on a socket with SO_SNDTIMEO set means the send
+            // deadline expired: the plugin stopped draining its socket and
+            // the kernel send buffer is full. SEQPACKET is all-or-nothing,
+            // so nothing was sent — no half-message on the wire. Translate
+            // so the caller closes the socket and falls back, the same as
+            // any other send failure, instead of blocking the locker.
+            Err(nix::errno::Errno::EAGAIN) => Err(HostError::SendTimeout),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// Send `Configure`. See `docs/protocol.md` §7.1.
@@ -709,6 +730,38 @@ mod tests {
         // ...then nothing. Keep plugin_fd open until the host has
         // timed out, so the deadline (not EOF) is what recv sees.
         host.join().expect("host thread");
+        drop(plugin_fd);
+    }
+
+    /// The send-side mirror of the recv timeout: a plugin that stops
+    /// draining its socket must not wedge the host on a blocking send.
+    /// With `SO_SNDTIMEO` set, once the kernel send buffer fills, the
+    /// next `send_frame_done` fails with `SendTimeout` instead of
+    /// blocking forever. `plugin_fd` is held open and never read, so the
+    /// full buffer (not EOF) is what the send hits.
+    #[test]
+    fn send_times_out_when_plugin_stops_reading() {
+        let (host_fd, plugin_fd) = pair();
+
+        let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+        conn.set_write_timeout(Some(Duration::from_millis(100)))
+            .expect("set_write_timeout");
+
+        // FrameDone is tiny, so it takes many to fill the send buffer.
+        // Cap the loop well above any plausible buffer size so a
+        // regression (send that never times out) fails the test by
+        // exhausting the cap rather than hanging it forever.
+        let mut err = None;
+        for _ in 0..1_000_000 {
+            if let Err(e) = conn.send_frame_done() {
+                err = Some(e);
+                break;
+            }
+        }
+        match err {
+            Some(HostError::SendTimeout) => {}
+            other => panic!("expected SendTimeout, got {:?}", other),
+        }
         drop(plugin_fd);
     }
 }

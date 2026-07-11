@@ -50,6 +50,18 @@ pub enum HostError {
     /// thread. A plugin that opens the socket but never writes must
     /// fail the spawn, not freeze the locker.
     RecvTimeout,
+
+    /// A write deadline expired while sending a server message to the
+    /// plugin. `SO_SNDTIMEO` is set after the handshake and stays on for
+    /// the life of the plugin: unlike reads (which calloop only issues
+    /// when the fd is readable), the host writes `FrameDone` /
+    /// `BufferReleased` / `Configure` from the main thread with no
+    /// readiness gate. A plugin that stops draining its socket fills the
+    /// kernel send buffer; without this deadline the next `sendmsg` would
+    /// block the calloop thread forever, taking keyboard input with it.
+    /// Treated as plugin death — the socket is closed and the region
+    /// falls back, exactly like any other send failure.
+    SendTimeout,
 }
 
 impl std::fmt::Display for HostError {
@@ -74,6 +86,12 @@ impl std::fmt::Display for HostError {
             ),
             HostError::RecvTimeout => {
                 write!(f, "plugin stayed silent past the handshake deadline")
+            }
+            HostError::SendTimeout => {
+                write!(
+                    f,
+                    "plugin stopped draining its socket past the send deadline"
+                )
             }
         }
     }
@@ -125,5 +143,6 @@ mod tests {
         let _ = format!("{}", HostError::PluginDisconnected);
         let _ = format!("{}", HostError::BinaryNotFound("test".into()));
         let _ = format!("{}", HostError::RecvTimeout);
+        let _ = format!("{}", HostError::SendTimeout);
     }
 }

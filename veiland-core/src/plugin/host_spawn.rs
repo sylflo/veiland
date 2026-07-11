@@ -36,6 +36,17 @@ use super::{HostConnection, HostError, PluginSlot, PluginState, ReceivedFds, spa
 /// (every configured plugin hung) at a few seconds of delay, once.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Send deadline (`SO_SNDTIMEO`) armed on the plugin socket for the life
+/// of the plugin, once it joins the calloop loop. Server messages are
+/// tiny (`FrameDone` is empty, `BufferReleased` is 6 bytes, `Configure`
+/// is small) and a healthy plugin drains them in microseconds, so a send
+/// that cannot complete within this window means the plugin has stopped
+/// reading its socket entirely. We treat that as plugin death rather than
+/// let the blocking `sendmsg` wedge the main thread (keyboard included).
+/// 500 ms is a barely-perceptible one-time stall before the reap and
+/// leaves ample slack against a merely CPU-starved plugin.
+const SEND_TIMEOUT: Duration = Duration::from_millis(500);
+
 /// Resolve a config `binary` value to the path we actually `execv`.
 ///
 /// A value containing a `/` (absolute like `/usr/bin/veiland-clock`, or
@@ -220,9 +231,13 @@ fn connect_spawned(
         entry.name, hello_name, hello_version
     );
     // The plugin has spoken. From here its socket is read on calloop
-    // readiness only, so the deadline comes off — a timed-out runtime
-    // read would misreport a merely-idle plugin as dead.
+    // readiness only, so the read deadline comes off — a timed-out runtime
+    // read would misreport a merely-idle plugin as dead. The send deadline
+    // goes the other way: reads are readiness-gated but writes are not, so
+    // we arm SO_SNDTIMEO now and leave it on so a plugin that stops
+    // draining its socket can't wedge the main thread on a blocking send.
     connection.set_read_timeout(None)?;
+    connection.set_write_timeout(Some(SEND_TIMEOUT))?;
     // Build PluginState and feed the Hello through handle_message so
     // the state machine records name/version through the canonical path.
     let mut state = PluginState::new(connection);
