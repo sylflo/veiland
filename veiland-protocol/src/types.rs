@@ -6,13 +6,15 @@
 use crate::codec::{read_u32_le, read_u64_le, write_u32_le, write_u64_le};
 use crate::error::ProtocolError;
 
-/// DRM FourCC pixel format identifier. Opaque to the protocol; the
-/// v1-allowlist check (`ARGB8888` only) lives in `Buffer::decode`.
+/// DRM FourCC pixel format identifier. Opaque to the protocol; the codec
+/// accepts any value and the host validates by attempting `eglCreateImage`
+/// on import (see `docs/protocol.md` §11).
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Fourcc(pub u32);
 
 /// DRM buffer modifier (tiling / compression scheme). Opaque to the protocol;
-/// the v1-allowlist check (`LINEAR` or `INVALID`) lives in `Buffer::decode`.
+/// the codec accepts any value and the host validates by attempting
+/// `eglCreateImage` on import (see `docs/protocol.md` §11).
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Modifier(pub u64);
 
