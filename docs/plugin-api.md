@@ -98,6 +98,9 @@ let label = Label {
         color: [0.0, 0.0, 0.0, 0.6],
         blur: 0.0,
     }),
+    letter_spacing: 0.0, // extra tracking in px; 0.0 = font's natural spacing
+    font_weight: 400,    // 400 Normal, 700 Bold
+    italic: false,
 };
 ```
 
