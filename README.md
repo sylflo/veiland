@@ -369,7 +369,7 @@ documented in `docs/protocol.md` and isn't tied to Rust.
 A minimal plugin:
 
 ```rust
-use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer};
+use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl};
 
 fn main() -> anyhow::Result<()> {
     let mut conn = Connection::connect("my-plugin", env!("CARGO_PKG_VERSION"))?;
@@ -377,16 +377,23 @@ fn main() -> anyhow::Result<()> {
         Some(c) => c,
         None => return Ok(()),
     };
-    // allocate a DMA-BUF at the configured region size, set up GL ...
+    // Own EGL context + GBM device, then a DMA-BUF at the region size.
+    let gbm_egl = GbmEgl::new()?;
+    let mut dma = DmaBuffer::new(&gbm_egl, cfg.region_w, cfg.region_h)?;
+    // set up GL (shaders, VBO) against dma.bind_for_rendering() ...
     let mut pacer = FramePacer::self_paced();
     loop {
         match pacer.next(&mut conn)? {
             Frame::Render => {
-                // render, then:
-                conn.send_buffer(&buf_msg, dmabuf_fd, fence)?;
+                // render into the DMA-BUF, then hand it to the host.
+                // submit_frame picks the sync model (fence fd vs glFinish)
+                // for you based on what the host advertised.
+                conn.submit_frame(&dma, &gbm_egl)?;
                 pacer.submitted();
             }
-            Frame::Reconfigure(c) => { /* update scale/size */ }
+            Frame::Reconfigure(c) => {
+                dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, "my-plugin");
+            }
             Frame::Shutdown => return Ok(()),
         }
     }
