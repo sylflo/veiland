@@ -355,8 +355,8 @@ structure.
 ### 7.4 `Shutdown` — tag `0x0004`
 
 Empty payload. Plugin SHOULD exit cleanly within a short grace period
-(implementation-defined, e.g. 1 second). After the grace period the host will
-`SIGTERM` the plugin.
+(implementation-defined — the reference host allows a few hundred
+milliseconds). After the grace period the host will `SIGTERM` the plugin.
 
 ## 8. Handshake and lifecycle
 

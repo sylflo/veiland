@@ -176,7 +176,7 @@ other plugins and the password field continue unaffected.
        │─── Shutdown ────────────────────────►│
        │    (sent to every live plugin)       │
        │                                      │  clean exit within grace period
-       │                                      │  (implementation-defined, ~1s)
+       │                                      │  (implementation-defined, ~250ms)
        │                                      │
        │    waitpid (per plugin, sequential)  │
        │    SIGTERM if grace period expires   │
