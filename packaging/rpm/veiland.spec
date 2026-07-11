@@ -122,6 +122,11 @@ install -Dm0644 packaging/pam/veiland.system-auth \
 install -Dm0644 packaging/veiland.example.toml \
   %{buildroot}%{_datadir}/veiland/config.example.toml
 
+# Wallpaper referenced by the example config (Unsplash License: free
+# commercial use and redistribution, no attribution required).
+install -Dm0644 docs/examples/assets/sakura-dusk.jpg \
+  %{buildroot}%{_datadir}/veiland/sakura-dusk.jpg
+
 %files
 %license LICENSE
 %{_bindir}/veiland
@@ -142,6 +147,7 @@ install -Dm0644 packaging/veiland.example.toml \
 %config(noreplace) %{_sysconfdir}/pam.d/veiland
 %dir %{_datadir}/veiland
 %{_datadir}/veiland/config.example.toml
+%{_datadir}/veiland/sakura-dusk.jpg
 
 %changelog
 * Thu Jul 10 2026 sylflo <veiland@sylvain-chateau.com> - 0.1.1-1

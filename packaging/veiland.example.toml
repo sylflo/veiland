@@ -5,25 +5,78 @@
 #   mkdir -p ~/.config/veiland
 #   cp /usr/share/veiland/config.example.toml ~/.config/veiland/config.toml
 #
-# Plugin `binary` paths are absolute (no $PATH, no ~ expansion). The
-# distro package installs the reference plugins into /usr/bin.
-# See docs/config.md for every option.
+# Out of the box this renders the "sakura" scene from the README gallery:
+# a dusk-sky wallpaper, falling cherry-blossom petals, a clock, and the
+# password pill. Everything it needs ships with the package, so it works
+# on a fresh install with no editing.
+#
+# Each `binary` is a bare plugin name: the core resolves it beside the
+# installed `veiland` binary (then on $PATH), so this works on any distro
+# without hardcoding a bindir. Plugin `path` config values (like the
+# wallpaper below) are read verbatim with no $PATH or ~ expansion, so
+# those must be absolute. See docs/config.md for every option.
 
+# --- Wallpaper: dusk-sky backdrop ----------------------------------
+# z_index -100 keeps it behind everything. The package installs the
+# wallpaper alongside this file; point `path` elsewhere for your own
+# image. A wrong path is harmless: the plugin paints black and logs it,
+# and the rest of the scene still renders.
 [[plugin]]
 name = "wallpaper"
-binary = "/usr/bin/veiland-wallpaper"
-z_index = -100                      # always behind everything
+binary = "veiland-wallpaper"
+z_index = -100
 
 [plugin.config]
-path = "/usr/share/backgrounds/veiland.jpg"   # edit: point at your image
+path = "/usr/share/veiland/sakura-dusk.jpg"   # edit: point at your image
 
+# --- Sakura: falling cherry-blossom petals -------------------------
+# The petal texture is embedded in the binary, so there is nothing to
+# supply. z_index 0 puts it just above the wallpaper.
+[[plugin]]
+name = "sakura"
+binary = "veiland-sakura"
+z_index = 0
+
+[plugin.config]
+count = 30
+size_px = 22
+# White tint = the petal PNG's own pink shows through. Lower the alpha
+# to fade the whole field.
+color = [1.0, 1.0, 1.0, 1.0]
+
+# --- Clock: time + date, upper-left --------------------------------
+# Uses the default system sans font (no CJK dependency). Positions are
+# fractions of the surface, so they track any resolution.
 [[plugin]]
 name = "clock"
-binary = "/usr/bin/veiland-clock"
+binary = "veiland-clock"
 z_index = 10
-region = { x = 100, y = 100, w = 300, h = 80 }
 
-# The password field is painted by the core, not a plugin. Defaults are
-# fine; this just nudges it up slightly. Remove to use defaults.
+[plugin.config]
+time_format = "%H:%M"
+date_format = "%A, %B %d"
+time_font_size = 0.055        # fraction of surface height (~59px on 1080p)
+date_font_size = 0.014        # fraction of surface height (~15px on 1080p)
+time_color = [0.95, 0.96, 0.98, 0.95]
+date_color = [0.95, 0.96, 0.98, 0.80]
+time_position = [0.04, 0.05]  # fraction of surface, upper-left
+date_position = [0.04, 0.11]
+halign = "left"
+valign = "top"
+shadow_offset = [0, 0.002]    # fraction of surface height (~2px on 1080p)
+shadow_color = [0.0, 0.0, 0.0, 0.9]
+
+# --- Password field: the input pill --------------------------------
+# A wide, low, fully-rounded pill with a dark translucent fill and a
+# faint light outline. Painted by the core on top of every plugin.
 [password]
 y_percent = 72
+box_width = 440
+box_height = 70
+outline_thickness = 2
+rounding = -1                              # full pill
+inner_color = "rgba(28, 36, 52, 0.45)"
+outer_color = "rgba(150, 170, 200, 0.45)"
+dot_color = "rgba(235, 238, 245, 1.0)"
+dot_diameter = 10
+dot_spacing = 22

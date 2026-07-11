@@ -108,6 +108,11 @@ package() {
   install -Dm644 "packaging/veiland.example.toml" \
     "$pkgdir/usr/share/veiland/config.example.toml"
 
+  # Wallpaper referenced by the example config (Unsplash License: free
+  # commercial use and redistribution, no attribution required).
+  install -Dm644 "docs/examples/assets/sakura-dusk.jpg" \
+    "$pkgdir/usr/share/veiland/sakura-dusk.jpg"
+
   # License text.
   install -Dm644 "LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
