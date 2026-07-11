@@ -206,14 +206,19 @@ A few non-obvious points:
   even if the source is RGB. `RGBA8` matches the GL internal
   format you'll upload with and avoids per-pixel conversion at
   sample time.
-- **Default `image` features are broad**. Veiland-wallpaper uses
-  `default-features = false, features = ["png", "jpeg"]` to
-  minimise CVE surface on a security-critical process. Enable
-  more formats only when a user asks.
-- **Don't decode on the IPC main thread for large images**.
-  Today `veiland-wallpaper` does, which blocks the lock surface
-  for ~5s on a 4K JPEG; the fix is a worker thread (deferred). Small icons
-  (~hundreds of KB) decode in single-digit ms and are fine
+- **Keep the decoder surface small**. On a security-critical
+  process, decode only the formats you need. `veiland-wallpaper`
+  decodes JPEG via `turbojpeg` and PNG via the `image` crate
+  (`default-features = false, features = ["png"]`), sniffing the
+  format by magic bytes rather than trusting the file extension.
+  Add more formats only when a user asks.
+- **Decode large images off the render path**. A 4K image can take
+  a noticeable fraction of a second to decode; doing it inline would
+  leave the region on its fallback colour that whole time.
+  `veiland-wallpaper` decodes on a worker thread and renders black
+  until the pixels arrive (a non-blocking `try_recv` in the render
+  loop), so the handshake and first frames never wait on it. Small
+  icons (~hundreds of KB) decode in single-digit ms and are fine
   inline.
 - **EXIF orientation is not honoured** by `image` by default.
   Phones / cameras embedding an "image is rotated" tag will
