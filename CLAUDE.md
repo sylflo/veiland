@@ -165,11 +165,11 @@ veiland/
 - **Password buffer hygiene.** `mlock`'d, zeroed after PAM call, never logged, never in any buffer shared with plugins.
 - **No panic on plugin input.** Never `.expect()` / `.unwrap()` on anything a plugin sent or any fd it passed. Validate first; on bad input, close the socket and continue.
 
-## Future direction: login manager
+## Future direction: login manager (not on the near-term roadmap)
 
-Veiland-the-locker and veiland-the-login-manager share ~70–80% of their architecture. The port is a plausible long-term direction but is **strictly post-1.0** — login managers have an order of magnitude more system-integration complexity (`systemd-logind`, seat management, VT allocation, session creation) and run as root.
+A login manager shares maybe ~70–80% of the locker's architecture, so the port is *conceivable* someday — but it is **not planned for a good while** and nothing in the current work is being shaped toward it. Treat it as a distant "maybe," not a roadmap item: don't add login-manager scaffolding, don't preserve hooks "for later," and don't let it influence protocol or API decisions now. If it ever happens it's well post-1.0, and it carries an order of magnitude more system-integration complexity (`systemd-logind`, seat management, VT allocation, session creation) and runs as root.
 
-Two structural enablers are already in the codebase: the tagged message enums (`ClientMessage`/`ServerMessage`, which a new message type extends without breaking v1) and `socketpair`-spawning. Other things a login manager would want — an input-event message, a plugin `criticality` field on `Hello`, a typed theme struct in `Configure` — are **not** in the codebase today; they were once contemplated but never landed, and adding them is post-1.0 work, not a prerequisite. No login-manager prep is needed before 1.0.
+For the record, two things the codebase already has would transfer cleanly if that day comes — the tagged message enums (`ClientMessage`/`ServerMessage`, extensible without breaking v1) and `socketpair`-spawning — but they exist because the *locker* needs them, not as login-manager prep. Things a login manager would additionally want (an input-event message, a plugin `criticality` field on `Hello`, a typed theme struct in `Configure`) are **not** in the codebase and should not be added speculatively.
 
 ## Coding conventions
 
