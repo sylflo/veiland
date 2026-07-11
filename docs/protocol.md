@@ -298,11 +298,14 @@ A re-`Configure` may arrive at any time with a different `scale_120` (e.g. the
 user changes their monitor's scale factor in the compositor settings). The
 plugin should latch the new value and use it on the next `FrameDone` — there
 is no separate "scale-changed" message and no requirement to re-render
-immediately on receipt. `veiland-label` is the reference shape:
-`scale_120` is stored on plugin state at every `Configure`, and every render
-multiplies logical-pixel config values (`font_size`, shadow offset) by the
-current scale factor. (`position` is a fraction of the surface, not a pixel
-value, and is deliberately not scaled — see `docs/plugin-api.md` §HiDPI.)
+immediately on receipt. The particle plugins (`veiland-particles`,
+`veiland-sakura`, `veiland-snow`, ...) are the reference shape for this:
+`scale_120` is stored on plugin state at every `Configure` and each render
+multiplies logical-pixel config values (`radius_px`, drift) by the current
+scale factor. (Text plugins like `veiland-label` instead size by fraction
+of the physical surface and never read `scale_120`; `position` is a surface
+fraction in every plugin and is deliberately not scaled. Both conventions
+are described in `docs/plugin-api.md` §HiDPI.)
 
 `output_name` is the `xdg_output.name` string for the output this plugin
 instance is rendering for (e.g. `"DP-1"`, `"HDMI-A-1"`, `"eDP-1"`). Each

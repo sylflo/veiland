@@ -146,15 +146,34 @@ afterwards. Subsequent draws in the same frame composite on top.
 The host sends `Configure.scale_120: u32` carrying the output's scale
 as 120ths (120 = 1×, 180 = 1.5×, 240 = 2×), matching
 `wp_fractional_scale_v1`'s encoding. Convert to a float multiplier with
-`scale_120 as f32 / 120.0`. Store it on your plugin state at every
-`Configure` and use the current value when building each `Label`. The
-convention is: every logical-pixel *size* field (`font_size`,
-`letter_spacing`, `shadow.offset`) gets multiplied by that factor;
-non-pixel fields (`color`, `rotation`) do not.
+`scale_120 as f32 / 120.0`. The surface itself always arrives in
+*physical* pixels (`region_w`/`region_h` are device pixels), so how you
+use `scale_120` depends on how your plugin expresses sizes. Two
+conventions ship in the reference plugins, and both are correct:
 
-`position` is the exception: don't scale it. A label's place on screen
+**Logical-pixel × scale** — for absolute-sized primitives. A particle
+plugin means a literal "3-pixel dot," which must grow with the display
+scale or it looks hairline-thin on a 2× monitor. Store `scale_120` on
+plugin state at every `Configure`, latch the new value on re-`Configure`,
+and multiply every logical-pixel *size* value by `scale_120 / 120.0` at
+render time; non-pixel fields (`color`) do not scale. `veiland-particles`,
+`veiland-sakura`, `veiland-snow`, `veiland-rain`, `veiland-embers`, and
+`veiland-fireflies` all follow this — their `radius_px` / `size_px` config
+keys are "logical px at scale = 1."
+
+**Fraction of surface** — for elements sized relative to the display. A
+text plugin usually wants "the clock is ~1/15th of the screen tall,"
+expressed as a fraction and multiplied by the *physical* surface height
+when building the `Label`. This is both resolution- and scale-independent
+in one step: because the surface is already physical-sized, a 2× monitor
+delivers a 2×-taller buffer and the glyph grows automatically — so these
+plugins never read `scale_120` at all. `veiland-label` and `veiland-clock`
+size `font_size`, `letter_spacing`, and `shadow.offset` this way (config
+values are fractions of surface height, not logical pixels).
+
+`position` follows the fraction model in every plugin: a place on screen
 should be a *fraction of the surface* (`[0.5, 0.5]` = centre), multiplied
-by the surface size when building the `Label`. Fractions are
+by the surface size when building the frame. Fractions are
 resolution-independent — `0.5` is the middle of a 1080p and a 4K buffer
 alike — so a label stays put when the host resizes the surface (the
 1080p-spawn-fallback → native-4K resend, or a mid-lock mode change). The

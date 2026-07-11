@@ -70,8 +70,11 @@ pub struct Label {
     pub text: String,
     /// CSS-style family name. Falls back to system Sans if not found.
     pub font_family: String,
-    /// Logical pixels. The plugin multiplies by `Configure.scale`
-    /// before constructing the Label; see `docs/protocol.md` §7.1.
+    /// Physical (device) pixels. `veiland-text` renders at whatever size
+    /// it's handed; the caller decides how to derive it. The reference
+    /// text plugins (`veiland-label`, `veiland-clock`) size this as a
+    /// fraction of the physical surface height, which tracks resolution
+    /// and HiDPI scale in one step — see `docs/plugin-api.md` §HiDPI.
     pub font_size: f32,
     /// Straight-alpha RGBA, each component in [0, 1].
     pub color: [f32; 4],
@@ -88,12 +91,11 @@ pub struct Label {
     /// draws a shadow pass first and the main text on top.
     pub shadow: Option<Shadow>,
     /// Extra inter-glyph spacing (tracking) in PIXELS, the same
-    /// logical-pixel space as `font_size`. `0.0` is the font's natural
-    /// spacing. The plugin multiplies by `Configure.scale` before
-    /// constructing the Label, matching `font_size`. Applies per-cluster,
-    /// so CJK respects it. (Internally `render_label` divides by
-    /// `font_size` because cosmic-text's letter_spacing is em-relative;
-    /// callers always think in pixels.)
+    /// physical-pixel space as `font_size`. `0.0` is the font's natural
+    /// spacing. Derived by the caller the same way as `font_size`.
+    /// Applies per-cluster, so CJK respects it. (Internally `render_label`
+    /// divides by `font_size` because cosmic-text's letter_spacing is
+    /// em-relative; callers always think in pixels.)
     pub letter_spacing: f32,
     /// CSS-style numeric font weight: 100 Thin, 300 Light, 400 Normal,
     /// 700 Bold. Selects the matching face at shape time. NOT scaled by
@@ -471,8 +473,8 @@ pub(crate) fn render_label(
         let baseline_y = run.line_y;
         for glyph in run.glyphs {
             // physical((0, 0), 1.0) snaps to integer pixel — scale=1
-            // because we already baked HiDPI scale into font_size at
-            // the call site (the plugin multiplied by Configure.scale).
+            // because font_size is already in physical pixels (the caller
+            // baked in resolution/HiDPI when it derived font_size).
             let physical = glyph.physical((0.0, 0.0), 1.0);
 
             // Discretize for our atlas cache key. size_px collapses
