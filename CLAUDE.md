@@ -81,8 +81,8 @@ When in doubt about where functionality goes: if it touches auth, it's in the co
 
 - **DoS via malformed IPC.** Validate every field before passing to EGL, GBM, or any kernel call. Reject implausible values; close the plugin's socket and draw a fallback rather than crashing the locker. Never `.expect()` on plugin input.
 - **Resource exhaustion.** Bound in-flight buffers per plugin, bound dimensions, time-out silent plugins.
-- **Driver-level GPU exploit.** Refuse values that obviously shouldn't make sense (sizes > 8192², stride < width × bpp, unknown modifiers).
-- **UI deception.** Plugin draws a "Login successful" screen while the lock is still active. Reserve a small core-painted trusted region plugins cannot reach.
+- **Driver-level GPU exploit.** Refuse values that obviously shouldn't make sense at the codec (sizes > 8192², `stride < width`). Format and modifier acceptability are host-stack concerns: the codec accepts any format/modifier and lets `eglCreateImage` be the gate — an import failure closes the plugin's socket and draws a fallback.
+- **UI deception.** Plugin draws a "Login successful" screen while the lock is still active. The core composites the password UI *last*, on top of all plugin output, so a plugin can't draw over it. This is a paint-order guarantee, not a reserved exclusive region — plugins still render everywhere beneath and around it (a stronger reserved region is a possible future hardening).
 
 **Bottom line.** Process isolation makes the dramatic attacks (unlock trigger, code execution in the core, seeing the password in a message) absent by construction, and `PR_SET_DUMPABLE` raises the bar against casual same-UID memory snooping. It is not a substitute for a sandbox against a determined hostile third-party plugin. DoS, resource exhaustion, and UI deception are real. "Plugins are untrusted input" applies to every byte they send, every fd they pass, every dimension they declare.
 
@@ -159,7 +159,7 @@ veiland/
 
 - **Explicit sync.** Don't assume a buffer is rendered just because the fd arrived. The plugin attaches a sync fence fd; the core waits on it before sampling.
 - **Buffer lifecycle.** The core releases a buffer before the plugin sends the next. Never free a buffer the core may still be sampling.
-- **Format negotiation.** Don't hardcode ARGB8888 in new protocol work. Plugin advertises supported formats in `Hello`; core picks one.
+- **Format negotiation.** Don't hardcode ARGB8888 in new protocol work. `Hello` carries only name + version — there is no format list. Each `Buffer` states its own `format`/`modifier`, and the codec accepts any value; `eglCreateImage` is the acceptance gate at import. (If explicit negotiation is ever wanted, a format list on `Hello` is the natural place — it does not exist today.)
 - **Plugin death.** A closed socket means the plugin died. Detect via EOF on read. Draw a fallback for that region. Log the event. Never block the locker on a dead plugin.
 - **Region clipping.** Enforce in the core that a plugin can only render into its assigned region. The plugin only sees its own buffer dimensions.
 - **Password buffer hygiene.** `mlock`'d, zeroed after PAM call, never logged, never in any buffer shared with plugins.
@@ -169,7 +169,7 @@ veiland/
 
 Veiland-the-locker and veiland-the-login-manager share ~70–80% of their architecture. The port is a plausible long-term direction but is **strictly post-1.0** — login managers have an order of magnitude more system-integration complexity (`systemd-logind`, seat management, VT allocation, session creation) and run as root.
 
-The five structural enablers (tagged message enums, open `INPUT_EVENT` variant, `socketpair`-spawning, `criticality` field on `Hello`, typed theme struct in `Configure`) are already in the codebase. No further login-manager prep is needed before 1.0.
+Two structural enablers are already in the codebase: the tagged message enums (`ClientMessage`/`ServerMessage`, which a new message type extends without breaking v1) and `socketpair`-spawning. Other things a login manager would want — an input-event message, a plugin `criticality` field on `Hello`, a typed theme struct in `Configure` — are **not** in the codebase today; they were once contemplated but never landed, and adding them is post-1.0 work, not a prerequisite. No login-manager prep is needed before 1.0.
 
 ## Coding conventions
 
