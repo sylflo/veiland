@@ -42,6 +42,14 @@ pub enum HostError {
     /// layer stays empty and the locker keeps running. Carries the name
     /// that failed to resolve so the log line is actionable.
     BinaryNotFound(String),
+
+    /// A read deadline expired while waiting for the plugin to speak.
+    /// Only produced during the spawn window: `try_spawn_one` sets
+    /// `SO_RCVTIMEO` around the handshake and `Hello` reads — the one
+    /// place the host reads without calloop readiness, on the main
+    /// thread. A plugin that opens the socket but never writes must
+    /// fail the spawn, not freeze the locker.
+    RecvTimeout,
 }
 
 impl std::fmt::Display for HostError {
@@ -64,6 +72,9 @@ impl std::fmt::Display for HostError {
                  (write a path with a '/' to point at an exact file)",
                 name
             ),
+            HostError::RecvTimeout => {
+                write!(f, "plugin stayed silent past the handshake deadline")
+            }
         }
     }
 }
@@ -112,5 +123,7 @@ mod tests {
         let _ = format!("{}", HostError::VersionMismatch { host: 1, plugin: 2 });
         let _ = format!("{}", HostError::Render("test"));
         let _ = format!("{}", HostError::PluginDisconnected);
+        let _ = format!("{}", HostError::BinaryNotFound("test".into()));
+        let _ = format!("{}", HostError::RecvTimeout);
     }
 }

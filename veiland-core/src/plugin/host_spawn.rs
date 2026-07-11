@@ -20,7 +20,21 @@ use veiland_protocol::{ClientMessage, Configure, HostCapabilities};
 
 use crate::config;
 
+use super::spawn::PluginProcess;
 use super::{HostConnection, HostError, PluginSlot, PluginState, ReceivedFds, spawn_plugin};
+
+/// Receive deadline for the spawn window: the two blocking reads in
+/// `connect_spawned` (version request, then `Hello`) must complete
+/// within this budget or the spawn fails and the child is killed.
+/// These are the only reads the host ever does without calloop
+/// readiness, and they run on the main thread — an unbounded wait here
+/// freezes the locked screen, keyboard dispatch included (the threat
+/// model's "time-out silent plugins"). The normal case is single-digit
+/// milliseconds: `Connection::connect` is the first thing the SDK does,
+/// before any GPU setup. 2 s leaves three orders of magnitude of margin
+/// for a cold-cache exec on a slow disk, and bounds the worst case
+/// (every configured plugin hung) at a few seconds of delay, once.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Resolve a config `binary` value to the path we actually `execv`.
 ///
@@ -142,7 +156,50 @@ pub fn try_spawn_one(
         );
     }
     let process = spawn_plugin(&resolved_binary, &entry.name, config_json.as_deref())?;
+    let pid = process.child_pid;
+    // From here on a child process exists; any failure below must not
+    // leave it behind. A well-behaved plugin exits when the socket
+    // closes but lingers as a zombie (teardown_one_plugin only ever
+    // sees slots that connected); a hung one — exactly the RecvTimeout
+    // case — would not exit at all.
+    match connect_spawned(
+        process,
+        entry,
+        output_name,
+        scale_120,
+        surface_size,
+        host_capabilities,
+        egl,
+        display,
+    ) {
+        Ok(slot) => Ok(slot),
+        Err(e) => {
+            kill_unconnected_plugin(pid, &entry.name);
+            Err(e)
+        }
+    }
+}
+
+/// The protocol half of `try_spawn_one`: handshake, `Hello`, state
+/// machine, initial `Configure`. Split out so the caller can pair every
+/// error with cleanup of the already-spawned child. Both blocking reads
+/// here run under `HANDSHAKE_TIMEOUT` — see the constant's comment.
+// One argument over clippy's limit: this is try_spawn_one's surface
+// plus the spawned process, and inventing a struct to carry it would
+// just move the eight names somewhere else.
+#[allow(clippy::too_many_arguments)]
+fn connect_spawned(
+    process: PluginProcess,
+    entry: &config::PluginEntry,
+    output_name: &str,
+    scale_120: u32,
+    surface_size: Option<(u32, u32)>,
+    host_capabilities: HostCapabilities,
+    egl: &egl::Instance<egl::Static>,
+    display: egl::Display,
+) -> Result<PluginSlot, HostError> {
     let mut connection = HostConnection::from_fd(process.socket, host_capabilities);
+    connection.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     connection.handshake()?;
     eprintln!("plugin {:?}: handshake ok", entry.name);
 
@@ -162,6 +219,10 @@ pub fn try_spawn_one(
         "plugin {:?}: says hello: {} v{}",
         entry.name, hello_name, hello_version
     );
+    // The plugin has spoken. From here its socket is read on calloop
+    // readiness only, so the deadline comes off — a timed-out runtime
+    // read would misreport a merely-idle plugin as dead.
+    connection.set_read_timeout(None)?;
     // Build PluginState and feed the Hello through handle_message so
     // the state machine records name/version through the canonical path.
     let mut state = PluginState::new(connection);
@@ -209,6 +270,54 @@ pub fn try_spawn_one(
         output_name: output_name.to_string(),
         last_configure: Some(initial_configure),
     })
+}
+
+/// Best-effort cleanup of a child that never completed the handshake:
+/// SIGKILL, then a bounded reap. No Shutdown message and no SIGTERM
+/// grace — the protocol never came up, the child has no state worth
+/// saving, and in the RecvTimeout case it is hung anyway. The reap
+/// polls WNOHANG instead of blocking in `waitpid` because a child
+/// stuck in uninterruptible sleep (a wedged GPU ioctl is the likely
+/// cause of a handshake timeout) cannot die until the kernel releases
+/// it, and blocking on it would recreate the exact main-thread hang
+/// this path exists to escape. Giving up leaves a zombie: ugly in
+/// `ps`, harmless to the locker.
+fn kill_unconnected_plugin(pid: nix::unistd::Pid, name: &str) {
+    use nix::sys::signal::{Signal, kill};
+    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+
+    let _ = kill(pid, Signal::SIGKILL);
+    let deadline = std::time::Instant::now() + Duration::from_millis(200);
+    loop {
+        match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => {
+                if std::time::Instant::now() >= deadline {
+                    eprintln!(
+                        "veiland-core: plugin {:?}: unconnected child (pid {}) not reaped \
+                         after SIGKILL — leaving it",
+                        name, pid
+                    );
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(_) => {
+                eprintln!(
+                    "veiland-core: plugin {:?}: killed unconnected child (pid {})",
+                    name, pid
+                );
+                return;
+            }
+            Err(e) => {
+                eprintln!(
+                    "veiland-core: plugin {:?}: waitpid on unconnected child (pid {}) \
+                     failed: {} (continuing)",
+                    name, pid, e
+                );
+                return;
+            }
+        }
+    }
 }
 
 /// Snapshot the wall clock into `(unix_seconds, tz_offset_seconds)`,

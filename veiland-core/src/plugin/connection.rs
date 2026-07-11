@@ -4,6 +4,7 @@ use std::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
         unix::net::UnixStream,
     },
+    time::Duration,
 };
 
 use nix::sys::socket::{ControlMessageOwned, MsgFlags, recvmsg, sendmsg};
@@ -50,11 +51,31 @@ impl HostConnection {
         }
     }
 
+    /// Set or clear the socket's receive deadline (`SO_RCVTIMEO`).
+    /// While set, a blocking read that sees no data within `timeout`
+    /// fails with `RecvTimeout` instead of blocking forever. The spawn
+    /// path brackets the handshake + `Hello` reads with this (see
+    /// `HANDSHAKE_TIMEOUT` in `host_spawn.rs`) and clears it before
+    /// the socket joins the calloop loop, where reads are
+    /// readiness-driven and must stay blocking.
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), HostError> {
+        self.socket.set_read_timeout(timeout)?;
+        Ok(())
+    }
+
     pub fn handshake(&mut self) -> Result<(), HostError> {
         // 1. Read plugin's version first (server side reads, then writes).
         let mut version_in = [0u8; 4];
         let mut iov = [IoSliceMut::new(&mut version_in)];
-        let msg = recvmsg::<()>(self.socket.as_raw_fd(), &mut iov, None, MsgFlags::empty())?;
+        let msg = match recvmsg::<()>(self.socket.as_raw_fd(), &mut iov, None, MsgFlags::empty()) {
+            Ok(m) => m,
+            // EAGAIN on a socket with SO_RCVTIMEO set means the deadline
+            // expired with no data: the plugin was spawned but never sent
+            // its version request. Translate so the caller's log says what
+            // happened instead of "nix: EAGAIN".
+            Err(nix::errno::Errno::EAGAIN) => return Err(HostError::RecvTimeout),
+            Err(e) => return Err(e.into()),
+        };
 
         match msg.bytes {
             0 => return Err(HostError::PluginDisconnected),
@@ -178,6 +199,11 @@ impl HostConnection {
                         "message attached more fds than the protocol allows (max 2 on Buffer, 0 elsewhere)",
                     ));
                 }
+                // Deadline expiry under SO_RCVTIMEO. Only reachable during
+                // the spawn window (the one caller that sets a deadline);
+                // runtime reads are readiness-driven via calloop and a
+                // readable SEQPACKET fd always yields a whole message.
+                Err(nix::errno::Errno::EAGAIN) => return Err(HostError::RecvTimeout),
                 Err(e) => return Err(e.into()),
             };
             // `cmsgs()` returns ENOBUFS when the kernel set MSG_CTRUNC,
@@ -634,5 +660,55 @@ mod tests {
         );
 
         host.join().expect("host thread");
+    }
+
+    /// A plugin that opens the socket but never writes must not hang
+    /// the host: with a read deadline set, `handshake()` fails with
+    /// `RecvTimeout` once the deadline expires. The plugin fd stays
+    /// open for the whole test so the failure is the deadline, not EOF
+    /// (which would be `PluginDisconnected`).
+    #[test]
+    fn handshake_times_out_on_silent_plugin() {
+        let (host_fd, plugin_fd) = pair();
+
+        let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+        conn.set_read_timeout(Some(Duration::from_millis(100)))
+            .expect("set_read_timeout");
+        let err = conn.handshake().expect_err("handshake must time out");
+        match err {
+            HostError::RecvTimeout => {}
+            other => panic!("expected RecvTimeout, got {:?}", other),
+        }
+        drop(plugin_fd);
+    }
+
+    /// Same failure one message later: the handshake completes, then
+    /// the plugin goes silent before `Hello`. `recv_message()` must
+    /// fail with `RecvTimeout` instead of blocking. Mirrors the spawn
+    /// path, which holds one deadline across both reads.
+    #[test]
+    fn recv_times_out_on_silent_plugin() {
+        let (host_fd, plugin_fd) = pair();
+
+        let host = thread::spawn(move || {
+            let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+            conn.set_read_timeout(Some(Duration::from_millis(100)))
+                .expect("set_read_timeout");
+            conn.handshake().expect("handshake");
+            let err = conn.recv_message().expect_err("recv must time out");
+            match err {
+                HostError::RecvTimeout => {}
+                other => panic!("expected RecvTimeout, got {:?}", other),
+            }
+        });
+
+        let plugin_raw = plugin_fd.as_raw_fd();
+        plugin_send_version(plugin_raw, PROTOCOL_VERSION);
+        let _ = plugin_recv_version(plugin_raw).expect("host version");
+        let _ = plugin_recv_host_capabilities(plugin_raw);
+        // ...then nothing. Keep plugin_fd open until the host has
+        // timed out, so the deadline (not EOF) is what recv sees.
+        host.join().expect("host thread");
+        drop(plugin_fd);
     }
 }

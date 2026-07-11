@@ -99,6 +99,13 @@ sent its version, sees the socket close before reading a server version and
 infers a version mismatch. If the plugin reads a server version it does not
 recognize, it closes the socket.
 
+Timing is host policy: the host MAY apply a deadline to the handshake and to
+the first `ClientMessage` (the reference host uses 2 seconds) and treat
+expiry as a failed spawn — the plugin is killed and its layer stays empty. A
+plugin SHOULD therefore complete the handshake and send `Hello` before any
+expensive setup of its own (GPU init, asset decode); the reference SDK's
+`Connection::connect` does this ordering naturally.
+
 The handshake is *not* a `ClientMessage`/`ServerMessage` — it is raw
 little-endian u32s on each side, sent before the tagged-message stream begins.
 This keeps version mismatch outside the variant-decoding path: a future codec
