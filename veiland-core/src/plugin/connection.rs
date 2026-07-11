@@ -41,6 +41,14 @@ pub enum ReceivedFds {
 pub struct HostConnection {
     socket: UnixStream,
     host_capabilities: HostCapabilities,
+    /// False during the spawn window (blocking reads bracketed by
+    /// `SO_RCVTIMEO`); flipped true once the socket joins the calloop
+    /// loop. When true, `recv_message` reads with `MSG_DONTWAIT` and
+    /// returns `WouldBlock` instead of blocking, so a spurious or stale
+    /// event source firing on this fd with nothing queued can never wedge
+    /// the main thread. See `set_runtime_reads` and the hotplug
+    /// stale-source path in `output_destroyed`.
+    runtime_reads: bool,
 }
 
 impl HostConnection {
@@ -48,7 +56,15 @@ impl HostConnection {
         Self {
             socket: UnixStream::from(fd),
             host_capabilities,
+            runtime_reads: false,
         }
+    }
+
+    /// Switch `recv_message` from blocking (spawn window) to non-blocking
+    /// (`MSG_DONTWAIT`, calloop-driven runtime). Called once, right after
+    /// the handshake, alongside clearing the read deadline.
+    pub fn set_runtime_reads(&mut self, on: bool) {
+        self.runtime_reads = on;
     }
 
     /// Set or clear the socket's receive deadline (`SO_RCVTIMEO`).
@@ -208,11 +224,23 @@ impl HostConnection {
             // which the spec forbids. Translate to ProtocolViolation so
             // the caller treats it the same as any other fd-count violation
             // (plugin death) rather than as an opaque Nix error.
+            // Runtime reads are non-blocking (MSG_DONTWAIT): calloop only
+            // fires this source when the fd is readable, so a healthy read
+            // still gets its whole SEQPACKET message. The one case that
+            // hits EAGAIN is a spurious/stale source firing with nothing
+            // queued (e.g. the hotplug slot-reuse path) — there we must
+            // return rather than block the main thread. During the spawn
+            // window reads stay blocking (bracketed by SO_RCVTIMEO).
+            let recv_flags = if self.runtime_reads {
+                MsgFlags::MSG_DONTWAIT
+            } else {
+                MsgFlags::empty()
+            };
             let msg = match recvmsg::<()>(
                 self.socket.as_raw_fd(),
                 &mut iov,
                 Some(&mut cmsg_buf),
-                MsgFlags::empty(),
+                recv_flags,
             ) {
                 Ok(m) => m,
                 Err(nix::errno::Errno::ENOBUFS) => {
@@ -220,11 +248,18 @@ impl HostConnection {
                         "message attached more fds than the protocol allows (max 2 on Buffer, 0 elsewhere)",
                     ));
                 }
-                // Deadline expiry under SO_RCVTIMEO. Only reachable during
-                // the spawn window (the one caller that sets a deadline);
-                // runtime reads are readiness-driven via calloop and a
-                // readable SEQPACKET fd always yields a whole message.
-                Err(nix::errno::Errno::EAGAIN) => return Err(HostError::RecvTimeout),
+                // EAGAIN: at runtime (MSG_DONTWAIT) this means "nothing to
+                // read" — a spurious/stale readiness fire; the caller keeps
+                // going. During the spawn window it's SO_RCVTIMEO deadline
+                // expiry (the plugin went silent mid-handshake) — a spawn
+                // failure. Same errno, different meaning by phase.
+                Err(nix::errno::Errno::EAGAIN) => {
+                    return Err(if self.runtime_reads {
+                        HostError::WouldBlock
+                    } else {
+                        HostError::RecvTimeout
+                    });
+                }
                 Err(e) => return Err(e.into()),
             };
             // `cmsgs()` returns ENOBUFS when the kernel set MSG_CTRUNC,
@@ -763,5 +798,45 @@ mod tests {
             other => panic!("expected SendTimeout, got {:?}", other),
         }
         drop(plugin_fd);
+    }
+
+    /// A runtime read (post-handshake, `runtime_reads` on) with nothing
+    /// queued must return `WouldBlock` instead of blocking. This is the
+    /// hotplug stale-source guard: a spurious calloop fire against a
+    /// reused, quiescent slot cannot wedge the main thread. `plugin_fd`
+    /// stays open, so it's a would-block (empty), not EOF.
+    #[test]
+    fn runtime_read_would_block_when_no_message_queued() {
+        let (host_fd, plugin_fd) = pair();
+
+        let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+        conn.set_runtime_reads(true);
+        let err = conn
+            .recv_message()
+            .expect_err("empty runtime read must not block");
+        match err {
+            HostError::WouldBlock => {}
+            other => panic!("expected WouldBlock, got {:?}", other),
+        }
+        drop(plugin_fd);
+    }
+
+    /// The fix must not break dead-plugin cleanup: with `runtime_reads`
+    /// on, a peer that has closed its end still surfaces as
+    /// `PluginDisconnected` (zero-byte read / EOF), NOT `WouldBlock` — so
+    /// `drive_plugin` still removes the source. EOF is a readable event,
+    /// distinct from would-block, even under `MSG_DONTWAIT`.
+    #[test]
+    fn runtime_read_reports_eof_as_disconnected() {
+        let (host_fd, plugin_fd) = pair();
+
+        let mut conn = HostConnection::from_fd(host_fd, HOST_CAP_FENCE_FD);
+        conn.set_runtime_reads(true);
+        drop(plugin_fd); // close the peer -> EOF on the host end
+        let err = conn.recv_message().expect_err("closed peer must error");
+        match err {
+            HostError::PluginDisconnected => {}
+            other => panic!("expected PluginDisconnected, got {:?}", other),
+        }
     }
 }

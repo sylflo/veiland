@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# HOTPLUG STALE-SOURCE REPRO SCENE (diagnostic, not a gallery scene).
+#
+# Purpose: maximize the chance of triggering the "stale calloop source
+# reads a reused plugin slot -> blocking read on the main thread" hang on
+# the unplug/replug path. This is a DIAGNOSTIC config for reproducing a
+# known reliability bug, not a scene meant to look nice.
+#
+# Why these plugins: the hang can only fire when the plugin that lands in
+# a reused (o, p) slot is QUIESCENT (no message queued) at the moment a
+# stale event source fires. Self-paced plugins (the whole particle family,
+# gradient, blobs, parallax, raymarcher) push buffers continuously and so
+# MASK the bug -- every stale read returns in ~16ms. This scene therefore
+# uses ONLY on-demand plugins, which sit silent between ticks:
+#
+#     wallpaper  -> on_demand   (static image, draws once)
+#     clock      -> on_demand   (redraws ~once/minute)
+#     label      -> on_demand   (static text, draws once)
+#     vignette   -> on_demand   (static overlay, draws once)
+#
+# and DELIBERATELY excludes every self-paced plugin. After the first few
+# frames all four sockets go idle, so a stale source firing has nothing
+# to return and blocks the main calloop thread.
+#
+# How to reproduce (needs 2+ outputs, or a compositor that lets you
+# unplug/replug one):
+#   1. Launch locked with this config on a multi-output setup:
+#        VEILAND_CONFIG=docs/examples/hotplug-repro.toml veiland
+#   2. Wait a few seconds for the scene to settle (all plugins idle).
+#   3. Unplug a monitor and replug it quickly (within a second or two, so
+#      the compositor's remove + re-advertise land in one dispatch batch).
+#      Repeat several times / fast-replug -- the batch-collapse is timing
+#      dependent, so try a handful of times.
+#   4. SYMPTOM: keyboard goes dead -- typing does nothing, the password
+#      dots don't appear. The session stays locked (compositor guarantee);
+#      recovery is a VT switch (Ctrl+Alt+F-key) to kill veiland. That hang
+#      is the bug. If the scene keeps responding to keys after replug,
+#      it did not trigger this time -- try again.
+#
+# NOTE: wallpaper `path` must be an absolute path on an installed system.
+# The relative path below assumes you launch from the repo root.
+
+# --- Wallpaper: static backdrop (on_demand, goes idle after one frame) ---
+[[plugin]]
+name = "wallpaper"
+binary = "veiland-wallpaper"
+z_index = -100
+
+[plugin.config]
+path = "docs/examples/assets/sakura-dusk.jpg"
+
+# --- Vignette: static darkening overlay (on_demand) ---------------------
+[[plugin]]
+name = "vignette"
+binary = "veiland-vignette"
+z_index = 10
+
+[plugin.config]
+base_opacity = 0.7
+
+# --- Clock: redraws only ~once a minute, otherwise idle -----------------
+[[plugin]]
+name = "clock"
+binary = "veiland-clock"
+z_index = 20
+
+[plugin.config]
+time_format = "%H:%M"
+date_format = "%A, %B %d"
+time_font_size = 0.055
+date_font_size = 0.014
+time_color = [0.95, 0.96, 0.98, 0.95]
+date_color = [0.95, 0.96, 0.98, 0.80]
+time_position = [0.04, 0.05]
+date_position = [0.04, 0.11]
+halign = "left"
+valign = "top"
+
+# --- Label: fully static text, draws once then idle forever -------------
+[[plugin]]
+name = "label"
+binary = "veiland-label"
+z_index = 30
+
+[plugin.config]
+text = "hotplug repro"
+font_family = "Sans"
+font_size = 0.03
+color = [0.9, 0.9, 0.95, 0.9]
+halign = "center"
+valign = "middle"
+position = [0.5, 0.35]
+
+# --- Password pill ------------------------------------------------------
+[password]
+y_percent = 72
+box_width = 440
+box_height = 70
+rounding = -1
+inner_color = "rgba(28, 36, 52, 0.45)"
+outer_color = "rgba(150, 170, 200, 0.45)"
+dot_color = "rgba(235, 238, 245, 1.0)"

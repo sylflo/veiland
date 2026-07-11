@@ -232,11 +232,16 @@ fn connect_spawned(
     );
     // The plugin has spoken. From here its socket is read on calloop
     // readiness only, so the read deadline comes off — a timed-out runtime
-    // read would misreport a merely-idle plugin as dead. The send deadline
-    // goes the other way: reads are readiness-gated but writes are not, so
-    // we arm SO_SNDTIMEO now and leave it on so a plugin that stops
-    // draining its socket can't wedge the main thread on a blocking send.
+    // read would misreport a merely-idle plugin as dead. Runtime reads go
+    // non-blocking (MSG_DONTWAIT) so a spurious or stale readiness fire —
+    // e.g. the hotplug slot-reuse path where a not-yet-removed source
+    // fires against a reused (o,p) slot — returns WouldBlock instead of
+    // blocking the main calloop thread. The send deadline goes the other
+    // way: reads are readiness-gated but writes are not, so we arm
+    // SO_SNDTIMEO now and leave it on so a plugin that stops draining its
+    // socket can't wedge the main thread on a blocking send.
     connection.set_read_timeout(None)?;
+    connection.set_runtime_reads(true);
     connection.set_write_timeout(Some(SEND_TIMEOUT))?;
     // Build PluginState and feed the Hello through handle_message so
     // the state machine records name/version through the canonical path.

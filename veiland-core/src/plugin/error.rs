@@ -51,6 +51,14 @@ pub enum HostError {
     /// fail the spawn, not freeze the locker.
     RecvTimeout,
 
+    /// A non-blocking runtime read (`MSG_DONTWAIT`) found nothing to read.
+    /// Not an error condition — it means a calloop source fired on this
+    /// fd but no message was queued (a spurious/stale readiness fire, e.g.
+    /// the hotplug slot-reuse path). The caller treats it as "nothing to
+    /// do" and keeps the plugin alive, unlike every other recv error.
+    /// Only produced once `runtime_reads` is on (post-handshake).
+    WouldBlock,
+
     /// A write deadline expired while sending a server message to the
     /// plugin. `SO_SNDTIMEO` is set after the handshake and stays on for
     /// the life of the plugin: unlike reads (which calloop only issues
@@ -86,6 +94,9 @@ impl std::fmt::Display for HostError {
             ),
             HostError::RecvTimeout => {
                 write!(f, "plugin stayed silent past the handshake deadline")
+            }
+            HostError::WouldBlock => {
+                write!(f, "runtime read found nothing queued (spurious readiness)")
             }
             HostError::SendTimeout => {
                 write!(
@@ -143,6 +154,7 @@ mod tests {
         let _ = format!("{}", HostError::PluginDisconnected);
         let _ = format!("{}", HostError::BinaryNotFound("test".into()));
         let _ = format!("{}", HostError::RecvTimeout);
+        let _ = format!("{}", HostError::WouldBlock);
         let _ = format!("{}", HostError::SendTimeout);
     }
 }

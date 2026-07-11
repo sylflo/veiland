@@ -843,6 +843,12 @@ impl AppData {
 
         let (msg, fds) = match recv_result {
             Ok(t) => t,
+            // WouldBlock: a non-blocking runtime read found nothing queued
+            // — a spurious/stale readiness fire (e.g. a not-yet-removed
+            // source firing against a reused hotplug slot). Not a plugin
+            // failure: leave the slot intact and keep the source, we just
+            // had nothing to do this wakeup.
+            Err(plugin::HostError::WouldBlock) => return Ok(PostAction::Continue),
             Err(e) => {
                 let name = self.plugin_name_for_log(o, p);
                 eprintln!(
