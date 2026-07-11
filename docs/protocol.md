@@ -61,7 +61,7 @@ Rust code and this document disagree, the document wins and the code is a bug.
 | `u64`   | 8 bytes, little-endian                                          |
 | `i64`   | 8 bytes, little-endian, two's complement                       |
 | `str`   | `u16` length in bytes, then that many UTF-8 bytes. Per-field max declared at the field site. |
-| `enum`  | `u8` tag, then the variant's payload (may be empty)             |
+| `enum`  | `u16` tag (little-endian), then the variant's payload (may be empty) |
 
 Strings are validated as UTF-8 on receipt. Invalid UTF-8 is a protocol error.
 
