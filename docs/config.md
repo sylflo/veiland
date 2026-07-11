@@ -291,10 +291,20 @@ The placeholder:
   Surface pixels. Clamped to `[1, 512]`. Not scaled by output DPI yet
   (same as the box dimensions).
 
-**Not yet configurable** (v2+): fade-on-empty, the authentication-state
-colour flashes (`check`/`fail`/`capslock`/`numlock`), gradient colours,
-per-monitor positioning, and scale-factor support. The same `[password]`
-config applies to every monitor's lock surface.
+The auth-state box tints (both **only take effect when `show_box =
+true`** — they override the box fill, so with bare dots there is
+nothing to tint):
+
+- **`fail_color`** (colour, optional, default `rgba(180, 40, 40, 0.75)`).
+  Box fill while the last attempt is being shown as failed. After a wrong
+  password the box flashes this colour for ~1.5 s, then reverts to
+  `inner_color`.
+- **`capslock_color`** (colour, optional, default
+  `rgba(200, 150, 30, 0.75)`). Box fill while Caps Lock is active, so a
+  wrong-case password is easy to spot. Takes precedence over
+  `inner_color`; the fail flash takes precedence over both.
+
+The same `[password]` config applies to every monitor's lock surface.
 
 ### `[plugin.config]` (table, optional)
 
@@ -469,11 +479,11 @@ By design:
 - **Which fence-sync extension to use.** Detected at startup; fast
   path if `EGL_ANDROID_native_fence_sync` is available, slow path
   otherwise.
-- **The password field's animation and auth-state feedback.**
-  Position, sizing, the box (fill/outline/rounding), the placeholder
-  text, and all the colours are configurable via `[password]` (see §3).
-  What's *not* configurable: animation, the failure-flash / capslock /
-  numlock colour changes, and gradient colours. Those are deferred.
+- **Some of the password field's feedback.** Position, sizing, the box
+  (fill/outline/rounding), the placeholder text, all the base colours,
+  and the failure-flash / capslock box tints (`fail_color`,
+  `capslock_color`) are configurable via `[password]` (see §3). Animation,
+  the check-state and numlock colour changes, and gradient colours are not.
 
 ## 7. Pitfalls
 
