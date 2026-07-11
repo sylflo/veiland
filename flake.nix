@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Flake for veiland: builds the locker + plugins, provides the dev shell,
-# and exposes checks so `nix flake check` is the whole CI.
+# and exposes checks. `nix flake check` + `nix build` together are the CI.
 #
 #   nix build            -> veiland-core + reference plugins in ./result/bin
+#                           (also runs the test suite in the check phase)
 #   nix develop          -> dev shell (Rust toolchain + system libs + tooling)
-#   nix flake check      -> fmt + clippy + the test suite (the CI gate)
+#   nix flake check      -> fmt + clippy
 {
   description = "Wayland screen locker with process-isolated GPU plugins";
 

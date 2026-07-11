@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# CI: the flake is the gate. `nix flake check` runs fmt + clippy + the
-# test suite (see flake.nix `checks`); `nix build` proves the package
-# still produces binaries. No apt package list to maintain — the flake
+# CI: the flake is the gate. `nix flake check` runs fmt + clippy (see
+# flake.nix `checks`); `nix build` builds the package and runs the test
+# suite in its check phase. No apt package list to maintain — the flake
 # pins every system library.
 
 name: CI
@@ -37,8 +37,8 @@ jobs:
       - name: Set up Nix store cache
         uses: DeterminateSystems/magic-nix-cache-action@v9
 
-      - name: Flake checks (fmt, clippy, tests)
+      - name: Flake checks (fmt, clippy)
         run: nix flake check --print-build-logs
 
-      - name: Build package
+      - name: Build package + run tests
         run: nix build --print-build-logs
