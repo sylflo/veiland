@@ -4,7 +4,7 @@ version = "0.1.1"
 edition = "2024"
 license = "GPL-3.0-or-later"
 description = "Reference plugin — renders the time and date as two veiland-text labels."
-repository = "https://github.com/sylflo/sylflo"
+repository = "https://github.com/sylflo/veiland"
 publish = false
 
 [dependencies]
