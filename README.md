@@ -170,7 +170,8 @@ sudo apt install ./veiland_0.1.1-1_amd64.deb
 
 The package installs the binaries into `/usr/bin` and bundles
 `/etc/pam.d/veiland`, so PAM works out of the box. Built for Debian 13
-(trixie) and newer, and Ubuntu 24.04 and newer.
+(trixie) and newer; it needs libjpeg-turbo 3.x, so distributions still
+on the 2.x series (including Ubuntu 24.04) are not supported.
 
 To build the `.deb` yourself from this repo:
 
