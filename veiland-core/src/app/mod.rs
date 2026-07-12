@@ -34,6 +34,7 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use khronos_egl as egl;
 
 use veiland_protocol::{ClientMessage, Configure};
+use zeroize::Zeroize;
 
 use crate::plugin::{
     self, PluginSlot, current_time_for_configure, entry_matches_output, try_spawn_one,
@@ -782,15 +783,17 @@ impl AppData {
                 let Some(password) = self.auth.take_password() else {
                     return;
                 };
-                if self
-                    .auth_tx
-                    .send(crate::AuthRequest { user, password })
-                    .is_err()
-                {
-                    // Worker thread is gone — should not happen while
-                    // running. Don't lock input on a request we can't
-                    // service; leave state Idle.
+                if let Err(send_err) = self.auth_tx.send(crate::AuthRequest { user, password }) {
+                    // Worker thread is gone (it panicked — see the Closed
+                    // arm on the verdict channel in main.rs). The SendError
+                    // hands the request back; scrub the password copy
+                    // before it drops (same pattern as PasswordConv::drop),
+                    // then surface the failure like a wrong password so the
+                    // user gets feedback instead of silence.
                     eprintln!("auth: worker thread unavailable, dropping attempt");
+                    let mut bytes = send_err.0.password.into_bytes_with_nul();
+                    bytes.zeroize();
+                    self.handle_auth_verdict(false);
                     return;
                 }
                 // Lock input and show the checking state until the verdict

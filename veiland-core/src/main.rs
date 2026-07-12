@@ -453,8 +453,23 @@ fn main() -> ExitCode {
     event_loop
         .handle()
         .insert_source(verdict_rx, |event, _, state: &mut AppData| {
-            if let calloop_channel::Event::Msg(ok) = event {
-                state.handle_auth_verdict(ok);
+            match event {
+                calloop_channel::Event::Msg(ok) => state.handle_auth_verdict(ok),
+                // All senders dropped mid-run: the worker thread died. It
+                // only exits on its own when auth_tx drops at shutdown, so
+                // this means a panic inside the PAM call. Without this arm
+                // a pending attempt would leave is_checking set forever and
+                // the keyboard dead on a locked screen. Treat it as a
+                // failed attempt: is_checking clears, the fail indicator
+                // shows, and typing works again; later attempts fail fast
+                // in the send path (the worker is gone for good).
+                calloop_channel::Event::Closed => {
+                    eprintln!(
+                        "veiland-core: auth worker thread died; treating the \
+                        pending attempt as failed"
+                    );
+                    state.handle_auth_verdict(false);
+                }
             }
         })
         .expect("register auth verdict channel with calloop");
