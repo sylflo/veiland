@@ -36,4 +36,5 @@ Description: Wayland screen locker with process-isolated GPU plugins
  unlock decision; plugins never see keystrokes or the password.
  .
  This package installs veiland-core and the reference plugins
- (wallpaper, clock, particles, vignette, label, sakura).
+ (wallpaper, clock, particles, vignette, label, sakura, snow, rain,
+ embers, fireflies, gradient, parallax, blobs, raymarcher).
