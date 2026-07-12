@@ -42,9 +42,11 @@ build tree by using paths in your config (e.g.
 
 ## Checks — what CI runs
 
-CI is the flake: `nix flake check` runs rustfmt and clippy (warnings
-are errors), and `nix build` builds the workspace and runs the test
-suite. Run both locally before pushing, or the plain-cargo
+CI is the flake: `nix flake check` runs rustfmt and clippy over the
+whole workspace (warnings are errors), and `nix build` builds the
+shipped crates and runs their test suites plus the library crates'
+(everything except the stress test plugin, which clippy still
+covers). Run both locally before pushing, or the plain-cargo
 equivalents:
 
 ```sh

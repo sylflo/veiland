@@ -35,9 +35,11 @@
           (system: f (import nixpkgs { inherit system; }));
 
       # The shipped crate set: the locker plus every real plugin. Used
-      # by the package build, the test phase, and the clippy check, so
-      # the list lives in exactly one place. The stress test plugin is
-      # deliberately not compiled or installed.
+      # by the package build and the test phase, so the list lives in
+      # exactly one place. The stress test plugin is deliberately not
+      # built or installed by the package; the clippy check runs
+      # workspace-wide, so stress is still linted and cannot bitrot
+      # invisibly.
       realCrates = [
         "veiland-core"
         "veiland-wallpaper"
@@ -234,14 +236,18 @@
         clippy = self.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs (old: {
           pname = "veiland-clippy-check";
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.clippy ];
-          # Replace build + install with a single clippy invocation over
-          # the real-set crates (the same `realCrates` the package
-          # builds), denying on any warning. Skip the test phase; tests
-          # run in the package.
+          # Replace build + install with a single workspace-wide clippy
+          # invocation, denying on any warning. --workspace rather than
+          # the package's `realCrates`: with -p, cargo lints only the
+          # named packages, so the library crates (veiland-protocol,
+          # veiland-plugin, veiland-text) and the stress plugin were
+          # compiled as dependencies or not at all and never linted.
+          # Workspace-wide also makes CONTRIBUTING's plain-cargo
+          # equivalent (`cargo clippy --all-targets`) lint the same set
+          # as CI. Skip the test phase; tests run in the package.
           buildPhase = ''
             runHook preBuild
-            cargo clippy ${nixpkgs.lib.concatMapStringsSep " " (c: "-p ${c}") realCrates} \
-              --all-targets -- -D warnings
+            cargo clippy --workspace --all-targets -- -D warnings
             runHook postBuild
           '';
           doCheck = false;
