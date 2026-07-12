@@ -150,10 +150,25 @@ fn main() -> ExitCode {
     //
     // It is defense-in-depth, not an absolute boundary — root, a kernel bug, or
     // a debugger started with privileges still wins. Set VEILAND_ALLOW_DUMP=1 to
-    // skip it when you need to attach a debugger or collect a core dump.
-    if std::env::var_os("VEILAND_ALLOW_DUMP").is_some() {
+    // skip it when you need to attach a debugger or collect a core dump. Only
+    // the exact value 1 opts out; 0 or unset keeps the hardening, and anything
+    // else warns and fails closed — this is the security escape hatch, so a
+    // typo must not widen it.
+    let allow_dump = match std::env::var_os("VEILAND_ALLOW_DUMP") {
+        Some(v) if v == "1" => true,
+        Some(v) if v == "0" => false,
+        Some(v) => {
+            eprintln!(
+                "veiland-core: WARNING: VEILAND_ALLOW_DUMP={v:?} is not 0 or 1 — \
+                ignoring it and keeping the non-dumpable hardening"
+            );
+            false
+        }
+        None => false,
+    };
+    if allow_dump {
         eprintln!(
-            "veiland-core: WARNING: VEILAND_ALLOW_DUMP set — core is dumpable; the \
+            "veiland-core: WARNING: VEILAND_ALLOW_DUMP=1 — core is dumpable; the \
             password buffer is readable via ptrace/proc-mem by same-UID code"
         );
     } else if let Err(e) = nix::sys::prctl::set_dumpable(false) {
