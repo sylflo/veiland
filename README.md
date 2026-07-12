@@ -322,7 +322,7 @@ Two boundaries do the work: the compositor enforces the lock, and the process bo
 
 - **No unlock path.** No plugin-to-core message maps to "unlock". The API surface is absent, not filtered.
 - **No keystrokes.** No protocol message carries keyboard input in either direction; plugins never receive keystrokes at all. The password never appears in any buffer or message a plugin is handed.
-- **No code execution in the core.** A plugin hands over GPU buffers; bytes in a buffer become pixel values through a GPU sampler, never instructions. Every field a plugin sends is validated before it reaches EGL or the kernel; implausible sizes, strides, and modifiers are refused.
+- **No code execution in the core.** A plugin hands over GPU buffers; bytes in a buffer become pixel values through a GPU sampler, never instructions. Implausible sizes and strides are refused at the protocol layer, before they reach EGL or the kernel; format, modifier, and offset are judged by the driver itself — `eglCreateImage` is the acceptance gate, and a rejected import closes the plugin's socket and draws a fallback for its region.
 - **No cross-plugin reads.** Each plugin owns its own dmabufs; the core composites but never redistributes one plugin's buffer to another.
 
 **Where the boundary stops — read this before installing a third-party plugin.** Plugins run as *your* user, the same UID as the core. So the process boundary is not, by itself, a wall against hostile same-user code:

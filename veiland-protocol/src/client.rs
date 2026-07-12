@@ -162,7 +162,9 @@ impl Buffer {
 
         let (offset, buf) = read_u32_le(buf)?;
         // No upper bound on offset — codec can't validate it without knowing
-        // the underlying buffer size. Core checks during fd import.
+        // the underlying buffer size. The host performs no explicit check
+        // either: consistency with the fd's real size is checked implicitly
+        // by EGL at import (docs/protocol.md §11).
 
         Ok((
             Self {
