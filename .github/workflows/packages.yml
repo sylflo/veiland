@@ -320,9 +320,15 @@ jobs:
           rpmbuild -ba packaging/rpm/veiland.spec
           ls -la "$HOME"/rpmbuild/RPMS/*/*.rpm
           # rpmbuild writes outside the workspace; upload-artifact
-          # forbids '..' in paths, so copy the RPMs into the workspace.
+          # forbids '..' in paths, so copy the RPM into the workspace.
+          # Only the main package: rpmbuild also emits -debuginfo and
+          # -debugsource subpackages, and shipping those to the release
+          # page made README's `dnf install ./veiland-*.x86_64.rpm`
+          # glob install all three. veiland-$ver-* can't match them
+          # (their names put -debuginfo-/-debugsource- before the
+          # version) — same glob shape packaging/README.md uses.
           mkdir -p dist
-          cp "$HOME"/rpmbuild/RPMS/*/*.rpm dist/
+          cp "$HOME"/rpmbuild/RPMS/*/veiland-"$ver"-*.rpm dist/
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
