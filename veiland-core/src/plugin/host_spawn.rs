@@ -350,6 +350,36 @@ fn reap_with_deadline(pid: nix::unistd::Pid, name: &str, timeout: Duration) -> b
     }
 }
 
+/// Kill and reap a plugin whose slot is being abandoned mid-session
+/// (protocol violation, socket EOF, send failure). Takes the slot out
+/// of its `Option` so every abandon site is the same one-liner.
+///
+/// SIGKILL with no Shutdown/SIGTERM grace: the child is either already
+/// dead (the EOF path — the kill is a no-op and the reap collects the
+/// zombie) or it broke the protocol, and a misbehaving process gets no
+/// goodbye and, more importantly, no main-thread grace sleeps. Without
+/// this, a crashed plugin stayed a zombie until unlock and a hostile
+/// one that ignored EOF kept running with its GPU context.
+pub fn kill_slot(slot_opt: &mut Option<PluginSlot>) {
+    use nix::sys::signal::{Signal, kill};
+
+    let Some(slot) = slot_opt.take() else {
+        return;
+    };
+    let _ = kill(slot.pid, Signal::SIGKILL);
+    if reap_with_deadline(slot.pid, &slot.name, Duration::from_millis(200)) {
+        eprintln!(
+            "veiland-core: plugin {:?}: child (pid {}) killed and reaped",
+            slot.name, slot.pid
+        );
+    } else {
+        eprintln!(
+            "veiland-core: plugin {:?}: child (pid {}) not reaped after SIGKILL — leaving it",
+            slot.name, slot.pid
+        );
+    }
+}
+
 /// Snapshot the wall clock into `(unix_seconds, tz_offset_seconds)`,
 /// the two fields a plugin needs to render a localised clock without
 /// reading the system time itself. Computing `time_tz_offset_seconds`

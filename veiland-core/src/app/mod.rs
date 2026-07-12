@@ -361,7 +361,7 @@ impl AppData {
                          — treating as dead",
                         slot.name, e
                     );
-                    *slot_opt = None;
+                    plugin::kill_slot(slot_opt);
                     continue;
                 }
                 slot.last_configure = Some(next);
@@ -416,7 +416,7 @@ impl AppData {
                      — treating as dead",
                     slot.name, e
                 );
-                *slot_opt = None;
+                plugin::kill_slot(slot_opt);
                 continue;
             }
             slot.last_configure = Some(next);
@@ -444,7 +444,7 @@ impl AppData {
                      — treating as dead",
                     slot.name, e
                 );
-                *slot_opt = None;
+                plugin::kill_slot(slot_opt);
                 continue;
             }
             slot.last_configure = Some(next);
@@ -682,7 +682,7 @@ impl AppData {
                     "veiland-core: plugin {:?} send_buffer_released failed: {}",
                     name, e
                 );
-                self.plugins[output_idx][p] = None;
+                plugin::kill_slot(&mut self.plugins[output_idx][p]);
             }
         }
     }
@@ -887,7 +887,7 @@ impl AppData {
                     "veiland-core: plugin {:?} disconnected or violated protocol: {}",
                     name, e
                 );
-                self.plugins[o][p] = None;
+                plugin::kill_slot(&mut self.plugins[o][p]);
                 return Ok(PostAction::Remove);
             }
         };
@@ -923,7 +923,7 @@ impl AppData {
                 "veiland-core: plugin {:?} protocol error: {} — treating as dead",
                 name, e
             );
-            self.plugins[o][p] = None;
+            plugin::kill_slot(&mut self.plugins[o][p]);
             return Ok(PostAction::Remove);
         }
 
@@ -954,7 +954,7 @@ impl AppData {
                     "veiland-core: plugin {:?} send_frame_done failed: {}",
                     name, e
                 );
-                self.plugins[o][p] = None;
+                plugin::kill_slot(&mut self.plugins[o][p]);
                 return Ok(PostAction::Remove);
             }
 

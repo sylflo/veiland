@@ -167,8 +167,8 @@ unknown tag, buffer before Hello, etc.) triggers:
   drive_plugin → PostAction::Remove  (calloop removes the socket source)
        │
        ▼
-  plugin slot marked dead (PluginSlot dropped)
-  child process gets SIGTERM at teardown
+  plugin slot taken out of the table (kill_slot)
+  child process gets SIGKILL + a bounded reap, immediately
   lock_surfaces[i] repaint falls back to clear color for that region
 ```
 
