@@ -174,7 +174,7 @@ Download the `.deb` from the [latest release][releases] and install it
 (available from `v0.1.0` onward). `apt` pulls in the runtime libraries:
 
 ```sh
-sudo apt install ./veiland_0.1.1-1_amd64.deb
+sudo apt install ./veiland_*_amd64.deb
 ```
 
 The package installs the binaries into `/usr/bin` and bundles
@@ -199,11 +199,12 @@ sudo apt install ../veiland_*.deb
 <details>
 <summary><strong>Fedora / RHEL</strong> (.rpm)</summary>
 
-Install the `.rpm` straight from the [latest release][releases]
-(available from `v0.1.0` onward); `dnf` resolves the runtime deps:
+Download the `.rpm` from the [latest release][releases]
+(available from `v0.1.0` onward) and install it; `dnf` resolves the
+runtime deps:
 
 ```sh
-sudo dnf install https://github.com/sylflo/veiland/releases/latest/download/veiland-0.1.1-1.x86_64.rpm
+sudo dnf install ./veiland-*.x86_64.rpm
 ```
 
 The package installs the binaries into `/usr/bin` and bundles
