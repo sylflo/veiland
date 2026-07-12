@@ -619,18 +619,39 @@ impl AppData {
             return;
         }
 
-        let fence = match plugin::create_host_fence(&self.renderer.egl, self.renderer.egl_display) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("egress fence create failed: {}", e);
-                return;
+        // Egress sync: wait until the host GPU has finished sampling the
+        // plugin dmabufs before telling plugins to reuse them. Prefer the
+        // bounded fence wait; if the display cannot even create a core
+        // fence sync, fall back to glFinish — unbounded, but the
+        // alternative is never sending BufferReleased, which freezes
+        // every plugin after its first frame (protocol.md §7.3 requires
+        // the release on both sync paths).
+        match plugin::create_host_fence(&self.renderer.egl, self.renderer.egl_display) {
+            Ok(fence) => {
+                let wait_result =
+                    plugin::wait_fence(&self.renderer.egl, self.renderer.egl_display, &fence);
+                plugin::release_fence(&self.renderer.egl, self.renderer.egl_display, fence);
+                if let Err(e) = wait_result {
+                    // Bounded wait timed out: the host GPU is wedged. Skip
+                    // the releases this paint rather than fall through to an
+                    // unbounded glFinish on a GPU we just watched hang for a
+                    // second. current_buffer_id stays set, so the next
+                    // successful paint releases the buffers.
+                    eprintln!("egress fence wait failed: {}", e);
+                    return;
+                }
             }
-        };
-        let wait_result = plugin::wait_fence(&self.renderer.egl, self.renderer.egl_display, &fence);
-        plugin::release_fence(&self.renderer.egl, self.renderer.egl_display, fence);
-        if let Err(e) = wait_result {
-            eprintln!("egress fence wait failed: {}", e);
-            return;
+            Err(e) => {
+                static GLFINISH_FALLBACK_WARN: std::sync::Once = std::sync::Once::new();
+                GLFINISH_FALLBACK_WARN.call_once(|| {
+                    eprintln!(
+                        "veiland-core: egress fence create failed ({}); falling back to \
+                        glFinish before buffer releases",
+                        e
+                    );
+                });
+                unsafe { gl::Finish() };
+            }
         }
 
         // One BufferReleased per Buffer received, not per paint.

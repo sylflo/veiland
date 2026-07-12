@@ -11,9 +11,15 @@
 //!   after sampling. Wait gates the host's GPU completion of the
 //!   composite before sending `BufferReleased` to the plugin. M5a step 10.
 //!
-//! Both require `EGL_ANDROID_native_fence_sync` on the host's EGL display;
-//! detection at startup gates `HOST_CAP_FENCE_FD` in the handshake, so
-//! this module assumes the capability is present.
+//! `import_fence` requires `EGL_ANDROID_native_fence_sync` on the host's
+//! EGL display; detection at startup gates `HOST_CAP_FENCE_FD` in the
+//! handshake, so plugins only send fence fds when the extension is
+//! present. `create_host_fence` deliberately does NOT require it: the
+//! egress fence is created, waited on, and destroyed in-process — the fd
+//! export is never used — so it uses the core (EGL 1.5) `EGL_SYNC_FENCE`
+//! type and works on no-fence hosts too. `BufferReleased` is required on
+//! both sync paths (protocol.md §7.3), so the egress sync must not
+//! depend on an optional extension.
 
 use std::os::fd::{AsRawFd, OwnedFd};
 
@@ -27,6 +33,11 @@ const EGL_SYNC_NATIVE_FENCE_ANDROID: egl::Enum = 0x3144;
 /// `EGL_SYNC_NATIVE_FENCE_FD_ANDROID` — attribute key whose value is the
 /// fd to import. EGL dups the fd internally during the create call.
 const EGL_SYNC_NATIVE_FENCE_FD_ANDROID: egl::Attrib = 0x3145;
+
+/// `EGL_SYNC_FENCE` — core (EGL 1.5) fence sync type. Cannot export an
+/// fd, which the egress path never needs; available even where the
+/// ANDROID native-fence extension is not.
+const EGL_SYNC_FENCE: egl::Enum = 0x30F9;
 
 /// Generous timeout for `eglClientWaitSync`: 1 second. A real fence
 /// signals in milliseconds; if it takes a full second the plugin's GPU
@@ -91,18 +102,34 @@ pub fn import_fence(
 /// implicitly) before calling this — otherwise the fence may signal
 /// before the commands it's meant to gate reach the GPU.
 ///
+/// Uses the core (EGL 1.5) `EGL_SYNC_FENCE` type, not the ANDROID
+/// native fence: the egress sync never exports an fd, and hosts whose
+/// EGL lacks `EGL_ANDROID_native_fence_sync` must still egress-sync,
+/// because `BufferReleased` is required on both sync paths
+/// (protocol.md §7.3).
+///
 /// On failure: returns `Render` (the host's EGL is misbehaving; this
-/// is a host-side issue, not a plugin-protocol one).
+/// is a host-side issue, not a plugin-protocol one). The caller falls
+/// back to `glFinish` so the releases still go out.
 pub fn create_host_fence(
     egl: &egl::Instance<egl::Static>,
     display: egl::Display,
 ) -> Result<HostFence, HostError> {
+    // Dev hook: VEILAND_SIMULATE_NO_SYNC_FENCE=1 fails the create so the
+    // glFinish fallback in release_sampled_buffers can be exercised on a
+    // healthy display. Pair with VEILAND_SIMULATE_NO_FENCE (main.rs) to
+    // simulate the full worst-case host.
+    if std::env::var_os("VEILAND_SIMULATE_NO_SYNC_FENCE").is_some() {
+        return Err(HostError::Render(
+            "simulated: fence sync unavailable (VEILAND_SIMULATE_NO_SYNC_FENCE)",
+        ));
+    }
     // SAFETY: see import_fence — same invariants. The minimal attrib
     // list is just the terminator (no fd to import; we're creating a
     // fresh fence on the local stream).
     let sync = unsafe {
-        egl.create_sync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, &[egl::ATTRIB_NONE])
-            .map_err(|_| HostError::Render("eglCreateSync(NATIVE_FENCE_ANDROID, fresh) failed"))?
+        egl.create_sync(display, EGL_SYNC_FENCE, &[egl::ATTRIB_NONE])
+            .map_err(|_| HostError::Render("eglCreateSync(SYNC_FENCE, fresh) failed"))?
     };
     Ok(HostFence { sync })
 }

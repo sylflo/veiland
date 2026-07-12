@@ -213,13 +213,21 @@ fn main() -> ExitCode {
         unsafe { egl.get_display(display_ptr as *mut std::ffi::c_void) }.expect("get EGL display");
     egl.initialize(egl_display)
         .expect("egl failed to initialize");
-    let has_fence_fd = egl
-        .query_string(Some(egl_display), egl::EXTENSIONS)
-        .expect("query EGL extensions")
-        .to_str()
-        .expect("EGL extensions string is not UTF-8")
-        .split(' ')
-        .any(|ext| ext == "EGL_ANDROID_native_fence_sync");
+    // Dev hook: VEILAND_SIMULATE_NO_FENCE=1 pretends the EGL display lacks
+    // EGL_ANDROID_native_fence_sync, so a fence-capable dev box can exercise
+    // the no-fence host path: capability word 0, plugins take the glFinish
+    // slow path. The egress fence is unaffected — it uses the core
+    // SYNC_FENCE type (see sync.rs). Pair with VEILAND_SIMULATE_NO_SYNC_FENCE
+    // to also exercise the egress glFinish fallback.
+    let simulate_no_fence = std::env::var_os("VEILAND_SIMULATE_NO_FENCE").is_some();
+    let has_fence_fd = !simulate_no_fence
+        && egl
+            .query_string(Some(egl_display), egl::EXTENSIONS)
+            .expect("query EGL extensions")
+            .to_str()
+            .expect("EGL extensions string is not UTF-8")
+            .split(' ')
+            .any(|ext| ext == "EGL_ANDROID_native_fence_sync");
     let host_capabilities: HostCapabilities = if has_fence_fd { HOST_CAP_FENCE_FD } else { 0 };
     if !has_fence_fd {
         eprintln!("veiland-core: EGL_ANDROID_native_fence_sync not available — falling back");
