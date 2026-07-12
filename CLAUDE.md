@@ -80,7 +80,7 @@ When in doubt about where functionality goes: if it touches auth, it's in the co
 **What a malicious plugin can try**, and how we defend:
 
 - **DoS via malformed IPC.** Validate every field before passing to EGL, GBM, or any kernel call. Reject implausible values; close the plugin's socket and draw a fallback rather than crashing the locker. Never `.expect()` on plugin input.
-- **Resource exhaustion.** Bound in-flight buffers per plugin, bound dimensions, time-out silent plugins.
+- **Resource exhaustion.** Bounded by construction rather than quotas: dimensions are capped, every message decodes from a fixed-size buffer, and the host retains at most one imported buffer per plugin (a new Buffer replaces the old texture and its fd is dropped after import, so a flood costs import churn, not memory or fds). An explicit in-flight/pacing cap is planned future hardening. Silent plugins are timed out only during the spawn window (2 s handshake deadline); after Hello, silence is legal — static plugins idle by design.
 - **Driver-level GPU exploit.** Refuse values that obviously shouldn't make sense at the codec (sizes > 8192², `stride < width`). Format and modifier acceptability are host-stack concerns: the codec accepts any format/modifier and lets `eglCreateImage` be the gate — an import failure closes the plugin's socket and draws a fallback.
 - **UI deception.** Plugin draws a "Login successful" screen while the lock is still active. The core composites the password UI *last*, on top of all plugin output, so a plugin can't draw over it. This is a paint-order guarantee, not a reserved exclusive region — plugins still render everywhere beneath and around it (a stronger reserved region is a possible future hardening).
 
