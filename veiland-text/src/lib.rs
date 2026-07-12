@@ -96,10 +96,17 @@ mod tests {
     /// Constructing a FontContext on a machine with no fonts is technically
     /// valid (cosmic-text returns an empty database), but renders nothing
     /// useful. This test catches the "dev box has no fonts installed"
-    /// case at `cargo test` time rather than at "demo plugin shows blank
-    /// screen" time. If it fails on NixOS, the dev shell needs fontconfig
+    /// case rather than leaving it to surface as "demo plugin shows blank
+    /// screen". If it fails on NixOS, the dev shell needs fontconfig
     /// + a font package (`noto-fonts` or equivalent).
+    ///
+    /// `#[ignore]`d because it asserts a property of the machine, not of
+    /// the code: hermetic build environments (the Nix sandbox, distro
+    /// package-build containers) ship zero fonts by design and would all
+    /// fail it. Run it on a dev box with
+    /// `cargo test -p veiland-text -- --ignored`.
     #[test]
+    #[ignore = "asserts the machine has system fonts; hermetic build sandboxes have none"]
     fn font_context_finds_at_least_one_system_font() {
         let ctx = FontContext::new();
         let font_count = ctx.font_system.db().len();
