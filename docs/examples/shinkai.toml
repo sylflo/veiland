@@ -90,7 +90,7 @@ radius = 1.3
 # Soft whole-image dim under the corner gradient — the dreamy haze.
 base_opacity = 0.2
 
-# --- Particles: drifting motes (DISABLED) --------------------------
+# --- Particles: drifting motes --------------------------------------
 [[plugin]]
 name = "particles"
 binary = "veiland-particles"
@@ -103,7 +103,7 @@ count = 40
 # read more clearly against this specific wallpaper.
 color = [1.0, 1.0, 1.0, 1.0]
 
-# --- Sakura: falling cherry-blossom petals (DISABLED) --------------
+# --- Sakura: falling cherry-blossom petals --------------------------
 [[plugin]]
 name = "sakura"
 binary = "veiland-sakura"
