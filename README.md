@@ -346,7 +346,7 @@ reference. A minimal config:
 
 ```toml
 [password]
-position = "center"
+y_percent = 50    # vertical position, percent of screen height (default 75)
 
 [[plugin]]
 name = "wallpaper"

@@ -33,6 +33,13 @@ available`.
 - **Schema mismatch** (e.g. `z_index = "high"` instead of an
   integer, missing required field): fatal. Same shape as malformed
   TOML — logged, refused to start.
+- **Unknown keys**: silently ignored, everywhere — in the core
+  schema, in `[password]`, and in every plugin's `[plugin.config]`
+  table (a plugin whose whole config table fails to parse falls back
+  to its defaults with only a stderr line). So a known key with the
+  wrong type is fatal, but a *misspelled key name* is never an error
+  at lock time. If an option seems to have no effect, check its
+  spelling against this reference first.
 - **Schema valid but post-validation fails** (empty plugin name,
   duplicate plugin name): fatal. Logged with the offending entry,
   refused to start.
