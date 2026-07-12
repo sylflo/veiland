@@ -58,4 +58,13 @@ pub struct PluginSlot {
     /// bumped. `None` if no Configure has been sent yet (shouldn't
     /// happen in practice — every slot gets one at spawn).
     pub last_configure: Option<Configure>,
+    /// Tenancy identity of the calloop source driving this slot's
+    /// socket, minted by `register_plugin_source`. The source's
+    /// closure captures the serial it was registered with; if hotplug
+    /// later reuses the same `(output, plugin)` indices for a new
+    /// plugin while the old source is still registered, the serials
+    /// no longer match and `drive_plugin` removes the stale source
+    /// instead of polling the new tenant's socket. `None` until the
+    /// source is registered.
+    pub source_serial: Option<u64>,
 }

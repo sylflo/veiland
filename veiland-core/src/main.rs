@@ -103,6 +103,9 @@ pub(crate) struct AppData {
     /// Cloned once at startup; the original handle stays with the
     /// EventLoop in main().
     loop_handle: LoopHandle<'static, AppData>,
+    /// Monotonic mint for plugin-source tenancy serials. See
+    /// `register_plugin_source` and `PluginSlot::source_serial`.
+    next_plugin_source_serial: u64,
     /// Wayland queue handle for creating new lock surfaces on hotplug.
     /// Cloned once at startup.
     qh: QueueHandle<AppData>,
@@ -348,6 +351,7 @@ fn main() -> ExitCode {
         auth_tx,
         is_checking: false,
         loop_handle: event_loop.handle(),
+        next_plugin_source_serial: 0,
         qh: qh.clone(),
         config: config.clone(),
         modifiers: Modifiers::default(),

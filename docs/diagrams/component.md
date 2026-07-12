@@ -37,7 +37,7 @@ Arrows show data/control flow direction; containment shows ownership.
 │  │  │  plugins[i][j]: Option<PluginSlot>                    │   │  │
 │  │  │                                                       │   │  │
 │  │  │  name  binary  z_index  region  output_name           │   │  │
-│  │  │  last_configure  pid                                  │   │  │
+│  │  │  last_configure  pid  source_serial                   │   │  │
 │  │  │                                                       │   │  │
 │  │  │  ┌──────────────────────────────────────────────┐    │   │  │
 │  │  │  │  PluginState                                 │    │   │  │

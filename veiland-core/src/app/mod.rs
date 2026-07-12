@@ -230,10 +230,12 @@ impl AppData {
     }
 
     /// Register a plugin's socket as a calloop event source. Captures
-    /// `(o, p)` by value; the closure stays valid as long as
-    /// `self.plugins[o][p]` remains in place (slot may be `None` later;
-    /// `drive_plugin` handles that by returning `PostAction::Remove`).
-    pub(crate) fn register_plugin_source(&self, o: usize, p: usize) {
+    /// `(o, p)` by value plus a freshly-minted tenancy serial; the
+    /// serial is also stored on the slot. A source that outlives its
+    /// slot (a `None` slot, or hotplug reusing the indices for a new
+    /// plugin) identifies itself as stale on its next fire and
+    /// `drive_plugin` removes it.
+    pub(crate) fn register_plugin_source(&mut self, o: usize, p: usize) {
         let Some(slot) = self
             .plugins
             .get(o)
@@ -248,12 +250,22 @@ impl AppData {
             .as_fd()
             .try_clone_to_owned()
             .expect("dup plugin socket for calloop");
+        let serial = self.next_plugin_source_serial;
+        self.next_plugin_source_serial += 1;
         self.loop_handle
             .insert_source(
                 Generic::new(plugin_fd, Interest::READ, Mode::Level),
-                move |_event, _meta, state: &mut AppData| state.drive_plugin(o, p),
+                move |_event, _meta, state: &mut AppData| state.drive_plugin(o, p, serial),
             )
             .expect("register plugin fd with calloop");
+        if let Some(slot) = self
+            .plugins
+            .get_mut(o)
+            .and_then(|po| po.get_mut(p))
+            .and_then(|s| s.as_mut())
+        {
+            slot.source_serial = Some(serial);
+        }
     }
 
     /// Drain the pending-arrivals queue. Called after every
@@ -862,7 +874,12 @@ impl AppData {
             .unwrap_or_else(|| "<unknown>".to_string())
     }
 
-    pub(crate) fn drive_plugin(&mut self, o: usize, p: usize) -> std::io::Result<PostAction> {
+    pub(crate) fn drive_plugin(
+        &mut self,
+        o: usize,
+        p: usize,
+        source_serial: u64,
+    ) -> std::io::Result<PostAction> {
         // 1. Recv. Borrow scoped to this block.
         let recv_result = {
             let Some(slot) = self.slot_mut(o, p) else {
@@ -870,6 +887,18 @@ impl AppData {
                 // before calloop drained the queue. Remove the source.
                 return Ok(PostAction::Remove);
             };
+            // Stale-source guard: this source was registered for one
+            // tenancy of (o, p). If hotplug reused the indices for a
+            // new plugin while the old EOF-readable dup was still
+            // registered (level-triggered: it fires on every dispatch
+            // forever), polling here would hit the new tenant's socket
+            // — WouldBlock, PostAction::Continue, and a pinned core.
+            // 1fe5f63 fixed the hang variant of this race; the serial
+            // check retires the spin variant. The new tenant has its
+            // own source.
+            if slot.source_serial != Some(source_serial) {
+                return Ok(PostAction::Remove);
+            }
             slot.state.connection.recv_message()
         };
 

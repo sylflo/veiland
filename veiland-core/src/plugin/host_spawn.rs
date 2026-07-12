@@ -289,6 +289,7 @@ fn connect_spawned(
         region: entry.region.clone(),
         output_name: output_name.to_string(),
         last_configure: Some(initial_configure),
+        source_serial: None,
     })
 }
 
