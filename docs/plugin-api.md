@@ -168,8 +168,10 @@ when building the `Label`. This is both resolution- and scale-independent
 in one step: because the surface is already physical-sized, a 2× monitor
 delivers a 2×-taller buffer and the glyph grows automatically — so these
 plugins never read `scale_120` at all. `veiland-label` and `veiland-clock`
-size `font_size`, `letter_spacing`, and `shadow.offset` this way (config
-values are fractions of surface height, not logical pixels).
+size `font_size` and `shadow.offset` this way (config values are fractions
+of surface height, not logical pixels); their `letter_spacing` is a
+fraction of the *computed font size*, so it scales with the surface
+indirectly, through the font size it multiplies.
 
 `position` follows the fraction model in every plugin: a place on screen
 should be a *fraction of the surface* (`[0.5, 0.5]` = centre), multiplied
