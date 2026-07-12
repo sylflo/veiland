@@ -295,46 +295,56 @@ fn connect_spawned(
 /// Best-effort cleanup of a child that never completed the handshake:
 /// SIGKILL, then a bounded reap. No Shutdown message and no SIGTERM
 /// grace — the protocol never came up, the child has no state worth
-/// saving, and in the RecvTimeout case it is hung anyway. The reap
-/// polls WNOHANG instead of blocking in `waitpid` because a child
-/// stuck in uninterruptible sleep (a wedged GPU ioctl is the likely
-/// cause of a handshake timeout) cannot die until the kernel releases
-/// it, and blocking on it would recreate the exact main-thread hang
-/// this path exists to escape. Giving up leaves a zombie: ugly in
-/// `ps`, harmless to the locker.
+/// saving, and in the RecvTimeout case it is hung anyway. The reap is
+/// bounded for the reason documented on `reap_with_deadline`: this
+/// path exists to escape a main-thread hang, so it must not block.
 fn kill_unconnected_plugin(pid: nix::unistd::Pid, name: &str) {
     use nix::sys::signal::{Signal, kill};
-    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 
     let _ = kill(pid, Signal::SIGKILL);
-    let deadline = std::time::Instant::now() + Duration::from_millis(200);
+    if reap_with_deadline(pid, name, Duration::from_millis(200)) {
+        eprintln!(
+            "veiland-core: plugin {:?}: killed unconnected child (pid {})",
+            name, pid
+        );
+    } else {
+        eprintln!(
+            "veiland-core: plugin {:?}: unconnected child (pid {}) not reaped \
+             after SIGKILL — leaving it",
+            name, pid
+        );
+    }
+}
+
+/// Reap a child that has just been SIGKILLed, polling WNOHANG with a
+/// deadline instead of blocking in `waitpid`. A child stuck in
+/// uninterruptible sleep (a wedged GPU ioctl) cannot die until the
+/// kernel releases it, and a blocking wait would hang the calling
+/// thread — the main calloop thread on every path that gets here,
+/// including `output_destroyed` while the session is still locked.
+/// Returns false if the child was still not reapable at the deadline;
+/// giving up leaves a zombie: ugly in `ps`, harmless to the locker
+/// (init reaps it once the locker exits).
+fn reap_with_deadline(pid: nix::unistd::Pid, name: &str, timeout: Duration) -> bool {
+    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+
+    let deadline = std::time::Instant::now() + timeout;
     loop {
         match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
             Ok(WaitStatus::StillAlive) => {
                 if std::time::Instant::now() >= deadline {
-                    eprintln!(
-                        "veiland-core: plugin {:?}: unconnected child (pid {}) not reaped \
-                         after SIGKILL — leaving it",
-                        name, pid
-                    );
-                    return;
+                    return false;
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
-            Ok(_) => {
-                eprintln!(
-                    "veiland-core: plugin {:?}: killed unconnected child (pid {})",
-                    name, pid
-                );
-                return;
-            }
+            Ok(_) => return true,
             Err(e) => {
                 eprintln!(
-                    "veiland-core: plugin {:?}: waitpid on unconnected child (pid {}) \
-                     failed: {} (continuing)",
+                    "veiland-core: plugin {:?}: waitpid on child (pid {}) failed: {} \
+                     (continuing)",
                     name, pid, e
                 );
-                return;
+                return true;
             }
         }
     }
@@ -352,9 +362,11 @@ pub fn current_time_for_configure() -> (i64, i32) {
 }
 
 /// Wind down the plugin: send Shutdown, give it ~250ms to exit on its own,
-/// then SIGTERM, then SIGKILL. Reaps the zombie. Best-effort — if any step
-/// fails we log and continue, because at this point the host is exiting
-/// anyway and refusing to exit would be worse than a leaked plugin.
+/// then SIGTERM, then SIGKILL with a bounded reap. Best-effort — if any
+/// step fails we log and continue. Runs on the main thread from both the
+/// unlock teardown and `output_destroyed` (monitor unplug while locked),
+/// so it must never block indefinitely: if the child can't be reaped in
+/// time we leave a zombie rather than hang the event loop.
 pub fn teardown_one_plugin(slot: PluginSlot) {
     use nix::sys::signal::{Signal, kill};
     use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
@@ -403,11 +415,16 @@ pub fn teardown_one_plugin(slot: PluginSlot) {
         return;
     }
 
-    // 4. SIGKILL, reap, done.
+    // 4. SIGKILL, bounded reap, done.
     eprintln!(
         "teardown: plugin {:?} still alive, sending SIGKILL",
         slot.name
     );
     let _ = kill(slot.pid, Signal::SIGKILL);
-    let _ = waitpid(slot.pid, None);
+    if !reap_with_deadline(slot.pid, &slot.name, Duration::from_millis(200)) {
+        eprintln!(
+            "teardown: plugin {:?} (pid {}) not reaped after SIGKILL — leaving it",
+            slot.name, slot.pid
+        );
+    }
 }
