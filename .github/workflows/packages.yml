@@ -9,6 +9,18 @@
 # On push/PR the packages are kept as workflow artifacts (validation).
 # When a Release is published, each job also attaches its package to that
 # release as a downloadable asset (see the "Attach to release" steps).
+#
+# Each build job is followed by an install job (*-install) that takes
+# the built package into a PRISTINE container of the same distro and
+# installs it with the real package manager, mirroring the README's
+# install instructions. The build containers can't test this: their
+# build deps leave every runtime library already installed, so a wrong
+# or missing runtime dependency would go unnoticed there. The install
+# jobs validate dependency resolution, maintainer scripts, file layout,
+# and (via ldd) that every installed binary's shared libraries resolve.
+# A full smoke run isn't possible in CI — veiland needs a live Wayland
+# session — so resolved linkage + file layout is the deepest check
+# available here.
 
 name: packages
 
@@ -96,12 +108,61 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" dist/*.pkg.tar.* --clobber --repo "${{ github.repository }}"
 
+  arch-install:
+    name: Arch (install check)
+    runs-on: ubuntu-latest
+    # A pristine container — nothing installed by the build job exists
+    # here, so `pacman -U` must resolve the package's depends=() from
+    # the repos for real.
+    container: archlinux:latest
+    needs: arch
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: veiland-arch
+          path: dist
+
+      - name: Install package
+        run: |
+          set -eux
+          # Sync the package databases (the container image ships without
+          # them) and bring the base system current so the freshly-built
+          # package's shared-library deps match the repo versions.
+          pacman -Syu --noconfirm
+          pacman -U --noconfirm dist/*.pkg.tar.*
+
+      - name: Verify installed layout and linkage
+        run: |
+          set -eux
+          # Everything packaging/arch/PKGBUILD package() promises.
+          for b in veiland veiland-wallpaper veiland-clock \
+                   veiland-particles veiland-vignette veiland-label \
+                   veiland-sakura veiland-snow veiland-rain \
+                   veiland-embers veiland-fireflies veiland-gradient \
+                   veiland-parallax veiland-blobs veiland-raymarcher; do
+            command -v "$b"
+            test -x "/usr/bin/$b"
+            # The binaries can't actually run in CI (no Wayland session),
+            # but every shared library must resolve — this is what
+            # catches a missing or misnamed runtime dependency.
+            if ldd "/usr/bin/$b" | grep 'not found'; then
+              echo "unresolved shared libraries in $b" >&2
+              exit 1
+            fi
+          done
+          test -f /etc/pam.d/veiland
+          test -f /usr/share/veiland/config.example.toml
+          test -f /usr/share/veiland/sakura-dusk.jpg
+
   debian:
     name: Debian (.deb)
     runs-on: ubuntu-latest
     # debian:testing (trixie), not stable: stable's libturbojpeg (2.1.5)
     # is below the turbojpeg crate's >= 3.0 floor. Testing ships 3.x.
-    # The produced .deb therefore targets trixie/newer, not oldstable.
+    # The produced .deb therefore targets Debian testing only, not stable.
+    # No Ubuntu job: every released Ubuntu (incl. 26.04 LTS) still ships
+    # the 2.x series. Revisit if/when 26.10 lands with 3.1.x.
     container: debian:testing
     steps:
       - name: Install build tooling
@@ -180,6 +241,54 @@ jobs:
         # dubious-ownership, so git reports "not a git repository").
         run: gh release upload "${{ github.event.release.tag_name }}" dist/*.deb --clobber --repo "${{ github.repository }}"
 
+  debian-install:
+    name: Debian (install check)
+    runs-on: ubuntu-latest
+    # Same image as the build job (the .deb targets Debian testing), but
+    # a pristine container: apt must pull in the ${shlibs:Depends}
+    # closure itself, which the build container can't demonstrate.
+    container: debian:testing
+    needs: debian
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: veiland-debian
+          path: dist
+
+      - name: Install package
+        run: |
+          set -eux
+          apt-get update
+          # --no-install-recommends: prove the hard Depends alone are a
+          # complete closure, exactly what a minimal user system gets.
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            --no-install-recommends ./dist/*.deb
+
+      - name: Verify installed layout and linkage
+        run: |
+          set -eux
+          # Everything packaging/debian/veiland.install (+ dh_installpam)
+          # promises.
+          for b in veiland veiland-wallpaper veiland-clock \
+                   veiland-particles veiland-vignette veiland-label \
+                   veiland-sakura veiland-snow veiland-rain \
+                   veiland-embers veiland-fireflies veiland-gradient \
+                   veiland-parallax veiland-blobs veiland-raymarcher; do
+            command -v "$b"
+            test -x "/usr/bin/$b"
+            # The binaries can't actually run in CI (no Wayland session),
+            # but every shared library must resolve — this is what
+            # catches a missing or misnamed runtime dependency.
+            if ldd "/usr/bin/$b" | grep 'not found'; then
+              echo "unresolved shared libraries in $b" >&2
+              exit 1
+            fi
+          done
+          test -f /etc/pam.d/veiland
+          test -f /usr/share/veiland/config.example.toml
+          test -f /usr/share/veiland/sakura-dusk.jpg
+
   fedora:
     name: Fedora (.rpm)
     runs-on: ubuntu-latest
@@ -233,3 +342,45 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" dist/*.rpm --clobber --repo "${{ github.repository }}"
+
+  fedora-install:
+    name: Fedora (install check)
+    runs-on: ubuntu-latest
+    # A pristine container: dnf must resolve the spec's Requires: from
+    # the repos for real, which the build container can't demonstrate.
+    container: fedora:latest
+    needs: fedora
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: veiland-fedora
+          path: dist
+
+      - name: Install package
+        run: |
+          set -eux
+          dnf -y install dist/*.rpm
+
+      - name: Verify installed layout and linkage
+        run: |
+          set -eux
+          # Everything packaging/rpm/veiland.spec %files promises.
+          for b in veiland veiland-wallpaper veiland-clock \
+                   veiland-particles veiland-vignette veiland-label \
+                   veiland-sakura veiland-snow veiland-rain \
+                   veiland-embers veiland-fireflies veiland-gradient \
+                   veiland-parallax veiland-blobs veiland-raymarcher; do
+            command -v "$b"
+            test -x "/usr/bin/$b"
+            # The binaries can't actually run in CI (no Wayland session),
+            # but every shared library must resolve — this is what
+            # catches a missing or misnamed runtime dependency.
+            if ldd "/usr/bin/$b" | grep 'not found'; then
+              echo "unresolved shared libraries in $b" >&2
+              exit 1
+            fi
+          done
+          test -f /etc/pam.d/veiland
+          test -f /usr/share/veiland/config.example.toml
+          test -f /usr/share/veiland/sakura-dusk.jpg

@@ -36,17 +36,15 @@ BuildRequires:  wayland-devel
 BuildRequires:  libxkbcommon-devel
 BuildRequires:  turbojpeg-devel
 
-# Runtime shared libraries. (rpm also auto-derives these from the ELF
-# NEEDED entries; listed explicitly for clarity.) The GPU driver .so is
-# the user's system's job, like on Nix.
+# Runtime shared libraries are auto-derived by rpm from the binaries'
+# ELF NEEDED entries (as sonames, e.g. libwayland-client.so.0), so the
+# resolved package names stay correct whatever Fedora calls them. An
+# explicit list proved wrong in practice: no binary package is named
+# "wayland" (the install check caught the unresolvable Requires). Only
+# pam stays explicit, because the bundled /etc/pam.d/veiland includes
+# the system-auth stack — a config dependency, not a library one. The
+# GPU driver .so is the user's system's job, like on Nix.
 Requires:       pam
-Requires:       mesa-libGL
-Requires:       mesa-libEGL
-Requires:       mesa-libgbm
-Requires:       libdrm
-Requires:       wayland
-Requires:       libxkbcommon
-Requires:       turbojpeg
 
 %description
 Veiland is a Wayland screen locker whose visual layers (wallpaper,

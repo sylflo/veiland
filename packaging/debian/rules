@@ -40,3 +40,11 @@ override_dh_auto_install:
 	# Files are staged by dh_install (debian/veiland.install) and
 	# dh_installpam (debian/veiland.pam); the default cargo install is
 	# not what we want, so this override is intentionally empty.
+
+execute_after_dh_install:
+	# dh_install can't rename. The example config must land as
+	# config.example.toml — the name the Arch and RPM packages install,
+	# the name its own usage comment tells users to cp, and the name the
+	# CI install-check asserts.
+	mv debian/veiland/usr/share/veiland/veiland.example.toml \
+	   debian/veiland/usr/share/veiland/config.example.toml
