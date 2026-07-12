@@ -393,10 +393,20 @@ milliseconds). After the grace period the host will `SIGTERM` the plugin.
  7. Host sends FrameDone.
  8. Plugin renders, sends Buffer (with dmabuf fd, plus a fence fd if
     fast-path; see §6.2).
- 9. Host imports dmabuf, waits on fence (if present), composites,
-    sends BufferReleased, eventually sends FrameDone again.
-10. Repeat from 7.
+ 9. Host waits on the fence (if present), imports the dmabuf, and
+    immediately sends FrameDone — the next-frame cue goes out on
+    Buffer receipt, before compositing.
+10. On its next repaint the host composites, swaps, waits for its
+    egress sync, then sends BufferReleased (§7.3).
+11. Repeat from 8.
 ```
+
+Note the steady-state order: `FrameDone` for the next frame is sent
+when a `Buffer` arrives, *before* the host composites it; the
+`BufferReleased` for that buffer follows after the composite and the
+egress sync. A plugin must not assume either message arrives first —
+the reference `FramePacer` renders only once it holds both the frame
+cue and the release, whichever order they land in.
 
 The list above is the success path. If any step fails (socket close, version
 mismatch, validation failure), the lifecycle ends and the surviving side

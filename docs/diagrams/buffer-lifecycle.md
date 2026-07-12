@@ -59,14 +59,18 @@ carries 2 fds: the dmabuf and a sync fence.
        │                                      │
        │    egl wait on fence_fd              │
        │    import_dmabuf → GlTexture         │
+       │─── FrameDone ───────────────────────►│
+       │                                      │  (buffer still in flight:
+       │                                      │   FramePacer defers render)
        │    repaint_lock_surfaces             │
        │      composite all plugins           │
        │      draw password field             │
        │    eglSwapBuffers                    │
-       │                                      │
+       │    egress sync (fence, or glFinish   │
+       │      fallback)                       │
        │─── BufferReleased(id) ──────────────►│
-       │                                      │  (can reuse DmaBuffer now)
-       │─── FrameDone ───────────────────────►│
+       │                                      │  (buffer free again → the
+       │                                      │   deferred render fires)
        │                                      │  gl draw calls ...
        │                  (repeats)           │
 ```
@@ -98,12 +102,16 @@ the release is required on both paths (`protocol.md` §7.3), and
        │    (1 fd only)                       │
        │                                      │
        │    import_dmabuf → GlTexture         │
+       │─── FrameDone ───────────────────────►│
+       │                                      │  (buffer still in flight:
+       │                                      │   FramePacer defers render)
        │    repaint_lock_surfaces             │
        │    eglSwapBuffers                    │
-       │                                      │
+       │    egress sync (fence, or glFinish   │
+       │      fallback)                       │
        │─── BufferReleased(id) ──────────────►│
-       │                                      │  (can reuse DmaBuffer now)
-       │─── FrameDone ───────────────────────►│
+       │                                      │  (can reuse DmaBuffer now;
+       │                                      │   deferred render fires)
        │                  (repeats)           │
 ```
 
