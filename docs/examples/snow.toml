@@ -6,9 +6,9 @@
 # fragment shader from a per-flake seed (no textures). Best over a dark
 # wallpaper so the white crystals and their icy rims read clearly.
 #
-# The values below match the plugin's tuned defaults, spelled out so the
-# knobs are documented. Detail needs size: below ~40px radius the fern
-# structure collapses toward a dot — prefer fewer, larger crystals.
+# The knobs below are spelled out so they're documented. Detail needs
+# size: below ~40px radius the fern structure collapses toward a dot —
+# prefer fewer, larger crystals.
 
 [[plugin]]
 name = "snow"
