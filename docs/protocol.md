@@ -135,8 +135,8 @@ than guess.
 A host MUST NOT set a capability bit it does not implement. A plugin SHOULD
 NOT use a capability without checking the corresponding bit; doing so risks
 a protocol violation if the host has it disabled (e.g. `HOST_CAP_FENCE_FD`
-off and the plugin attaches a fence fd anyway — the host will see two fds
-on `Buffer`, expect one, and close the socket).
+off and the plugin attaches a fence fd anyway — §6.2 makes that a
+violation, though the reference host does not yet enforce it; see §13).
 
 How a host decides its capability bits is host-policy and out of scope for
 this spec. For `HOST_CAP_FENCE_FD` the natural rule is "set iff the host's
@@ -346,16 +346,28 @@ u32   id
 
 Host is done sampling the buffer with this id; plugin may reuse it.
 
+The host MUST send `BufferReleased` after it finishes sampling each
+buffer, on both sync paths. Plugins use it to gate the next render —
+overwriting the dmabuf before the release arrives races the host's GPU
+read. The host uses a host-side egress fence to know when sampling is
+complete.
+
 - **Fast path (host advertised `HOST_CAP_FENCE_FD` and plugin opted in):**
-  host MUST send `BufferReleased` after it finishes sampling each buffer.
-  Plugins use this to gate the next render — overwriting the dmabuf before
-  the release arrives races the host's GPU read. The host uses a host-side
-  egress fence to know when sampling is complete.
-- **Slow path (no `HOST_CAP_FENCE_FD`, or plugin chose `glFinish`):** host
-  MAY omit `BufferReleased`. The plugin's `glFinish` before `send_buffer`
-  makes the buffer GPU-stable on send, and the single-buffer model rewrites
-  unconditionally on the next `FrameDone`. Plugins on the slow path MUST
-  tolerate not receiving `BufferReleased`.
+  the release is the only signal that the host is done with the buffer;
+  everything else in the frame loop is asynchronous.
+- **Slow path (no `HOST_CAP_FENCE_FD`, or plugin chose `glFinish`):** the
+  plugin's `glFinish` before `send_buffer` makes the buffer GPU-stable on
+  send (the host may sample without waiting), but the release is still
+  required: the reference SDK's `FramePacer` waits for it before rendering
+  the next frame on both paths, and gating the rewrite on it keeps the
+  plugin from overwriting the dmabuf while the host's GPU is still
+  sampling it.
+
+> An earlier revision of this spec let the host omit `BufferReleased` on
+> the slow path ("plugins MUST tolerate not receiving it"). That
+> permission is withdrawn: the reference host has always sent the release
+> on both paths and the reference SDK has always required it, so no
+> conforming implementation relied on the omission.
 
 Future buffer-pool plugins will track release per-id so the
 pool's free-list reflects host-side completion. The current single-buffer
@@ -382,7 +394,7 @@ milliseconds). After the grace period the host will `SIGTERM` the plugin.
  8. Plugin renders, sends Buffer (with dmabuf fd, plus a fence fd if
     fast-path; see §6.2).
  9. Host imports dmabuf, waits on fence (if present), composites,
-    sends BufferReleased (if fast-path), eventually sends FrameDone again.
+    sends BufferReleased, eventually sends FrameDone again.
 10. Repeat from 7.
 ```
 

@@ -80,8 +80,9 @@ again until it arrives.
 
 No fence fd. The plugin calls `gl::Finish()` before sending the buffer
 to guarantee GPU completion on the send side. The host samples
-immediately on receipt. `BufferReleased` may or may not be sent; the
-plugin must tolerate not receiving it.
+immediately on receipt and still sends `BufferReleased` after sampling —
+the release is required on both paths (`protocol.md` §7.3), and
+`FramePacer` waits for it before the next render, same as the fast path.
 
 ```
   veiland-core                          plugin process
@@ -100,16 +101,17 @@ plugin must tolerate not receiving it.
        │    repaint_lock_surfaces             │
        │    eglSwapBuffers                    │
        │                                      │
+       │─── BufferReleased(id) ──────────────►│
+       │                                      │  (can reuse DmaBuffer now)
        │─── FrameDone ───────────────────────►│
-       │                                      │  (BufferReleased not sent;
-       │                                      │   plugin rewrites unconditionally
-       │                                      │   on next FrameDone)
        │                  (repeats)           │
 ```
 
 Single-buffer plugins on the slow path rewrite the same buffer each
-frame. The `gl::Finish` before send makes this safe: the dmabuf is
-GPU-complete by the time the host receives the fd.
+frame. The `gl::Finish` before send makes the send side safe (the
+dmabuf is GPU-complete by the time the host receives the fd); waiting
+for `BufferReleased` makes the rewrite side safe (the host is done
+sampling before the plugin draws again).
 
 ## FramePacer state machine (plugin side)
 
