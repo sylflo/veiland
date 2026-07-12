@@ -82,6 +82,10 @@ cargo build --release --locked \
 %check
 export CARGO_HOME=%{_builddir}/cargo-home
 # spawn_true_exits_zero needs /bin/true; present here, so no skip.
+# The last three -p flags are the library crates compiled into the
+# binaries: `cargo test -p` only runs the named packages' tests, so
+# they need naming here or their suites never run. Test-only; they
+# produce no installed artifact.
 cargo test --release --locked \
   -p veiland-core \
   -p veiland-wallpaper \
@@ -97,7 +101,10 @@ cargo test --release --locked \
   -p veiland-gradient \
   -p veiland-parallax \
   -p veiland-blobs \
-  -p veiland-raymarcher
+  -p veiland-raymarcher \
+  -p veiland-protocol \
+  -p veiland-plugin \
+  -p veiland-text
 
 %install
 # Binaries -> /usr/bin. The veiland-core crate builds a binary named

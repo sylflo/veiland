@@ -56,6 +56,21 @@
         "veiland-raymarcher"
       ];
       crateFlags = nixpkgs.lib.concatMap (c: [ "-p" c ]) realCrates;
+
+      # Workspace library crates. Their code is compiled into every
+      # binary above, but `cargo test -p` only runs the tests of the
+      # packages it names — dependency crates' suites are skipped. So
+      # the test phase must name them explicitly or their tests never
+      # run anywhere (veiland-protocol is the untrusted-input codec,
+      # and its suite is where fuzz crashes get promoted to regression
+      # tests). Test phase only: nothing extra is built or installed.
+      libCrates = [
+        "veiland-protocol"
+        "veiland-plugin"
+        "veiland-text"
+      ];
+      testCrateFlags =
+        nixpkgs.lib.concatMap (c: [ "-p" c ]) (realCrates ++ libCrates);
     in
     {
       packages = forAllSystems (pkgs: {
@@ -72,9 +87,11 @@
           # Build only the real set (see `realCrates` above).
           cargoBuildFlags = crateFlags;
 
-          # Restrict the test phase to the same set (the workspace's other
-          # crates aren't part of what we ship).
-          cargoTestFlags = crateFlags;
+          # Test the shipped set plus the library crates compiled into
+          # it (see `libCrates` above). Only the stress test plugin
+          # stays out. The GPU-requiring veiland-plugin fence test
+          # (tests/sync.rs) is #[ignore]d and self-excludes.
+          cargoTestFlags = testCrateFlags;
 
           # `spawn_true_exits_zero` shells out to `/bin/true`, which the
           # hermetic Nix build sandbox does not provide (no /bin, no

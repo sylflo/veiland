@@ -26,6 +26,15 @@ CRATES = \
  -p veiland-blobs \
  -p veiland-raymarcher
 
+# Test set: the shipped crates plus the library crates compiled into
+# them. `cargo test -p` only runs the named packages' tests, so the
+# libraries need their own -p flags or their suites never run.
+# Test-only; they produce no installed artifact.
+TEST_CRATES = $(CRATES) \
+ -p veiland-protocol \
+ -p veiland-plugin \
+ -p veiland-text
+
 %:
 	dh $@
 
@@ -34,7 +43,7 @@ override_dh_auto_build:
 
 override_dh_auto_test:
 	# spawn_true_exits_zero needs /bin/true; present here, so no skip.
-	cargo test --release --locked $(CRATES)
+	cargo test --release --locked $(TEST_CRATES)
 
 override_dh_auto_install:
 	# Files are staged by dh_install (debian/veiland.install) and

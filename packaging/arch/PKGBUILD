@@ -81,10 +81,16 @@ check() {
   export CARGO_HOME="$srcdir/cargo-home"
   export CARGO_TARGET_DIR=target
 
+  # The shipped set plus the library crates compiled into it: `cargo
+  # test -p` only runs the named packages' tests, so the libraries need
+  # their own -p flags here or their suites never run. Test-only —
+  # they produce no packaged artifact (package() still loops _crates).
   local args=()
-  for c in "${_crates[@]}"; do args+=(-p "$c"); done
+  for c in "${_crates[@]}" veiland-protocol veiland-plugin veiland-text; do
+    args+=(-p "$c")
+  done
   # spawn_true_exits_zero needs /bin/true; present on Arch, so no skip
-  # (unlike the Nix sandbox). Run the real set's tests.
+  # (unlike the Nix sandbox).
   cargo test --release --locked "${args[@]}"
 }
 
