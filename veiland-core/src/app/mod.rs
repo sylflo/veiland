@@ -324,11 +324,15 @@ impl AppData {
     /// Other Configure fields (region, scale, output_name) are
     /// re-sent unchanged from `slot.last_configure`.
     ///
-    /// If a plugin's socket has died, `send_configure` will return
-    /// an error; we log and continue. The next inbound-event read on
-    /// that plugin's calloop source will surface the broken-pipe
-    /// error through the existing drive_plugin error path, which
-    /// removes the slot.
+    /// A send failure kills the slot on the spot, like every other
+    /// send site. Waiting for a read-side cleanup instead would be
+    /// wrong for one of the two failure modes: a dead socket fails
+    /// fast (EPIPE) and does hit EOF on the read side, but a plugin
+    /// that stopped draining its socket fails via `SO_SNDTIMEO` after
+    /// 500 ms and never becomes readable — its slot would survive and
+    /// stall the calloop thread another 500 ms on every future tick.
+    /// The stale calloop source self-removes on its next fire
+    /// (`drive_plugin`'s slot-gone path).
     pub(crate) fn process_periodic_tick(&mut self) {
         const TICK_INTERVAL: Duration = Duration::from_secs(30);
         if self.last_time_tick.elapsed() < TICK_INTERVAL {
@@ -353,9 +357,10 @@ impl AppData {
                 if let Err(e) = slot.state.connection.send_configure(next.clone()) {
                     eprintln!(
                         "veiland-core: periodic tick: send_configure to plugin {:?} failed: {} \
-                         (will be cleaned up on next read)",
+                         — treating as dead",
                         slot.name, e
                     );
+                    *slot_opt = None;
                     continue;
                 }
                 slot.last_configure = Some(next);
@@ -378,8 +383,9 @@ impl AppData {
     /// unchanged; only the size moves. The next periodic tick refreshes
     /// the time field as usual.
     ///
-    /// Plugin-input rule applies: a dead socket logs and is skipped, it
-    /// never panics. `drive_plugin`'s EOF path cleans the slot up later.
+    /// Plugin-input rule applies: a send failure logs and kills that
+    /// slot, it never panics. See `process_periodic_tick` for why the
+    /// slot must die here rather than wait for a read-side cleanup.
     pub(crate) fn resend_configure_region_for_output(
         &mut self,
         output_idx: usize,
@@ -406,9 +412,10 @@ impl AppData {
             if let Err(e) = slot.state.connection.send_configure(next.clone()) {
                 eprintln!(
                     "veiland-core: resize resend: send_configure to plugin {:?} failed: {} \
-                     (will be cleaned up on next read)",
+                     — treating as dead",
                     slot.name, e
                 );
+                *slot_opt = None;
                 continue;
             }
             slot.last_configure = Some(next);
@@ -433,9 +440,10 @@ impl AppData {
             if let Err(e) = slot.state.connection.send_configure(next.clone()) {
                 eprintln!(
                     "veiland-core: scale resend: send_configure to plugin {:?} failed: {} \
-                     (will be cleaned up on next read)",
+                     — treating as dead",
                     slot.name, e
                 );
+                *slot_opt = None;
                 continue;
             }
             slot.last_configure = Some(next);
