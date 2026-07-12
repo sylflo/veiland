@@ -35,11 +35,16 @@ available`.
   TOML — logged, refused to start.
 - **Unknown keys**: silently ignored, everywhere — in the core
   schema, in `[password]`, and in every plugin's `[plugin.config]`
-  table (a plugin whose whole config table fails to parse falls back
-  to its defaults with only a stderr line). So a known key with the
-  wrong type is fatal, but a *misspelled key name* is never an error
-  at lock time. If an option seems to have no effect, check its
-  spelling against this reference first.
+  table. A *misspelled key name* is never an error at lock time, so
+  if an option seems to have no effect, check its spelling against
+  this reference first.
+- **Known key with the wrong type**: fatal in the core schema and in
+  `[password]` — that is the schema-mismatch case above. Non-fatal in
+  `[plugin.config]`: the core doesn't type-check plugin tables (it
+  passes them through opaquely), so the wrong type surfaces in the
+  plugin's own config parse — the plugin logs one stderr line, falls
+  back to its defaults for the *whole* table, and the locker still
+  locks with that plugin running on defaults.
 - **Schema valid but post-validation fails** (empty plugin name,
   duplicate plugin name): fatal. Logged with the offending entry,
   refused to start.
