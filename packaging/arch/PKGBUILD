@@ -8,7 +8,7 @@
 # The stress test plugin is not built or packaged.
 
 pkgname=veiland
-pkgver=0.1.1
+pkgver=0.1.0
 pkgrel=1
 pkgdesc="Wayland screen locker with process-isolated GPU plugins"
 arch=('x86_64' 'aarch64')

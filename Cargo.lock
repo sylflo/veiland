@@ -1154,7 +1154,7 @@ checksum = "9629274872b2bfaf8d66f5f15725007f635594914870f65218920345aa11aa8c"
 
 [[package]]
 name = "veiland-blobs"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1164,7 +1164,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-clock"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "gl",
@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-core"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "gbm",
@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-embers"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1208,7 +1208,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-fireflies"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-gradient"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-label"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-parallax"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1249,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-particles"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-plugin"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gbm",
  "gl",
@@ -1272,11 +1272,11 @@ dependencies = [
 
 [[package]]
 name = "veiland-protocol"
-version = "0.1.1"
+version = "0.1.0"
 
 [[package]]
 name = "veiland-rain"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-raymarcher"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-sakura"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "image",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-snow"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1317,7 +1317,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-stress"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "veiland-plugin",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-text"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "cosmic-text",
  "gl",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-vignette"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "serde",
@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "veiland-wallpaper"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "gl",
  "image",
