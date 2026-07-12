@@ -43,23 +43,33 @@ use veiland_plugin::{Connection, DmaBuffer, Frame, FramePacer, GbmEgl, PluginErr
 const PLUGIN_NAME: &str = "my-plugin";
 
 fn run() -> Result<(), PluginError> {
-    // 1. GPU context + buffer. GbmEgl::new() opens the render node and
-    //    sets up EGL. DmaBuffer::new allocates an ARGB8888 GPU buffer
-    //    wrapped as an FBO you render into. Start at a fallback size; the
-    //    first Configure carries the real region size (see step 4).
+    // 1. GPU context. GbmEgl::new() opens the render node and sets up
+    //    EGL + a GL context for this process.
     let gbm_egl = GbmEgl::new()?;
-    let mut dma = DmaBuffer::new(&gbm_egl, WIDTH, HEIGHT)?;
 
-    // 2. Build your GL program(s). dma.bind_for_rendering() makes the
+    // 2. Connect to the host: reads the socket fd from the environment,
+    //    negotiates the protocol version + capabilities, sends Hello.
+    let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
+
+    // 3. Wait for the first Configure — it carries the real region
+    //    size. None means the host shut down before configuring; exit
+    //    cleanly.
+    let first = match conn.wait_for_configure()? {
+        Some(c) => c,
+        None => return Ok(()),
+    };
+
+    // 4. Allocate the buffer at the region size. DmaBuffer::new
+    //    allocates an ARGB8888 GPU buffer wrapped as an FBO you render
+    //    into.
+    let mut dma = DmaBuffer::new(&gbm_egl, first.region_w, first.region_h)?;
+
+    // 5. Build your GL program(s). dma.bind_for_rendering() makes the
     //    buffer's FBO the active render target first.
     dma.bind_for_rendering()?;
     let program = /* compile your shaders */;
 
-    // 3. Connect to the host: reads the socket fd from the environment,
-    //    negotiates the protocol version + capabilities, sends Hello.
-    let mut conn = Connection::connect(PLUGIN_NAME, env!("CARGO_PKG_VERSION"))?;
-
-    // 4. The event loop. FramePacer owns the FrameDone/BufferReleased
+    // 6. The event loop. FramePacer owns the FrameDone/BufferReleased
     //    pacing; you drive a three-arm match. Pick self_paced() if you
     //    animate, on_demand() if you're mostly static.
     let mut pacer = FramePacer::self_paced();
@@ -210,10 +220,12 @@ fence.as_fd() -> BorrowedFd
 
 6. **Never `.unwrap()`/`.expect()`/panic on a host message.** The host
    is more trusted than you are to it, but a disconnect or an unexpected
-   message must be a clean exit, not a crash. `PluginError::Disconnected`
-   from `recv`/`pacer.next` means the host went away — return `Ok(())`,
-   don't panic. Propagate errors with `?` up to `run()` and exit
-   non-zero from `main`.
+   message must be a clean exit, not a crash. The SDK already maps a
+   disconnect to a clean signal at the level you normally work at:
+   `pacer.next` yields `Frame::Shutdown` and `wait_for_configure`
+   returns `Ok(None)` — return `Ok(())` on both. Only the low-level
+   `recv_event` surfaces `PluginError::Disconnected` itself. Propagate
+   errors with `?` up to `run()` and exit non-zero from `main`.
 
 ## The low-level submit path
 
@@ -339,8 +351,11 @@ does all the interesting work per pixel.
   state and config (also `sakura`, `snow`, `rain`, `embers`, `fireflies`
   for more particle/effect variants).
 - **`plugins/wallpaper`** — an on-demand plugin that loads an image.
-- **`plugins/vignette`, `plugins/blobs`, `plugins/parallax`** —
-  transparent overlays; good references for premultiplied-alpha shaders.
+- **`plugins/vignette`, `plugins/parallax`** — transparent overlays;
+  good references for premultiplied-alpha shaders.
+- **`plugins/blobs`** — an opaque full-region procedural shader
+  (lava-lamp metaballs); note its fragment shader emits `a = 1.0`, so
+  it is *not* an alpha reference.
 - **`plugins/stress`** — the one plugin on the low-level `send_buffer`
   path; read it only if you need manual sync control.
 - **`docs/protocol.md`** — the wire protocol (the authority).
