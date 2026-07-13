@@ -7,7 +7,8 @@ Native distro packages for veiland. Nix users are served by the flake
 everything else.
 
 - `arch/` — AUR `PKGBUILD`
-- `debian/` — `.deb` (built on and for Debian 13 stable)
+- `debian/` — `.deb` (built on and for Debian 13 stable; also installs on
+  Ubuntu 24.04+, see below)
 - `rpm/` — `.spec` (Fedora/RHEL)
 - `pam/` — the `/etc/pam.d/veiland` files each package installs
   (`veiland.system-auth` for Arch/Fedora, `veiland.common` for Debian)
@@ -22,8 +23,30 @@ install. The stress test plugin is not packaged.
 
 Packages are built and validated in CI (`.github/workflows/packages.yml`)
 inside each distro's container, then install-checked in a pristine
-container of the same distro (dependency resolution, file layout, and
-`ldd` on every installed binary).
+container (dependency resolution, file layout, and `ldd` on every
+installed binary). The install check is deliberately a *separate*
+container from the build: only there must the package's declared
+dependencies resolve against the distro's own repos, which is what
+catches a missing or unsatisfiable one.
+
+The Debian and Fedora containers are pinned to a release (`debian:13`,
+`fedora:44`) rather than a rolling tag. This matters: `debian:testing`
+was trixie when first used, but trixie became Debian 13 stable and the
+tag rolled on to the next release — so the package was built on, and
+install-checked on, a Debian nobody runs. That circular test stayed
+green while the shipped `.deb` could not install on real Debian stable.
+`archlinux:latest` stays rolling on purpose: Arch users genuinely do run
+latest.
+
+**Ubuntu** installs the Debian `.deb` — there is no separate Ubuntu
+build, because the package carries nothing distro-specific. CI
+install-checks that same artifact on Ubuntu 24.04 and current.
+
+Ubuntu 22.04 is **not** supported: the `.deb` is built on Debian 13, so
+`dpkg-shlibdeps` stamps `libc6 (>= 2.39)` from that glibc. 24.04 ships
+exactly 2.39 and satisfies it; 22.04 ships 2.35 and cannot. Supporting
+it would mean building a second `.deb` on an older host, which we do not
+do.
 
 ## Building the `.rpm` from a checkout (Fedora)
 

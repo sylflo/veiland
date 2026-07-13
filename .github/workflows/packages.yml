@@ -290,6 +290,70 @@ jobs:
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
 
+  ubuntu-install:
+    name: Ubuntu ${{ matrix.release }} (install check)
+    runs-on: ubuntu-latest
+    needs: debian
+    # Ubuntu installs the *Debian* .deb — there is no separate Ubuntu build.
+    # The package carries nothing distro-specific (same binaries, same PAM
+    # file, same dependencies), so building it twice would only mean two
+    # artifacts to name, test and attach to every release. This job proves
+    # the artifact that actually ships also installs on Ubuntu.
+    #
+    # Ubuntu was previously unsupported because every released Ubuntu is on
+    # libjpeg-turbo 2.x, below the floor the turbojpeg crate forced. That
+    # dependency is gone, so Ubuntu works again.
+    #
+    # 24.04 is the floor, and it is a real one: the .deb is built on Debian
+    # 13, so dpkg-shlibdeps stamps `libc6 (>= 2.39)` from that glibc. Ubuntu
+    # 24.04 ships exactly 2.39 and satisfies it; 22.04 ships 2.35 and cannot.
+    # Supporting 22.04 would mean building a second .deb on an older host,
+    # which we deliberately do not do. A failure here on a *new* Ubuntu most
+    # likely means a floor of the same kind was raised again.
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ['24.04', 'latest']
+    container: ubuntu:${{ matrix.release }}
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: veiland-debian
+          path: dist
+
+      - name: Install package
+        run: |
+          set -eux
+          apt-get update
+          # --no-install-recommends: prove the hard Depends alone are a
+          # complete closure, exactly what a minimal user system gets.
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            --no-install-recommends ./dist/*.deb
+
+      - name: Verify installed layout and linkage
+        run: |
+          set -eux
+          for b in veiland veiland-wallpaper veiland-clock \
+                   veiland-particles veiland-vignette veiland-label \
+                   veiland-sakura veiland-snow veiland-rain \
+                   veiland-embers veiland-fireflies veiland-gradient \
+                   veiland-parallax veiland-blobs veiland-raymarcher; do
+            command -v "$b"
+            test -x "/usr/bin/$b"
+            # The binaries can't actually run in CI (no Wayland session),
+            # but every shared library must resolve. On Ubuntu this is also
+            # what would catch a library Debian has and Ubuntu names
+            # differently.
+            if ldd "/usr/bin/$b" | grep 'not found'; then
+              echo "unresolved shared libraries in $b" >&2
+              exit 1
+            fi
+          done
+          test -f /etc/pam.d/veiland
+          test -f /usr/share/veiland/config.example.toml
+          test -f /usr/share/veiland/sakura-dusk.jpg
+
   fedora:
     name: Fedora (.rpm)
     runs-on: ubuntu-latest
