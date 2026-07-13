@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The default scene: compiled into veiland-core with include_str! and used
+# when the user has no config file. Its user-facing twin is
+# packaging/veiland.example.toml, which every package installs to
+# <datadir>/config.example.toml as the starting point for customisation.
+# The two are the same scene and will drift if nobody is looking — change
+# both, or neither.
+#
+# `@DATADIR@` is substituted at load time (config.rs, `default_scene`) with
+# the data directory of the running binary: <exe_dir>/../share/veiland. It is
+# a placeholder rather than a hardcoded /usr/share because the install prefix
+# isn't knowable at build time (Nix puts the package in the store). If the
+# substitution yields nothing useful — a `cargo run` dev build has no
+# installed share/veiland — the wallpaper plugin logs the bad path and paints
+# black, and the rest of the scene still renders. That degradation is
+# intentional; see docs/decisions/0002-default-scene.md.
+#
+# No [password] table here: every field has a per-field default in
+# Password::default(), and embedding them would duplicate those constants
+# somewhere they can drift.
+
+# --- Wallpaper: dusk-sky backdrop ----------------------------------
+# z_index -100 keeps it behind everything.
+[[plugin]]
+name = "wallpaper"
+binary = "veiland-wallpaper"
+z_index = -100
+
+[plugin.config]
+path = "@DATADIR@/sakura-dusk.jpg"
+
+# --- Sakura: falling cherry-blossom petals -------------------------
+# The petal texture is embedded in the plugin binary, so there is nothing
+# to supply. z_index 0 puts it just above the wallpaper.
+[[plugin]]
+name = "sakura"
+binary = "veiland-sakura"
+z_index = 0
+
+[plugin.config]
+count = 30
+size_px = 22
+color = [1.0, 1.0, 1.0, 1.0]
+
+# --- Clock: time + date, upper-left --------------------------------
+# Positions are fractions of the surface, so they track any resolution.
+[[plugin]]
+name = "clock"
+binary = "veiland-clock"
+z_index = 10
+
+[plugin.config]
+time_format = "%H:%M"
+date_format = "%A, %B %d"
+time_font_size = 0.055
+date_font_size = 0.014
+time_color = [0.95, 0.96, 0.98, 0.95]
+date_color = [0.95, 0.96, 0.98, 0.80]
+time_position = [0.04, 0.05]
+date_position = [0.04, 0.11]
+halign = "left"
+valign = "top"
+shadow_offset = [0, 0.002]
+shadow_color = [0.0, 0.0, 0.0, 0.9]

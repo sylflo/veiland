@@ -1,14 +1,21 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Example veiland config. Copy to ~/.config/veiland/config.toml and edit:
+# Example veiland config: the starting point for customising your lock
+# screen. Copy it and edit:
 #
 #   mkdir -p ~/.config/veiland
 #   cp /usr/share/veiland/config.example.toml ~/.config/veiland/config.toml
 #
-# Out of the box this renders the "sakura" scene from the README gallery:
-# a dusk-sky wallpaper, falling cherry-blossom petals, a clock, and the
-# password pill. Everything it needs ships with the package, so it works
-# on a fresh install with no editing.
+# You do not need to copy it to get a scene. This is the "sakura" scene from
+# the README gallery — dusk-sky wallpaper, falling cherry-blossom petals, a
+# clock, the password pill — and veiland already renders it out of the box:
+# the same scene is compiled into the binary and used whenever there is no
+# user config (see veiland-core/src/default-scene.toml, its twin; change one
+# and you probably want to change the other). Copy this file when you want to
+# change something, not to get started.
+#
+# A user config replaces the default scene wholesale — the two are not
+# merged, so what you write here is the entire scene.
 #
 # Each `binary` is a bare plugin name: the core resolves it beside the
 # installed `veiland` binary (then on $PATH), so this works on any distro

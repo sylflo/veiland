@@ -425,8 +425,8 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// Resolve the config-file path, then load it. Missing file is
-/// non-fatal: returns `Ok(Config::default())` with an empty plugin
-/// list and the caller logs prominently. Malformed file is fatal.
+/// non-fatal: returns the compiled-in default scene (see
+/// `default_scene`). Malformed file is fatal.
 pub fn load() -> Result<Config, ConfigError> {
     let path = resolve_path()?;
     load_from_path(&path)
@@ -454,17 +454,56 @@ fn load_from_path(path: &Path) -> Result<Config, ConfigError> {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!(
-                "veiland-core: no config file at {:?}; running with zero plugins.",
+                "veiland-core: no config file at {:?}; using the default scene \
+                (wallpaper, sakura petals, clock).",
                 path
             );
             eprintln!(
-                "veiland-core: write {:?} with [[plugin]] entries to enable plugins.",
+                "veiland-core: to customise it, copy <datadir>/config.example.toml \
+                (e.g. /usr/share/veiland/config.example.toml) to {:?} and edit.",
                 path
             );
-            return Ok(Config::default());
+            return default_scene();
         }
         Err(e) => return Err(ConfigError::Io(e)),
     };
+    let mut config: Config = toml::from_str(&text).map_err(ConfigError::Parse)?;
+    validate(&mut config)?;
+    Ok(config)
+}
+
+/// The scene veiland renders when the user has no config file: the
+/// sakura scene from the README, compiled into the binary.
+///
+/// It is embedded rather than read from `<prefix>/share/veiland/` because
+/// the install prefix isn't knowable at build time — `/usr/share` is right
+/// for the .deb/.rpm/PKGBUILD and wrong for Nix, which puts the package in
+/// the store. So there is no config file to find, and the one thing that
+/// must be located on disk — the wallpaper image — is resolved at runtime
+/// relative to the running executable (`<exe_dir>/../share/veiland`), the
+/// same trick `plugin::host_spawn::resolve_binary` uses for plugin
+/// binaries.
+///
+/// `current_exe()` failing is not an error: `@DATADIR@` then expands to
+/// nothing, the wallpaper path doesn't resolve, and the wallpaper plugin
+/// does what it already does for any bad path — logs it and paints black,
+/// while petals, clock and the password pill still render. That degradation
+/// is what makes a `cargo run` dev build (no installed `share/veiland/`)
+/// behave sensibly with no special-casing.
+fn default_scene() -> Result<Config, ConfigError> {
+    const DEFAULT: &str = include_str!("default-scene.toml");
+
+    let datadir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("../share/veiland")))
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default();
+
+    let text = DEFAULT.replace("@DATADIR@", &datadir);
+    // Validated like any user config: the TOML is ours, but a typo in it
+    // should fail loudly at startup rather than produce a subtly broken
+    // lock screen. `cargo test` catches it earlier still — see
+    // `default_scene_parses_and_validates`.
     let mut config: Config = toml::from_str(&text).map_err(ConfigError::Parse)?;
     validate(&mut config)?;
     Ok(config)
@@ -1181,6 +1220,61 @@ mod tests {
         assert!(parse_rgba("rgba(1, 2, 3, 4, 5)").is_err()); // too many
         assert!(parse_rgba("rgba(1, 2, 3").is_err()); // missing paren
         assert!(parse_rgba("rgba(a, b, c)").is_err()); // non-numeric channels
+    }
+
+    #[test]
+    fn default_scene_parses_and_validates() {
+        // The scene compiled into the binary. This is the test that catches
+        // a typo in default-scene.toml at `cargo test` time rather than on a
+        // user's lock screen.
+        let config = default_scene().expect("embedded default scene must parse and validate");
+        let names: Vec<&str> = config.plugins.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["wallpaper", "sakura", "clock"]);
+        let z: Vec<i32> = config.plugins.iter().map(|p| p.z_index).collect();
+        assert_eq!(z, [-100, 0, 10], "wallpaper behind, clock in front");
+    }
+
+    #[test]
+    fn default_scene_substitutes_datadir() {
+        // The wallpaper path must not still carry the placeholder. The exact
+        // path isn't worth asserting — it depends on where the test binary
+        // lives, and on a dev build it points at a directory that doesn't
+        // exist (which is fine: the plugin logs it and paints black).
+        let config = default_scene().expect("embedded default scene parses");
+        let wallpaper = config
+            .plugins
+            .iter()
+            .find(|p| p.name == "wallpaper")
+            .expect("default scene has a wallpaper plugin");
+        let path = wallpaper
+            .config
+            .as_ref()
+            .and_then(|c| c.as_table())
+            .and_then(|t| t.get("path"))
+            .and_then(|v| v.as_str())
+            .expect("wallpaper plugin declares a path");
+        assert!(
+            !path.contains("@DATADIR@"),
+            "@DATADIR@ should have been substituted, got {:?}",
+            path
+        );
+        assert!(
+            path.ends_with("sakura-dusk.jpg"),
+            "wallpaper path should still name the image, got {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn missing_config_file_yields_default_scene() {
+        // The behaviour this whole change exists for: no config file means
+        // the default scene, not an empty plugin list.
+        let missing = std::path::Path::new("/nonexistent/veiland/config.toml");
+        let config = load_from_path(missing).expect("a missing config file is not an error");
+        assert!(
+            !config.plugins.is_empty(),
+            "missing config should fall back to the default scene, not zero plugins"
+        );
     }
 
     #[test]

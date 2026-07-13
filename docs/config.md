@@ -23,10 +23,20 @@ available`.
 
 ## 2. What happens when the file is missing or broken
 
-- **Missing file**: not fatal. veiland-core logs a warning, runs with
-  zero plugins, and shows only the lock-surface clear color. You can
-  still unlock; you just have no compositing layers. This is so a
-  fresh install (or a wiped `~/.config/`) doesn't refuse to lock.
+- **Missing file**: not fatal. veiland-core logs a note and renders the
+  **default scene** — a wallpaper, falling sakura petals, and a clock —
+  which is compiled into the binary, so a fresh install (or a wiped
+  `~/.config/`) locks with something to look at rather than a black
+  rectangle. The scene's wallpaper is loaded from the package's data
+  directory, found relative to the running binary
+  (`<exe_dir>/../share/veiland/sakura-dusk.jpg`); if it isn't there — a
+  `cargo run` dev build, say — the wallpaper plugin logs the bad path and
+  paints black, and the petals, clock and password pill still render.
+  A user config **replaces** the default scene entirely; the two are never
+  merged, so a config declaring one plugin gets exactly that one plugin.
+  `<datadir>/config.example.toml` (e.g.
+  `/usr/share/veiland/config.example.toml`) is the same scene as a file:
+  copy it to `~/.config/veiland/config.toml` to start customising.
 - **Malformed TOML**: fatal. veiland-core logs the parse error
   (with line and column from the `toml` crate) and exits with
   failure.
