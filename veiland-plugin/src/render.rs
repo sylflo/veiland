@@ -61,14 +61,38 @@ impl GbmEgl {
             gbm::Device::new(drm_fd).map_err(|_| PluginError::Render("gbm::Device::new failed"))?;
 
         // 3. Get the EGL display from the GBM device pointer.
+        //
+        // eglGetPlatformDisplay (EGL 1.5), not the legacy eglGetDisplay: the
+        // legacy call takes a bare pointer and leaves the driver to *guess*
+        // the platform it belongs to. The guess holds on the common stacks and
+        // fails elsewhere -- under virgl it sends Mesa down its DRI2 path
+        // hunting a DRM fd it was never handed, and eglInitialize dies with
+        // EGL_BAD_ALLOC. The core hits the same trap on its Wayland display;
+        // see main.rs. Naming the platform removes the guess.
+        //
+        // EGL_KHR_platform_gbm's enum; khronos-egl doesn't re-export it.
+        const EGL_PLATFORM_GBM_KHR: egl::Enum = 0x31D7;
         let egl = egl::Instance::new(egl::Static);
         // SAFETY: `gbm.as_raw()` returns a pointer into the live gbm::Device
         // we just constructed. The Device is owned by the struct we're
         // about to return, so the pointer remains valid for the entire
         // lifetime of `egl_display`. Field-drop order (egl_display before
         // gbm) preserves this.
-        let egl_display = unsafe { egl.get_display(gbm.as_raw() as *mut c_void) }
-            .ok_or(PluginError::Render("eglGetDisplay returned NO_DISPLAY"))?;
+        let egl_display = unsafe {
+            egl.get_platform_display(
+                EGL_PLATFORM_GBM_KHR,
+                gbm.as_raw() as *mut c_void,
+                // Must be ATTRIB_NONE-terminated; the crate rejects an unterminated list.
+                &[egl::ATTRIB_NONE],
+            )
+            .ok()
+            // A stack without the EGL 1.5 entry point falls back to the legacy
+            // call, i.e. to exactly the behaviour that shipped before this.
+            .or_else(|| egl.get_display(gbm.as_raw() as *mut c_void))
+        }
+        .ok_or(PluginError::Render(
+            "eglGetPlatformDisplay returned NO_DISPLAY",
+        ))?;
 
         // 4. Initialize the display. We don't care about the version pair.
         egl.initialize(egl_display)

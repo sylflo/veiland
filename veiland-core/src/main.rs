@@ -211,9 +211,35 @@ fn main() -> ExitCode {
     // --- 3. EGL setup (host's GL context, shared across plugin imports) -----
     let egl = egl::Instance::new(egl::Static);
     let display_ptr = conn.backend().display_ptr();
+
+    // eglGetPlatformDisplay (EGL 1.5), not the legacy eglGetDisplay. The
+    // legacy call takes a bare pointer and leaves the driver to *guess* which
+    // platform it belongs to. That guess holds on the common stacks (Intel,
+    // NVIDIA) and fails under virgl: Mesa takes its DRI2 path, looks for a DRM
+    // fd it was never given, and eglInitialize dies with EGL_BAD_ALLOC
+    // ("MESA-LOADER: failed to fstat fd" on fd -1). The core then limps on a
+    // display that never initialized, every eglChooseConfig fails, and the
+    // lock screen is black while the plugins render happily into buffers
+    // nobody can composite. Stating the platform removes the guess.
+    //
+    // EGL_KHR_platform_wayland's enum; khronos-egl doesn't re-export it.
+    const EGL_PLATFORM_WAYLAND_KHR: egl::Enum = 0x31D8;
     // SAFETY: display_ptr came from a live wayland_client::Connection.
-    let egl_display =
-        unsafe { egl.get_display(display_ptr as *mut std::ffi::c_void) }.expect("get EGL display");
+    let egl_display = unsafe {
+        egl.get_platform_display(
+            EGL_PLATFORM_WAYLAND_KHR,
+            display_ptr as *mut std::ffi::c_void,
+            // Must be ATTRIB_NONE-terminated; the crate rejects an unterminated list.
+            &[egl::ATTRIB_NONE],
+        )
+        // Result -> Option, so the legacy call (which returns Option) can
+        // chain as the fallback.
+        .ok()
+        // A stack without the EGL 1.5 entry point falls back to the legacy
+        // call, i.e. to exactly the behaviour that shipped before this.
+        .or_else(|| egl.get_display(display_ptr as *mut std::ffi::c_void))
+    }
+    .expect("get EGL display");
     egl.initialize(egl_display)
         .expect("egl failed to initialize");
     // Dev hook: VEILAND_SIMULATE_NO_FENCE=1 pretends the EGL display lacks
