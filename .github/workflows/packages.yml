@@ -53,7 +53,7 @@ jobs:
         # add an unprivileged 'builder' user below.
         run: |
           pacman -Syu --noconfirm base-devel git rust cargo pkgconf \
-            pam libglvnd mesa libdrm wayland libxkbcommon libjpeg-turbo
+            pam libglvnd mesa libdrm wayland libxkbcommon
           useradd -m builder
 
       - uses: actions/checkout@v4
@@ -158,12 +158,13 @@ jobs:
   debian:
     name: Debian (.deb)
     runs-on: ubuntu-latest
-    # debian:testing (trixie), not stable: stable's libturbojpeg (2.1.5)
-    # is below the turbojpeg crate's >= 3.0 floor. Testing ships 3.x.
-    # The produced .deb therefore targets Debian testing only, not stable.
-    # No Ubuntu job: every released Ubuntu (incl. 26.04 LTS) still ships
-    # the 2.x series. Revisit if/when 26.10 lands with 3.1.x.
-    container: debian:testing
+    # Pinned to debian:13, NOT debian:testing. `testing` is a moving tag:
+    # when this job was written it was trixie, but trixie became Debian 13
+    # stable and the tag rolled forward to the next release. The .deb was
+    # then built on, and install-checked on, a Debian nobody runs — a
+    # circular test that stayed green while the shipped package was
+    # uninstallable on real Debian stable. Pin to the release we target.
+    container: debian:13
     steps:
       - name: Install build tooling
         run: |
@@ -179,7 +180,7 @@ jobs:
             build-essential debhelper devscripts pkg-config \
             curl ca-certificates \
             libpam0g-dev libgl-dev libegl-dev libgbm-dev \
-            libdrm-dev libwayland-dev libxkbcommon-dev libturbojpeg0-dev
+            libdrm-dev libwayland-dev libxkbcommon-dev
 
       - name: Install Rust (rustup)
         run: |
@@ -244,10 +245,10 @@ jobs:
   debian-install:
     name: Debian (install check)
     runs-on: ubuntu-latest
-    # Same image as the build job (the .deb targets Debian testing), but
-    # a pristine container: apt must pull in the ${shlibs:Depends}
-    # closure itself, which the build container can't demonstrate.
-    container: debian:testing
+    # Same pinned image as the build job (see the note there), but a
+    # pristine container: apt must pull in the ${shlibs:Depends} closure
+    # itself, which the build container can't demonstrate.
+    container: debian:13
     needs: debian
     steps:
       - name: Download package artifact
@@ -299,7 +300,7 @@ jobs:
           dnf -y install rpm-build rpmdevtools tar git \
             cargo rust pkgconf-pkg-config \
             pam-devel mesa-libGL-devel mesa-libEGL-devel mesa-libgbm-devel \
-            libdrm-devel wayland-devel libxkbcommon-devel turbojpeg-devel
+            libdrm-devel wayland-devel libxkbcommon-devel
 
       - uses: actions/checkout@v4
 

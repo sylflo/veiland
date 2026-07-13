@@ -232,9 +232,9 @@ A few non-obvious points:
   sample time.
 - **Keep the decoder surface small**. On a security-critical
   process, decode only the formats you need. `veiland-wallpaper`
-  decodes JPEG via `turbojpeg` and PNG via the `image` crate
-  (`default-features = false, features = ["png"]`), sniffing the
-  format by magic bytes rather than trusting the file extension.
+  decodes JPEG and PNG via the `image` crate
+  (`default-features = false, features = ["png", "jpeg"]`), sniffing
+  the format by magic bytes rather than trusting the file extension.
   Add more formats only when a user asks.
 - **Decode large images off the render path**. A 4K image can take
   a noticeable fraction of a second to decode; doing it inline would

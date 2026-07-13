@@ -34,7 +34,6 @@ BuildRequires:  mesa-libgbm-devel
 BuildRequires:  libdrm-devel
 BuildRequires:  wayland-devel
 BuildRequires:  libxkbcommon-devel
-BuildRequires:  turbojpeg-devel
 
 # Runtime shared libraries are auto-derived by rpm from the binaries'
 # ELF NEEDED entries (as sonames, e.g. libwayland-client.so.0), so the

@@ -111,7 +111,6 @@
           #   libdrm       -> drm-sys
           #   wayland      -> wayland-sys
           #   libxkbcommon -> xkbcommon
-          #   libjpeg-turbo-> turbojpeg (pkg-config feature)
           buildInputs = with pkgs; [
             linux-pam
             libGL
@@ -119,7 +118,6 @@
             libdrm
             wayland
             libxkbcommon
-            libjpeg_turbo
           ];
 
           meta = {

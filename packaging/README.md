@@ -7,8 +7,7 @@ Native distro packages for veiland. Nix users are served by the flake
 everything else.
 
 - `arch/` — AUR `PKGBUILD`
-- `debian/` — `.deb` (Debian testing only; stable and every released
-  Ubuntu still ship libjpeg-turbo 2.x, below the crate's 3.0 floor)
+- `debian/` — `.deb` (built on and for Debian 13 stable)
 - `rpm/` — `.spec` (Fedora/RHEL)
 - `pam/` — the `/etc/pam.d/veiland` files each package installs
   (`veiland.system-auth` for Arch/Fedora, `veiland.common` for Debian)
@@ -38,7 +37,7 @@ checkout:
 # Build tooling + the -devel headers the -sys crates link against.
 sudo dnf install rpm-build rpmdevtools git rust cargo pkgconf-pkg-config \
   pam-devel mesa-libGL-devel mesa-libEGL-devel mesa-libgbm-devel \
-  libdrm-devel wayland-devel libxkbcommon-devel turbojpeg-devel
+  libdrm-devel wayland-devel libxkbcommon-devel
 
 rpmdev-setuptree
 ver=$(rpmspec -q --qf '%{version}\n' packaging/rpm/veiland.spec | head -1)

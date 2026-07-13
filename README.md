@@ -168,7 +168,7 @@ back to a plain `cd packaging/arch && makepkg -si`.)
 </details>
 
 <details>
-<summary><strong>Debian testing</strong> (.deb)</summary>
+<summary><strong>Debian</strong> (.deb)</summary>
 
 Download the `.deb` from the [latest release][releases] and install it
 (available from `v0.1.0` onward). `apt` pulls in the runtime libraries:
@@ -179,9 +179,7 @@ sudo apt install ./veiland_*_amd64.deb
 
 The package installs the binaries into `/usr/bin` and bundles
 `/etc/pam.d/veiland`, so PAM works out of the box. Built on and for
-**Debian testing** (trixie): it needs libjpeg-turbo 3.x, which Debian
-stable does not ship. Ubuntu is not supported: every released Ubuntu
-(including 26.04 LTS) still carries the 2.x series.
+**Debian 13** (trixie).
 
 To build the `.deb` yourself from this repo, you also need a Rust
 toolchain (rustc >= 1.89). It is deliberately not in the package's

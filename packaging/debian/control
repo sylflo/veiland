@@ -5,9 +5,7 @@ Maintainer: sylflo <veiland@sylvain-chateau.com>
 # Rust is intentionally NOT a Build-Depends: the CI build installs a
 # current toolchain via rustup (the dependency tree needs rustc 1.89;
 # not all Debian releases carry that yet). dpkg-buildpackage is run with
-# -d to skip the Build-Depends check accordingly. The build runs on
-# debian:testing (trixie) because stable's libturbojpeg (2.1.5) is below
-# the turbojpeg crate's >= 3.0 requirement.
+# -d to skip the Build-Depends check accordingly.
 Build-Depends:
  debhelper-compat (= 13),
  pkg-config,
@@ -18,7 +16,6 @@ Build-Depends:
  libdrm-dev,
  libwayland-dev,
  libxkbcommon-dev,
- libturbojpeg0-dev,
 Standards-Version: 4.6.2
 Homepage: https://github.com/sylflo/veiland
 Rules-Requires-Root: no

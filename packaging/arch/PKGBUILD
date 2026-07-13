@@ -21,9 +21,8 @@ license=('GPL-3.0-or-later')
 #   libdrm      -> drm-sys
 #   wayland     -> wayland-sys
 #   libxkbcommon-> xkbcommon
-#   libjpeg-turbo-> turbojpeg
 # The actual GPU driver .so is the user's system's job (like on Nix).
-depends=('pam' 'libglvnd' 'mesa' 'libdrm' 'wayland' 'libxkbcommon' 'libjpeg-turbo')
+depends=('pam' 'libglvnd' 'mesa' 'libdrm' 'wayland' 'libxkbcommon')
 
 # Build-only tools: the Rust toolchain. pkgconf lets the -sys crates'
 # build scripts find the libraries above.

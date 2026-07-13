@@ -50,7 +50,7 @@ fn decode_image(path: &str) -> Option<DecodedImage> {
     };
 
     // Sniff by magic bytes, not extension — handles mislabelled files
-    // and avoids handing a PNG to libjpeg-turbo (which would just
+    // and avoids handing a PNG to the JPEG decoder (which would just
     // error). JPEG: FF D8 FF. PNG: 89 50 4E 47 0D 0A 1A 0A.
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         decode_jpeg(path, &bytes)
@@ -69,39 +69,26 @@ fn decode_image(path: &str) -> Option<DecodedImage> {
 }
 
 fn decode_jpeg(path: &str, bytes: &[u8]) -> Option<DecodedImage> {
-    let img = match turbojpeg::decompress(bytes, turbojpeg::PixelFormat::RGBA) {
+    let img = match image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg) {
         Ok(i) => i,
         Err(e) => {
             eprintln!(
-                "veiland-{}: turbojpeg failed to decode {:?}: {}",
+                "veiland-{}: image crate failed to decode JPEG {:?}: {}",
                 PLUGIN_NAME, path, e
             );
             return None;
         }
     };
-
-    // turbojpeg allows pitch > width*4 (row padding). Our GL upload
-    // assumes tightly-packed RGBA, so reject the padded case rather
-    // than copy row-by-row. Doesn't happen for typical wallpaper
-    // sizes; if it ever bites we'll add the repack.
-    let expected_pitch = img.width.checked_mul(4).unwrap_or(0);
-    if img.pitch != expected_pitch {
-        eprintln!(
-            "veiland-{}: turbojpeg returned pitch={} for width={} (expected {}); \
-             black background",
-            PLUGIN_NAME, img.pitch, img.width, expected_pitch
-        );
-        return None;
-    }
-
+    let rgba = img.to_rgba8();
+    let (width, height) = (rgba.width(), rgba.height());
     eprintln!(
-        "veiland-{}: decoded {:?} as {}x{} RGBA (turbojpeg)",
-        PLUGIN_NAME, path, img.width, img.height
+        "veiland-{}: decoded {:?} as {}x{} RGBA (image crate, JPEG)",
+        PLUGIN_NAME, path, width, height
     );
     Some(DecodedImage {
-        width: img.width as u32,
-        height: img.height as u32,
-        rgba: img.pixels,
+        width,
+        height,
+        rgba: rgba.into_raw(),
     })
 }
 
