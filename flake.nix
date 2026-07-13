@@ -120,6 +120,26 @@
             libxkbcommon
           ];
 
+          # The package's data directory, matching what the .deb, .rpm and
+          # PKGBUILD install to /usr/share/veiland. It is not decoration:
+          # with no user config, veiland-core renders the default scene
+          # compiled into the binary (veiland-core/src/default-scene.toml)
+          # and resolves that scene's wallpaper relative to the running
+          # executable, at <exe_dir>/../share/veiland — which is
+          # $out/share/veiland here, since buildRustPackage installs the
+          # binaries to $out/bin. Without these files the default scene
+          # still comes up, but degrades to petals and clock on black.
+          #
+          # config.example.toml, not veiland.example.toml: the other
+          # packages rename it on install, and the core's "no config file"
+          # log line points users at that name.
+          postInstall = ''
+            install -Dm0644 packaging/veiland.example.toml \
+              "$out/share/veiland/config.example.toml"
+            install -Dm0644 docs/examples/assets/sakura-dusk.jpg \
+              "$out/share/veiland/sakura-dusk.jpg"
+          '';
+
           meta = {
             description = "Wayland screen locker with process-isolated GPU plugins";
             homepage = "https://github.com/sylflo/veiland";
@@ -255,6 +275,10 @@
             runHook postBuild
           '';
           doCheck = false;
+          # $out here is a marker file, not a directory, so the package's
+          # postInstall (which installs data files into $out/share/veiland)
+          # would fail on it. The check installs nothing; drop the hook.
+          postInstall = "";
           installPhase = ''
             runHook preInstall
             touch "$out"
