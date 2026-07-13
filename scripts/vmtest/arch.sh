@@ -195,13 +195,23 @@ echo ">>       -p $SSH_PORT arch@localhost 'sudo cloud-init status; pacman -Q ve
 # virtio-gpu-gl + gl=on is the virgl path: guest GL is forwarded to the host GPU
 # rather than software-rasterized. On a single-GPU host this is as close to a
 # real GPU as a guest gets -- passthrough would take the card from the host.
+#
+# blob=on is not optional for veiland, and it defaults to OFF. It turns guest
+# GPU buffers into real host dmabufs; without it the guest gets virgl's virtual
+# resources, which cannot back a cross-process dmabuf export/import. That
+# export/import IS veiland's rendering model (a plugin allocates via GBM and
+# passes the fd; the core imports it with eglCreateImage), so a guest without
+# blob resources gets no usable 3D at all: guest Mesa refuses virtio_gpu_dri.so,
+# falls back to Zink, finds no Vulkan driver, and every GL client degrades.
+# (Observed: with blob off, `eglinfo` in the guest reported llvmpipe; with it
+# on, virgl on the host's actual GPU.)
 qemu-system-x86_64 \
     "${accel[@]}" \
     -smp "$CPUS" \
     -m "$MEM" \
     -drive file="$DISK",if=virtio,format=qcow2 \
     -drive file="$SEED",if=virtio,format=raw,readonly=on \
-    -device virtio-gpu-gl \
+    -device virtio-gpu-gl,blob=on \
     -display gtk,gl=on \
     -device virtio-net-pci,netdev=net0 \
     -netdev user,id=net0,hostfwd=tcp::"$SSH_PORT"-:22 \
