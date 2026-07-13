@@ -16,7 +16,7 @@
 # shell for wf-recorder + ffmpeg:  cd repo && nix develop
 #
 # Usage:
-#   scripts/record-scene.sh <scene> [options]
+#   scripts/record/scene.sh <scene> [options]
 #
 #   <scene>   name under docs/examples/ (e.g. sakura, snow, blobs), OR a
 #             path to a .toml. The GIF is written to
@@ -33,15 +33,15 @@
 #   -k           keep the intermediate mp4s in /tmp
 #
 # Examples:
-#   scripts/record-scene.sh sakura
-#   scripts/record-scene.sh raymarcher -w 1280 -d 12 -t 10 -n hero
-#   scripts/record-scene.sh snow -o DP-1
+#   scripts/record/scene.sh sakura
+#   scripts/record/scene.sh raymarcher -w 1280 -d 12 -t 10 -n hero
+#   scripts/record/scene.sh snow -o DP-1
 
 set -euo pipefail
 
-# --- repo root (script lives in scripts/) ---------------------------------
+# --- repo root (script lives in scripts/record/) ---------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 EXAMPLES_DIR="$REPO_ROOT/docs/examples"
 ASSET_DIR="$REPO_ROOT/docs/assets/readme"
 
@@ -57,7 +57,7 @@ KEEP_MP4=0
 
 # --- parse args -----------------------------------------------------------
 if [ $# -lt 1 ]; then
-  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,38p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
 fi
 SCENE="$1"; shift

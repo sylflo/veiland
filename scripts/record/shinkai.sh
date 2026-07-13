@@ -19,7 +19,7 @@
 #   VEILAND_CONFIG=./docs/examples/shinkai.toml ./target/debug/veiland
 #
 # Usage:
-#   scripts/record-shinkai.sh [options]
+#   scripts/record/shinkai.sh [options]
 #
 # Options:
 #   -L OUTPUT    left output      (default: HDMI-A-1)
@@ -34,7 +34,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG="$REPO_ROOT/docs/examples/shinkai.toml"
 ASSET_DIR="$REPO_ROOT/docs/assets/readme"
 
