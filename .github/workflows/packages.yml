@@ -60,17 +60,25 @@ jobs:
 
       - name: Build package
         run: |
-          # makepkg builds from $srcdir; our PKGBUILD does
-          # `cd "$srcdir/veiland"`, so stage the checkout there.
+          # The PKGBUILD builds from the v$pkgver release tarball (that is
+          # what the AUR needs), but CI must build the *checked-out tree*:
+          # push/PR validate HEAD, and the tag may not even exist yet when
+          # pkgver is bumped ahead of a release. So stage the checkout
+          # under the directory name the tarball would extract to, and
+          # pre-create a placeholder tarball so makepkg (--noextract
+          # --skipinteg below) sees the source as already fetched instead
+          # of downloading the real one.
           set -eux
           workdir=$(mktemp -d)
           cp packaging/arch/PKGBUILD "$workdir/PKGBUILD"
           mkdir -p "$workdir/src"
+          ver=$(sed -n 's/^pkgver=//p' "$workdir/PKGBUILD")
+          touch "$workdir/veiland-$ver.tar.gz"
           # Copy the whole repo (the build needs the full workspace +
           # packaging/ assets referenced by package()).
           git config --global --add safe.directory "$PWD"
           git archive --format=tar HEAD | tar -x -C "$workdir/src" \
-            --one-top-level=veiland
+            --one-top-level="veiland-$ver"
           chown -R builder:builder "$workdir"
           cd "$workdir"
           # --noextract: source=() has nothing to fetch, we pre-staged

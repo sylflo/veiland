@@ -32,13 +32,12 @@ makedepends=('rust' 'cargo' 'pkgconf')
 # upgrade (Arch analog of a Debian conffile / rpm %config(noreplace)).
 backup=('etc/pam.d/veiland')
 
-# TODO(release): once v$pkgver is tagged, switch to a release tarball:
-#   source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-#   sha256sums=('<sha256 of that tarball>')
-# For now the package is built from the checked-out tree (CI copies the
-# repo into the build dir), so there is no remote source to fetch.
-source=()
-sha256sums=()
+# Built from the GitHub release tarball (this is what the AUR copy of
+# this file needs). CI still builds the checked-out tree: packages.yml
+# stages it under the tarball's directory name and pre-creates a
+# placeholder tarball, then runs makepkg --noextract --skipinteg.
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('acbcd1d9b09b0fc4bd771088f8a80fc054053d2b3dcdc13ac77e43e7fc14d980')
 
 # The real set, as -p flags shared by build() and check().
 _crates=(
@@ -60,7 +59,7 @@ _crates=(
 )
 
 build() {
-  cd "$srcdir/veiland"
+  cd "$srcdir/$pkgname-$pkgver"
   export CARGO_HOME="$srcdir/cargo-home"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
@@ -76,7 +75,7 @@ build() {
 }
 
 check() {
-  cd "$srcdir/veiland"
+  cd "$srcdir/$pkgname-$pkgver"
   export CARGO_HOME="$srcdir/cargo-home"
   export CARGO_TARGET_DIR=target
 
@@ -94,7 +93,7 @@ check() {
 }
 
 package() {
-  cd "$srcdir/veiland"
+  cd "$srcdir/$pkgname-$pkgver"
 
   # Binaries -> /usr/bin. install -D creates parent dirs; 755 = executable.
   # The veiland-core crate builds a binary named `veiland` (its [[bin]]);
