@@ -196,7 +196,7 @@ echo ">> check the install once cloud-init settles:"
 echo ">>   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
 echo ">>       -p $SSH_PORT fedora@localhost 'sudo cloud-init status; rpm -q veiland'"
 
-# virtio-gpu-gl + gl=on is the virgl path: guest GL is forwarded to the host GPU
+# virtio-vga-gl + gl=on is the virgl path: guest GL is forwarded to the host GPU
 # rather than software-rasterized. On a single-GPU host this is as close to a
 # real GPU as a guest gets -- passthrough would take the card from the host.
 #
@@ -207,13 +207,27 @@ echo ">>       -p $SSH_PORT fedora@localhost 'sudo cloud-init status; rpm -q vei
 # passes the fd; the core imports it with eglCreateImage), so a guest without
 # blob resources gets no usable 3D at all: guest Mesa refuses virtio_gpu_dri.so,
 # falls back to Zink, finds no Vulkan driver, and every GL client degrades.
+#
+# virtio-vga-gl rather than virtio-gpu-gl, and -vga none: the guest needs
+# exactly ONE gpu. Without -vga none QEMU quietly adds its default VGA (bochs)
+# as a SECOND gpu, the compositor initializes on that boot VGA -- no render
+# node, no GL -- falls back to software rendering and stops advertising
+# linux-dmabuf, and every Wayland EGL client (veiland-core included) lands on
+# llvmpipe, compositing the plugins' virgl-rendered dmabufs as black. But the
+# one gpu cannot be the VGA-less virtio-gpu-gl either: Debian's BIOS GRUB
+# reset-loops on a machine with no VGA at all (this image happens to survive
+# that, but the three vmtest scripts stay identical on purpose). virtio-vga-gl
+# is the same virtio gpu with a VGA-compatible boot framebuffer bolted on:
+# GRUB gets its VGA, the guest still sees a single card, and firmware/boot
+# output is visible in the window from power-on.
 qemu-system-x86_64 \
     "${accel[@]}" \
     -smp "$CPUS" \
     -m "$MEM" \
     -drive file="$DISK",if=virtio,format=qcow2 \
     -drive file="$SEED",if=virtio,format=raw,readonly=on \
-    -device virtio-gpu-gl,blob=on \
+    -vga none \
+    -device virtio-vga-gl,blob=on \
     -display gtk,gl=on \
     -device virtio-net-pci,netdev=net0 \
     -netdev user,id=net0,hostfwd=tcp::"$SSH_PORT"-:22 \
