@@ -102,6 +102,10 @@ count = 40
 # Mockup uses translucent white; tune brighter if you want them to
 # read more clearly against this specific wallpaper.
 color = [1.0, 1.0, 1.0, 1.0]
+# Core radius in logical px (the glow halo extends ~3x beyond it).
+# The plugin default of 0.4 reads too small on this scene, and the
+# gallery GIF downscales to ~600px wide — size for that, not 1:1.
+radius_px = 1.5
 
 # --- Sakura: falling cherry-blossom petals --------------------------
 [[plugin]]
