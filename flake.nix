@@ -159,6 +159,12 @@
             # GitHub CLI for cutting releases (gh release create ...) and
             # other repo operations without leaving the shell.
             gh
+
+            # cloud-localds, used by scripts/vmtest/*.sh to build the
+            # cloud-init seed ISO for the packaging-test VMs. The nixpkgs
+            # wrapper bundles genisoimage and qemu-img, so this one package
+            # covers the seed step; qemu itself comes from the system.
+            cloud-utils
           ];
 
           shellHook = ''
