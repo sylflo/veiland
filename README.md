@@ -355,7 +355,9 @@ Veiland looks for its config at `~/.config/veiland/config.toml` (or
 `$XDG_CONFIG_HOME/veiland/config.toml`). With no config file it renders a
 default scene — the raymarched tunnel from the hero shot — compiled into the
 binary; a config file replaces that scene, it doesn't add to it. See
-`docs/config.md` for the full reference. A minimal config:
+[`docs/config.md`](docs/config.md) for the full reference and
+[`docs/plugins.md`](docs/plugins.md) for every plugin's `[plugin.config]`
+keys and defaults. A minimal config:
 
 ```toml
 [password]

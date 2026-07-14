@@ -339,6 +339,9 @@ Plugins that do not declare a `[plugin.config]` table see
 `VEILAND_PLUGIN_CONFIG` unset and should fall back to whatever
 defaults they document.
 
+The keys each first-party plugin accepts (with types and defaults)
+are documented in [`plugins.md`](plugins.md).
+
 ## 4. Worked examples
 
 ### One plugin filling the screen
@@ -540,6 +543,8 @@ By design:
 
 ## 8. See also
 
+- `docs/plugins.md` — per-plugin reference: every `[plugin.config]`
+  key the first-party plugins accept, with types and defaults.
 - `docs/protocol.md` — the plugin ↔ host wire protocol. Read if
   you're writing a plugin.
 - `docs/examples/` — complete working scene configs, one per README
