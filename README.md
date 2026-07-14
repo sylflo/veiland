@@ -150,21 +150,13 @@ The package installs the `veiland` binary and the reference plugins into
 `/usr/bin` and registers the `veiland` PAM service. No manual
 `/etc/pam.d/veiland` needed.
 
-To build it yourself from a checkout of this repo instead: the shipped
-`PKGBUILD` has an empty `source=()` (it's built from the working tree,
-not a release tarball yet), so stage the tree where `build()` expects it
-and tell `makepkg` not to re-extract:
+To build the package yourself without an AUR helper: the `PKGBUILD`
+fetches the release tarball (checksum-verified), so this builds the
+tagged release — not your local tree:
 
 ```sh
-workdir=$(mktemp -d)
-cp packaging/arch/PKGBUILD "$workdir/PKGBUILD"
-git archive --format=tar HEAD | tar -x -C "$workdir" --one-top-level=src/veiland
-cd "$workdir"
-makepkg -si --noextract --skipinteg
+cd packaging/arch && makepkg -si
 ```
-
-(Once a tagged release tarball is wired into `source=()`, this collapses
-back to a plain `cd packaging/arch && makepkg -si`.)
 </details>
 
 <details>
