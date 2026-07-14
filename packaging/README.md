@@ -54,11 +54,11 @@ do.
 
 ## Building the `.rpm` from a checkout (Fedora)
 
-The spec expects a tarball named `veiland-<version>.tar.gz` whose top
-directory is `veiland-<version>` (once releases are tagged, `Source0`
-will point at the GitHub release tarball instead — see the
-`TODO(release)` note in the spec). Until then, stage it from your
-checkout:
+`Source0` points at the GitHub release tarball, so for a tagged
+release `spectool -g -R packaging/rpm/veiland.spec` downloads it into
+`SOURCES/` for you. To build unreleased work instead, stage a tarball
+of your checkout under the same name (rpmbuild resolves `Source0` by
+basename):
 
 ```sh
 # Build tooling + the -devel headers the -sys crates link against.

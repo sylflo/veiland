@@ -14,11 +14,12 @@ Summary:        Wayland screen locker with process-isolated GPU plugins
 License:        GPL-3.0-or-later
 URL:            https://github.com/sylflo/veiland
 
-# TODO(release): once v%%{version} is tagged, point Source0 at the
-# release tarball and let %%autosetup unpack it:
-#   Source0: %%{url}/archive/refs/tags/v%%{version}/%%{name}-%%{version}.tar.gz
-# For now CI builds from the checked-out tree staged into %%{_builddir}.
-Source0:        %{name}-%{version}.tar.gz
+# The v%%{version} release tarball (Fedora's github-archive URL form;
+# the trailing filename is arbitrary to GitHub and names the download).
+# rpmbuild resolves Source0 by basename in SOURCES/, so CI keeps
+# staging the checked-out tree there under this exact name — the URL
+# is fetched only by humans running `spectool -g`.
+Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 ExclusiveArch:  x86_64 aarch64
 
