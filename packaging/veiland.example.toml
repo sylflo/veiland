@@ -22,7 +22,8 @@
 # without hardcoding a bindir. Plugin `path` config values (the wallpaper
 # plugin takes one, for instance) are read verbatim with no $PATH or ~
 # expansion, so those must be absolute. See docs/config.md for every
-# option, and docs/examples/ for more ready-made scenes.
+# option, and the examples/ directory next to this file (docs/examples/
+# in the repo) for more ready-made scenes.
 
 # --- Raymarcher: slow raymarched gyroid tunnel ----------------------
 # The camera drifts through the tunnels of a gyroid (a triply periodic

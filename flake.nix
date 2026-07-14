@@ -135,6 +135,20 @@
               "$out/share/veiland/config.example.toml"
             install -Dm0644 docs/examples/assets/sakura-dusk.jpg \
               "$out/share/veiland/sakura-dusk.jpg"
+
+            # Ready-made example scenes, like the other packages install to
+            # /usr/share/veiland/examples. The hotplug repro config is a dev
+            # tool, not a scene. There is no /usr/share here, so where the
+            # FHS packages rewrite the examples' repo-relative asset paths
+            # to /usr/share/veiland, this rewrites them to this package's
+            # own store share directory. A config copied from here pins that
+            # store path — it stays valid until the generation it came from
+            # is garbage-collected, and a stale path just means the
+            # wallpaper plugin logs it and paints black.
+            install -Dm0644 -t "$out/share/veiland/examples" docs/examples/*.toml
+            rm "$out/share/veiland/examples/hotplug-repro.toml"
+            sed -i "s|docs/examples/assets/|$out/share/veiland/|" \
+              "$out/share/veiland/examples/"*.toml
           '';
 
           meta = {

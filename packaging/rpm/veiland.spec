@@ -131,6 +131,16 @@ install -Dm0644 packaging/veiland.example.toml \
 install -Dm0644 docs/examples/assets/sakura-dusk.jpg \
   %{buildroot}%{_datadir}/veiland/sakura-dusk.jpg
 
+# Ready-made example scenes. The hotplug repro config is a dev tool,
+# not a scene. Asset paths in the examples are repo-relative (so they
+# run in place from a checkout); point the installed copies at the
+# installed wallpaper.
+install -dm0755 %{buildroot}%{_datadir}/veiland/examples
+install -m0644 docs/examples/*.toml %{buildroot}%{_datadir}/veiland/examples/
+rm %{buildroot}%{_datadir}/veiland/examples/hotplug-repro.toml
+sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
+  %{buildroot}%{_datadir}/veiland/examples/*.toml
+
 %files
 %license LICENSE
 %{_bindir}/veiland
@@ -152,6 +162,7 @@ install -Dm0644 docs/examples/assets/sakura-dusk.jpg \
 %dir %{_datadir}/veiland
 %{_datadir}/veiland/config.example.toml
 %{_datadir}/veiland/sakura-dusk.jpg
+%{_datadir}/veiland/examples/
 
 %changelog
 * Sat Jul 04 2026 sylflo <veiland@sylvain-chateau.com> - 0.1.0-1

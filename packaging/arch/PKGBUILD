@@ -118,6 +118,16 @@ package() {
   install -Dm644 "docs/examples/assets/sakura-dusk.jpg" \
     "$pkgdir/usr/share/veiland/sakura-dusk.jpg"
 
+  # Ready-made example scenes. The hotplug repro config is a dev tool,
+  # not a scene. Asset paths in the examples are repo-relative (so they
+  # run in place from a checkout); point the installed copies at the
+  # installed wallpaper.
+  install -dm755 "$pkgdir/usr/share/veiland/examples"
+  install -m644 docs/examples/*.toml "$pkgdir/usr/share/veiland/examples/"
+  rm "$pkgdir/usr/share/veiland/examples/hotplug-repro.toml"
+  sed -i 's|docs/examples/assets/|/usr/share/veiland/|' \
+    "$pkgdir/usr/share/veiland/examples/"*.toml
+
   # License text.
   install -Dm644 "LICENSE" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

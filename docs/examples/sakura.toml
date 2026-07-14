@@ -20,8 +20,15 @@
 # Run it in place from the repo root, without installing anything:
 #   VEILAND_CONFIG=docs/examples/sakura.toml veiland
 #
-# To install it, copy BOTH the config and the wallpaper, then fix the
-# wallpaper `path` below to the absolute location you copied it to:
+# Installed a package? Then a copy of this file already sits at
+# /usr/share/veiland/examples/sakura.toml with the wallpaper path below
+# rewritten to the installed image — copy that one and edit nothing:
+#   mkdir -p ~/.config/veiland
+#   cp /usr/share/veiland/examples/sakura.toml ~/.config/veiland/config.toml
+#
+# From a source checkout, copy BOTH the config and the wallpaper, then
+# fix the wallpaper `path` below to the absolute location you copied it
+# to:
 #   mkdir -p ~/.config/veiland
 #   cp docs/examples/sakura.toml            ~/.config/veiland/config.toml
 #   cp docs/examples/assets/sakura-dusk.jpg ~/.config/veiland/
@@ -35,10 +42,11 @@
 # the rest of the scene (petals, clock, pill) still works.
 
 # --- Wallpaper: dusk-sky backdrop ----------------------------------
-# z_index -100 keeps it behind everything. The path below is relative
-# to the repo root, which is the working directory when you launch with
-# VEILAND_CONFIG=docs/examples/sakura.toml from the repo. For an
-# installed setup, change this to an absolute path (see the header).
+# z_index -100 keeps it behind everything. In the repo the path below
+# is relative to the repo root (the working directory when you launch
+# with VEILAND_CONFIG=docs/examples/sakura.toml from a checkout);
+# packages install this file with it rewritten to the installed
+# wallpaper. Point it at your own image with an absolute path.
 [[plugin]]
 name = "wallpaper"
 binary = "veiland-wallpaper"

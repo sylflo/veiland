@@ -15,3 +15,4 @@ target/release/veiland-blobs       usr/bin
 target/release/veiland-raymarcher  usr/bin
 packaging/veiland.example.toml         usr/share/veiland
 docs/examples/assets/sakura-dusk.jpg   usr/share/veiland
+docs/examples/*.toml                   usr/share/veiland/examples

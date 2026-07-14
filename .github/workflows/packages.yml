@@ -154,6 +154,12 @@ jobs:
           test -f /etc/pam.d/veiland
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
+          test -f /usr/share/veiland/examples/sakura.toml
+          test ! -e /usr/share/veiland/examples/hotplug-repro.toml
+          # The install-time path rewrite: the shipped example must point
+          # at the installed wallpaper, not the repo-relative path.
+          grep -q 'path = "/usr/share/veiland/sakura-dusk.jpg"' \
+            /usr/share/veiland/examples/sakura.toml
 
   debian:
     name: Debian (.deb)
@@ -289,6 +295,12 @@ jobs:
           test -f /etc/pam.d/veiland
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
+          test -f /usr/share/veiland/examples/sakura.toml
+          test ! -e /usr/share/veiland/examples/hotplug-repro.toml
+          # The install-time path rewrite: the shipped example must point
+          # at the installed wallpaper, not the repo-relative path.
+          grep -q 'path = "/usr/share/veiland/sakura-dusk.jpg"' \
+            /usr/share/veiland/examples/sakura.toml
 
   ubuntu-install:
     name: Ubuntu ${{ matrix.release }} (install check)
@@ -353,6 +365,12 @@ jobs:
           test -f /etc/pam.d/veiland
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
+          test -f /usr/share/veiland/examples/sakura.toml
+          test ! -e /usr/share/veiland/examples/hotplug-repro.toml
+          # The install-time path rewrite: the shipped example must point
+          # at the installed wallpaper, not the repo-relative path.
+          grep -q 'path = "/usr/share/veiland/sakura-dusk.jpg"' \
+            /usr/share/veiland/examples/sakura.toml
 
   fedora:
     name: Fedora (.rpm)
@@ -455,3 +473,9 @@ jobs:
           test -f /etc/pam.d/veiland
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
+          test -f /usr/share/veiland/examples/sakura.toml
+          test ! -e /usr/share/veiland/examples/hotplug-repro.toml
+          # The install-time path rewrite: the shipped example must point
+          # at the installed wallpaper, not the repo-relative path.
+          grep -q 'path = "/usr/share/veiland/sakura-dusk.jpg"' \
+            /usr/share/veiland/examples/sakura.toml

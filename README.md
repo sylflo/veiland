@@ -243,8 +243,15 @@ mkdir -p ~/.config/veiland
 cp /usr/share/veiland/config.example.toml ~/.config/veiland/config.toml
 ```
 
-For a scene built on assets — `sakura`, say — copy its config and wallpaper
-from the repo:
+Every gallery scene is also installed, ready to use — asset paths already
+point at the installed files, so no editing is needed:
+
+```sh
+mkdir -p ~/.config/veiland
+cp /usr/share/veiland/examples/sakura.toml ~/.config/veiland/config.toml
+```
+
+From a source checkout, copy the scene and its assets from the repo instead:
 
 ```sh
 mkdir -p ~/.config/veiland
@@ -252,17 +259,9 @@ cp docs/examples/sakura.toml            ~/.config/veiland/config.toml
 cp docs/examples/assets/sakura-dusk.jpg ~/.config/veiland/
 ```
 
-Then edit `~/.config/veiland/config.toml` and set the wallpaper `path` to an
-**absolute** path (no `~`):
-
-```toml
-[[plugin]]
-name = "wallpaper"
-binary = "veiland-wallpaper"
-z_index = -100
-[plugin.config]
-path = "/home/you/.config/veiland/sakura-dusk.jpg"
-```
+then edit `~/.config/veiland/config.toml` and set the wallpaper `path` to an
+**absolute** path (no `~`), e.g.
+`/home/you/.config/veiland/sakura-dusk.jpg`.
 
 **3. Lock:**
 
@@ -270,10 +269,11 @@ path = "/home/you/.config/veiland/sakura-dusk.jpg"
 veiland
 ```
 
-Bind that to a key or an idle daemon (`hypridle`, `swayidle`). If the
-wallpaper path is wrong it's harmless: the petals, clock, and password pill
-still render over black, and veiland logs the bad path. Every scene in the
-[gallery](#gallery) installs the same way.
+Bind that to a key or an idle daemon (`hypridle`, `swayidle`). If a
+wallpaper path is wrong it's harmless: the rest of the scene and the
+password pill still render over black, and veiland logs the bad path. Every
+scene in the [gallery](#gallery) installs the same way from
+`/usr/share/veiland/examples/`.
 
 ---
 

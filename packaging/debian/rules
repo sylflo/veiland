@@ -57,3 +57,9 @@ execute_after_dh_install:
 	# CI install-check asserts.
 	mv debian/veiland/usr/share/veiland/veiland.example.toml \
 	   debian/veiland/usr/share/veiland/config.example.toml
+	# The hotplug repro config is a dev tool, not a scene. The remaining
+	# examples' asset paths are repo-relative (so they run in place from
+	# a checkout); point the installed copies at the installed wallpaper.
+	rm debian/veiland/usr/share/veiland/examples/hotplug-repro.toml
+	sed -i 's|docs/examples/assets/|/usr/share/veiland/|' \
+	   debian/veiland/usr/share/veiland/examples/*.toml

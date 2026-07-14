@@ -13,6 +13,10 @@ everything else.
 - `pam/` — the `/etc/pam.d/veiland` files each package installs
   (`veiland.system-auth` for Arch/Fedora, `veiland.common` for Debian)
 - `veiland.example.toml` — installed to `/usr/share/veiland/`
+  (as `config.example.toml`), alongside the ready-made scenes from
+  `docs/examples/` under `/usr/share/veiland/examples/` (minus the
+  hotplug repro config, and with asset paths rewritten from their
+  repo-relative form to the installed locations)
 
 All packages build the **real set** from source
 (`veiland-core` + wallpaper, clock, particles, vignette, label,
