@@ -143,6 +143,16 @@ users:
       - $ssh_key
 ssh_pwauth: true
 package_update: true
+bootcmd:
+  # The image's pacman-init.service (pacman-key --init + --populate) is gated
+  # on ConditionFirstBoot=yes, and a fresh overlay boot has been observed to
+  # come up with that condition unmet -- systemd generated a fresh machine-id
+  # yet never set the first-boot flag -- leaving the keyring absent and every
+  # signed pacman transaction failing (\`error: keyring is not writable\`).
+  # Don't bet the provision on winning that upstream coin toss: initialize the
+  # keyring ourselves. bootcmd runs before the packages module; the guard
+  # makes reboots a no-op.
+  - [ sh, -c, "[ -d /etc/pacman.d/gnupg ] || { pacman-key --init && pacman-key --populate; }" ]
 packages:
   # A compositor implementing ext-session-lock-v1 to host the lock surface, a
   # terminal to launch veiland from, and the guest-side Mesa userspace that
@@ -163,7 +173,12 @@ runcmd:
   # this VM exists to catch -- and did catch on Debian: a libturbojpeg floor
   # (>= 1:3.1.3) that no Debian release could satisfy.
   - [ sh, -c, "curl -fL -o /tmp/$PKG_NAME 'http://10.0.2.2:$HTTP_PORT/$PKG_NAME'" ]
-  - [ sh, -c, "pacman -U --noconfirm /tmp/$PKG_NAME" ]
+  # Bounded retry around pacman -U: provisioning has been observed to leave a
+  # stale, empty /var/lib/pacman/db.lck behind after the packages module ran
+  # (owner unknown; the guest clock stepped during first boot, so lock-file
+  # mtime forensics are useless). Clear the lock only when no pacman is
+  # actually alive, and give up after ~30s rather than hanging the provision.
+  - [ sh, -c, "for i in 1 2 3 4 5 6 7 8 9 10; do pacman -U --noconfirm /tmp/$PKG_NAME && break; sleep 3; pgrep -x pacman >/dev/null || rm -f /var/lib/pacman/db.lck; done" ]
   # A breadcrumb to read from the host: did it install, and does it run?
   - [ sh, -c, "veiland --version > /var/log/veiland-install.log 2>&1 || echo 'veiland failed to run' > /var/log/veiland-install.log" ]
 EOF
