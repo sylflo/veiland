@@ -17,14 +17,20 @@
 # require cutting a release to find out whether a release is worth cutting --
 # which is how the Debian libturbojpeg bug shipped.
 # Once a release IS cut, --release is the complementary check: it fetches the
-# package attached to the GitHub release and installs that. (What users
-# install from the AUR is a source build of the tagged PKGBUILD, not this
-# artifact -- but it is the same PKGBUILD CI built it from.)
+# package attached to the GitHub release and installs that. And --aur is the
+# third provenance: what Arch users actually run is neither artifact but a
+# source build of the *published* AUR PKGBUILD -- so that mode has the guest
+# clone aur.archlinux.org/veiland.git and makepkg -si it, downloading the
+# release tarball from GitHub and verifying its checksum inside the VM. It is
+# the only check that catches the AUR copy drifting from the repo copy.
+# (Slowest mode by far: it compiles the whole workspace in the guest.)
 #
 #   ./arch.sh                  boot the VM (downloads + provisions on first run)
 #   ./arch.sh --clean          drop the overlay disk + seed, forcing a reprovision
 #   ./arch.sh --release [TAG]  test the released package (latest release, or TAG)
 #                              instead of the locally-built one
+#   ./arch.sh --aur            test what AUR users get: the guest builds and
+#                              installs the published AUR package from source
 #
 # cloud-init only applies its config on an instance's FIRST boot, so after
 # rebuilding the package -- or when switching to --release -- run --clean
@@ -74,7 +80,15 @@ fi
 # installs.
 DIST_DIR="$REPO_ROOT/dist"
 RELEASE_TAG=""
-if [[ "${1:-}" == "--release" ]]; then
+AUR_MODE=""
+if [[ "${1:-}" == "--aur" ]]; then
+    AUR_MODE=1
+    if [[ -f "$DISK" ]]; then
+        echo ">> NOTE: an overlay disk already exists, and cloud-init only installs"
+        echo ">> on FIRST boot -- the AUR build will not happen in it."
+        echo ">> Run './arch.sh --clean' first, then rerun with --aur."
+    fi
+elif [[ "${1:-}" == "--release" ]]; then
     if ! command -v gh >/dev/null; then
         echo "!! --release needs the gh CLI on PATH." >&2
         exit 1
@@ -97,24 +111,29 @@ if [[ "${1:-}" == "--release" ]]; then
     fi
 fi
 
-shopt -s nullglob
-pkgs=("$DIST_DIR"/veiland-[0-9]*.pkg.tar.zst)
-shopt -u nullglob
-if [[ ${#pkgs[@]} -eq 0 ]]; then
-    if [[ -n "$RELEASE_TAG" ]]; then
-        echo "!! no package asset on release $RELEASE_TAG." >&2
-    else
-        echo "!! no package in $REPO_ROOT/dist/. Build one first:" >&2
-        echo "!!   ./scripts/vmtest/build-arch.sh" >&2
-    fi
-    exit 1
-fi
-PKG_PATH="${pkgs[0]}"
-PKG_NAME=$(basename "$PKG_PATH")
-if [[ -n "$RELEASE_TAG" ]]; then
-    echo ">> package under test: $PKG_NAME (release $RELEASE_TAG)"
+PKG_NAME=""
+if [[ -n "$AUR_MODE" ]]; then
+    echo ">> package under test: source build of aur.archlinux.org/veiland (AUR)"
 else
-    echo ">> package under test: $PKG_NAME (locally built)"
+    shopt -s nullglob
+    pkgs=("$DIST_DIR"/veiland-[0-9]*.pkg.tar.zst)
+    shopt -u nullglob
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        if [[ -n "$RELEASE_TAG" ]]; then
+            echo "!! no package asset on release $RELEASE_TAG." >&2
+        else
+            echo "!! no package in $REPO_ROOT/dist/. Build one first:" >&2
+            echo "!!   ./scripts/vmtest/build-arch.sh" >&2
+        fi
+        exit 1
+    fi
+    PKG_PATH="${pkgs[0]}"
+    PKG_NAME=$(basename "$PKG_PATH")
+    if [[ -n "$RELEASE_TAG" ]]; then
+        echo ">> package under test: $PKG_NAME (release $RELEASE_TAG)"
+    else
+        echo ">> package under test: $PKG_NAME (locally built)"
+    fi
 fi
 
 mkdir -p "$VM_DIR"
@@ -144,13 +163,18 @@ fi
 #    with this script.
 #
 #    A different port from the other two scripts', so all three can be up.
+#
+#    --aur needs none of this: the guest fetches everything itself (the AUR
+#    git repo, then the release tarball from GitHub) over its own network.
 HTTP_PORT=8101
-python3 -m http.server "$HTTP_PORT" \
-    --directory "$DIST_DIR" \
-    --bind 127.0.0.1 >/dev/null 2>&1 &
-HTTP_PID=$!
-trap 'kill "$HTTP_PID" 2>/dev/null || true' EXIT
-echo ">> serving ${DIST_DIR#"$REPO_ROOT"/} to the guest on 10.0.2.2:$HTTP_PORT"
+if [[ -z "$AUR_MODE" ]]; then
+    python3 -m http.server "$HTTP_PORT" \
+        --directory "$DIST_DIR" \
+        --bind 127.0.0.1 >/dev/null 2>&1 &
+    HTTP_PID=$!
+    trap 'kill "$HTTP_PID" 2>/dev/null || true' EXIT
+    echo ">> serving ${DIST_DIR#"$REPO_ROOT"/} to the guest on 10.0.2.2:$HTTP_PORT"
+fi
 
 # 4. cloud-init seed. A cloud image ships with no user and no password, so this
 #    is the only way in.
@@ -170,6 +194,48 @@ if [[ -z "$ssh_key" ]]; then
     echo "!! no SSH public key at ~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub." >&2
     echo "!! create one with: ssh-keygen -t ed25519" >&2
     exit 1
+fi
+
+# The mode-specific provisioning: which packages the guest needs and how the
+# package under test gets installed. Built here so the heredoc below stays one
+# document. Mind the expansion: these strings pass through the unquoted heredoc.
+if [[ -n "$AUR_MODE" ]]; then
+    # git clones the AUR repo; base-devel is makepkg plus the toolchain it
+    # assumes present. rust/cargo/pkgconf are deliberately NOT pre-seeded:
+    # makepkg -s must resolve the PKGBUILD's own makedepends=() from the
+    # repos, or a wrong declaration slips through -- the same reasoning as
+    # not pre-seeding depends=() below.
+    extra_packages="  - git
+  - base-devel"
+    install_cmds="  # Build and install the published AUR package as an unprivileged user
+  # (makepkg refuses to run as root). The clone is exactly what an AUR
+  # helper automates; makepkg -s resolves makedepends from the repos,
+  # downloads the release tarball from GitHub, verifies its checksum,
+  # builds, and -i installs it via sudo (the arch user is NOPASSWD). Only
+  # 3 tries around the db.lck guard (see the note in the default mode's
+  # install command): a failed attempt here costs a full compile.
+  - [ sh, -c, \"runuser -u arch -- git clone https://aur.archlinux.org/veiland.git /home/arch/veiland-aur\" ]
+  - [ sh, -c, \"for i in 1 2 3; do runuser -u arch -- sh -c 'cd /home/arch/veiland-aur && makepkg -si --noconfirm' && break; sleep 3; pgrep -x pacman >/dev/null || rm -f /var/lib/pacman/db.lck; done\" ]"
+else
+    install_cmds="  # Fetch the package from the host's throwaway HTTP server (10.0.2.2 is
+  # the host, as seen from QEMU's user-mode network) and install it.
+  #
+  # Deliberately NOT pre-installing veiland's runtime libraries: pacman -U
+  # resolves the package's own declared depends=() against Arch's repos, so
+  # a missing or unsatisfiable one fails the install right here and the
+  # packaging bug surfaces. Pre-seeding the libraries would paper over
+  # exactly the defect this VM exists to catch -- and did catch on Debian:
+  # a libturbojpeg floor (>= 1:3.1.3) that no Debian release could satisfy.
+  - [ sh, -c, \"curl -fL -o /tmp/$PKG_NAME 'http://10.0.2.2:$HTTP_PORT/$PKG_NAME'\" ]
+  # Bounded retry around pacman -U: provisioning has been observed to leave
+  # a stale, empty /var/lib/pacman/db.lck behind after the packages module
+  # ran (owner unknown; the guest clock stepped during first boot, so
+  # lock-file mtime forensics are useless). Clear the lock only when no
+  # pacman is actually alive, and give up after ~30s rather than hanging
+  # the provision.
+  - [ sh, -c, \"for i in 1 2 3 4 5 6 7 8 9 10; do pacman -U --noconfirm /tmp/$PKG_NAME && break; sleep 3; pgrep -x pacman >/dev/null || rm -f /var/lib/pacman/db.lck; done\" ]"
+    extra_packages="  # curl fetches the package from the host in runcmd below.
+  - curl"
 fi
 
 cat > "$VM_DIR/user-data" <<EOF
@@ -205,25 +271,9 @@ packages:
   - sway
   - foot
   - mesa-utils
-  # curl fetches the package from the host below.
-  - curl
+$extra_packages
 runcmd:
-  # Fetch the package from the host's throwaway HTTP server (10.0.2.2 is the
-  # host, as seen from QEMU's user-mode network) and install it.
-  #
-  # Deliberately NOT pre-installing veiland's runtime libraries: pacman -U
-  # resolves the package's own declared depends=() against Arch's repos, so a
-  # missing or unsatisfiable one fails the install right here and the packaging
-  # bug surfaces. Pre-seeding the libraries would paper over exactly the defect
-  # this VM exists to catch -- and did catch on Debian: a libturbojpeg floor
-  # (>= 1:3.1.3) that no Debian release could satisfy.
-  - [ sh, -c, "curl -fL -o /tmp/$PKG_NAME 'http://10.0.2.2:$HTTP_PORT/$PKG_NAME'" ]
-  # Bounded retry around pacman -U: provisioning has been observed to leave a
-  # stale, empty /var/lib/pacman/db.lck behind after the packages module ran
-  # (owner unknown; the guest clock stepped during first boot, so lock-file
-  # mtime forensics are useless). Clear the lock only when no pacman is
-  # actually alive, and give up after ~30s rather than hanging the provision.
-  - [ sh, -c, "for i in 1 2 3 4 5 6 7 8 9 10; do pacman -U --noconfirm /tmp/$PKG_NAME && break; sleep 3; pgrep -x pacman >/dev/null || rm -f /var/lib/pacman/db.lck; done" ]
+$install_cmds
   # A breadcrumb to read from the host: did it install, and does it run?
   - [ sh, -c, "veiland --version > /var/log/veiland-install.log 2>&1 || echo 'veiland failed to run' > /var/log/veiland-install.log" ]
 EOF

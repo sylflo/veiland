@@ -65,6 +65,18 @@ the fresh guest actually installs it:
 Needs the `gh` CLI. The `>> package under test:` line always says which
 artifact — and which provenance — the VM got.
 
+Arch has a third provenance: what its users actually run is neither of
+those artifacts but a source build of the *published* AUR `PKGBUILD`.
+`--aur` tests exactly that — the guest clones
+`aur.archlinux.org/veiland.git` and runs `makepkg -si`, downloading the
+release tarball from GitHub and verifying its checksum inside the VM. It
+is the only check that catches the AUR copy drifting from the repo's,
+and by far the slowest mode (the whole workspace compiles in the guest):
+
+```sh
+./scripts/vmtest/arch.sh --clean && ./scripts/vmtest/arch.sh --aur
+```
+
 Each VM boots with the package staged, installs it via the distro's own
 package manager, and leaves a breadcrumb:
 
