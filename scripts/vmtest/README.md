@@ -52,6 +52,19 @@ what CI builds. They test a **locally built** package rather than a
 released one on purpose: needing a release to find out whether a release
 is worth cutting is how the libturbojpeg bug shipped.
 
+Once a release *is* cut, `--release` runs the complementary check against
+the artifact users actually download — it fetches the package from the
+GitHub release (latest by default, or a given tag) into
+`dist/release-<tag>/` and installs that instead. Run `--clean` first so
+the fresh guest actually installs it:
+
+```sh
+./scripts/vmtest/debian.sh --clean && ./scripts/vmtest/debian.sh --release v0.1.1
+```
+
+Needs the `gh` CLI. The `>> package under test:` line always says which
+artifact — and which provenance — the VM got.
+
 Each VM boots with the package staged, installs it via the distro's own
 package manager, and leaves a breadcrumb:
 
@@ -149,6 +162,7 @@ space; the next run re-downloads.
 ## How the package reaches the guest
 
 cloud-init cannot read a file on the host, so each script starts a
-throwaway HTTP server on `dist/` and the guest fetches from `10.0.2.2` —
+throwaway HTTP server on the artifact's directory and the guest fetches
+from `10.0.2.2` —
 which is always the host, as seen from QEMU's user-mode network. No
 virtiofs, no 9p, no scp step to remember. The server dies with the script.

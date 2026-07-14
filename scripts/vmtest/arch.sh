@@ -16,12 +16,19 @@
 # *locally built* package rather than a released one means the loop does not
 # require cutting a release to find out whether a release is worth cutting --
 # which is how the Debian libturbojpeg bug shipped.
+# Once a release IS cut, --release is the complementary check: it fetches the
+# package attached to the GitHub release and installs that. (What users
+# install from the AUR is a source build of the tagged PKGBUILD, not this
+# artifact -- but it is the same PKGBUILD CI built it from.)
 #
-#   ./arch.sh          boot the VM (downloads + provisions on first run)
-#   ./arch.sh --clean  drop the overlay disk + seed, forcing a reprovision
+#   ./arch.sh                  boot the VM (downloads + provisions on first run)
+#   ./arch.sh --clean          drop the overlay disk + seed, forcing a reprovision
+#   ./arch.sh --release [TAG]  test the released package (latest release, or TAG)
+#                              instead of the locally-built one
 #
 # cloud-init only applies its config on an instance's FIRST boot, so after
-# rebuilding the package you want --clean to get a fresh install of it.
+# rebuilding the package -- or when switching to --release -- run --clean
+# first to get a fresh install of it.
 #
 # Once it is up:  ssh -p 2224 arch@localhost
 # On the QEMU console:  user `arch`, password `veiland`.
@@ -59,19 +66,56 @@ if [[ "${1:-}" == "--clean" ]]; then
     exit 0
 fi
 
-# The artifact under test, built by build-arch.sh. Exclude the -debug
-# subpackage: only the main package is what a user installs.
+# The artifact under test: the locally-built package from dist/ by default,
+# or -- with --release -- the artifact attached to the GitHub release, fetched
+# into its own directory so the glob below can never silently pick a local
+# build when a released one was asked for (or vice versa). The veiland-[0-9]*
+# glob excludes the -debug subpackage: only the main package is what a user
+# installs.
+DIST_DIR="$REPO_ROOT/dist"
+RELEASE_TAG=""
+if [[ "${1:-}" == "--release" ]]; then
+    if ! command -v gh >/dev/null; then
+        echo "!! --release needs the gh CLI on PATH." >&2
+        exit 1
+    fi
+    RELEASE_TAG="${2:-$(cd "$REPO_ROOT" && gh release view --json tagName -q .tagName)}"
+    DIST_DIR="$REPO_ROOT/dist/release-$RELEASE_TAG"
+    mkdir -p "$DIST_DIR"
+    shopt -s nullglob
+    cached=("$DIST_DIR"/veiland-[0-9]*.pkg.tar.zst)
+    shopt -u nullglob
+    if [[ ${#cached[@]} -eq 0 ]]; then
+        echo ">> downloading the $RELEASE_TAG package from the GitHub release"
+        (cd "$REPO_ROOT" && gh release download "$RELEASE_TAG" \
+            --pattern '*.pkg.tar.zst' --dir "$DIST_DIR")
+    fi
+    if [[ -f "$DISK" ]]; then
+        echo ">> NOTE: an overlay disk already exists, and cloud-init only installs"
+        echo ">> on FIRST boot -- the release package will not be installed into it."
+        echo ">> Run './arch.sh --clean' first, then rerun with --release."
+    fi
+fi
+
 shopt -s nullglob
-pkgs=("$REPO_ROOT"/dist/veiland-[0-9]*.pkg.tar.zst)
+pkgs=("$DIST_DIR"/veiland-[0-9]*.pkg.tar.zst)
 shopt -u nullglob
 if [[ ${#pkgs[@]} -eq 0 ]]; then
-    echo "!! no package in $REPO_ROOT/dist/. Build one first:" >&2
-    echo "!!   ./scripts/vmtest/build-arch.sh" >&2
+    if [[ -n "$RELEASE_TAG" ]]; then
+        echo "!! no package asset on release $RELEASE_TAG." >&2
+    else
+        echo "!! no package in $REPO_ROOT/dist/. Build one first:" >&2
+        echo "!!   ./scripts/vmtest/build-arch.sh" >&2
+    fi
     exit 1
 fi
 PKG_PATH="${pkgs[0]}"
 PKG_NAME=$(basename "$PKG_PATH")
-echo ">> package under test: $PKG_NAME"
+if [[ -n "$RELEASE_TAG" ]]; then
+    echo ">> package under test: $PKG_NAME (release $RELEASE_TAG)"
+else
+    echo ">> package under test: $PKG_NAME (locally built)"
+fi
 
 mkdir -p "$VM_DIR"
 
@@ -96,16 +140,17 @@ fi
 #    over a channel the guest can see. QEMU's user-mode network always maps the
 #    host to 10.0.2.2, so a throwaway HTTP server on the host is reachable from
 #    inside the guest with no extra tooling -- no virtiofs, no 9p, no scp step
-#    the human has to remember. It serves dist/ and dies with this script.
+#    the human has to remember. It serves the artifact's directory and dies
+#    with this script.
 #
 #    A different port from the other two scripts', so all three can be up.
 HTTP_PORT=8101
 python3 -m http.server "$HTTP_PORT" \
-    --directory "$REPO_ROOT/dist" \
+    --directory "$DIST_DIR" \
     --bind 127.0.0.1 >/dev/null 2>&1 &
 HTTP_PID=$!
 trap 'kill "$HTTP_PID" 2>/dev/null || true' EXIT
-echo ">> serving dist/ to the guest on 10.0.2.2:$HTTP_PORT"
+echo ">> serving ${DIST_DIR#"$REPO_ROOT"/} to the guest on 10.0.2.2:$HTTP_PORT"
 
 # 4. cloud-init seed. A cloud image ships with no user and no password, so this
 #    is the only way in.

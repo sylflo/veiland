@@ -16,12 +16,17 @@
 # that the binary runs. Testing a *locally built* .deb rather than a released
 # one means the loop does not require cutting a release to find out whether a
 # release is worth cutting -- which is how the libturbojpeg bug shipped.
+# Once a release IS cut, --release is the complementary check: it fetches the
+# .deb users actually download from the GitHub release and installs that.
 #
-#   ./debian.sh          boot the VM (downloads + provisions on first run)
-#   ./debian.sh --clean  drop the overlay disk + seed, forcing a reprovision
+#   ./debian.sh                  boot the VM (downloads + provisions on first run)
+#   ./debian.sh --clean          drop the overlay disk + seed, forcing a reprovision
+#   ./debian.sh --release [TAG]  test the released .deb (latest release, or TAG)
+#                                instead of the locally-built one
 #
 # cloud-init only applies its config on an instance's FIRST boot, so after
-# rebuilding the .deb you want --clean to get a fresh install of it.
+# rebuilding the .deb -- or when switching to --release -- run --clean first
+# to get a fresh install of it.
 #
 # Once it is up:  ssh -p 2222 debian@localhost
 # On the QEMU console:  user `debian`, password `veiland`.
@@ -57,18 +62,54 @@ if [[ "${1:-}" == "--clean" ]]; then
     exit 0
 fi
 
-# The artifact under test, built by build-deb.sh.
+# The artifact under test: the locally-built .deb from dist/ by default, or --
+# with --release -- the artifact users actually download, fetched from the
+# GitHub release into its own directory so the glob below can never silently
+# pick a local build when a released one was asked for (or vice versa).
+DIST_DIR="$REPO_ROOT/dist"
+RELEASE_TAG=""
+if [[ "${1:-}" == "--release" ]]; then
+    if ! command -v gh >/dev/null; then
+        echo "!! --release needs the gh CLI on PATH." >&2
+        exit 1
+    fi
+    RELEASE_TAG="${2:-$(cd "$REPO_ROOT" && gh release view --json tagName -q .tagName)}"
+    DIST_DIR="$REPO_ROOT/dist/release-$RELEASE_TAG"
+    mkdir -p "$DIST_DIR"
+    shopt -s nullglob
+    cached=("$DIST_DIR"/veiland_*.deb)
+    shopt -u nullglob
+    if [[ ${#cached[@]} -eq 0 ]]; then
+        echo ">> downloading the $RELEASE_TAG .deb from the GitHub release"
+        (cd "$REPO_ROOT" && gh release download "$RELEASE_TAG" \
+            --pattern '*.deb' --dir "$DIST_DIR")
+    fi
+    if [[ -f "$DISK" ]]; then
+        echo ">> NOTE: an overlay disk already exists, and cloud-init only installs"
+        echo ">> on FIRST boot -- the release .deb will not be installed into it."
+        echo ">> Run './debian.sh --clean' first, then rerun with --release."
+    fi
+fi
+
 shopt -s nullglob
-debs=("$REPO_ROOT"/dist/veiland_*.deb)
+debs=("$DIST_DIR"/veiland_*.deb)
 shopt -u nullglob
 if [[ ${#debs[@]} -eq 0 ]]; then
-    echo "!! no .deb in $REPO_ROOT/dist/. Build one first:" >&2
-    echo "!!   ./scripts/vmtest/build-deb.sh" >&2
+    if [[ -n "$RELEASE_TAG" ]]; then
+        echo "!! no .deb asset on release $RELEASE_TAG." >&2
+    else
+        echo "!! no .deb in $REPO_ROOT/dist/. Build one first:" >&2
+        echo "!!   ./scripts/vmtest/build-deb.sh" >&2
+    fi
     exit 1
 fi
 DEB_PATH="${debs[0]}"
 DEB_NAME=$(basename "$DEB_PATH")
-echo ">> package under test: $DEB_NAME"
+if [[ -n "$RELEASE_TAG" ]]; then
+    echo ">> package under test: $DEB_NAME (release $RELEASE_TAG)"
+else
+    echo ">> package under test: $DEB_NAME (locally built)"
+fi
 
 mkdir -p "$VM_DIR"
 
@@ -93,14 +134,15 @@ fi
 #    over a channel the guest can see. QEMU's user-mode network always maps the
 #    host to 10.0.2.2, so a throwaway HTTP server on the host is reachable from
 #    inside the guest with no extra tooling -- no virtiofs, no 9p, no scp step
-#    the human has to remember. It serves dist/ and dies with this script.
+#    the human has to remember. It serves the artifact's directory and dies
+#    with this script.
 HTTP_PORT=8099
 python3 -m http.server "$HTTP_PORT" \
-    --directory "$REPO_ROOT/dist" \
+    --directory "$DIST_DIR" \
     --bind 127.0.0.1 >/dev/null 2>&1 &
 HTTP_PID=$!
 trap 'kill "$HTTP_PID" 2>/dev/null || true' EXIT
-echo ">> serving dist/ to the guest on 10.0.2.2:$HTTP_PORT"
+echo ">> serving ${DIST_DIR#"$REPO_ROOT"/} to the guest on 10.0.2.2:$HTTP_PORT"
 
 # 4. cloud-init seed. A cloud image ships with no user and no password, so this
 #    is the only way in.
