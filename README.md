@@ -232,17 +232,19 @@ A source build does **not** set up PAM. You must create
 
 [releases]: https://github.com/sylflo/veiland/releases
 
-**2. Grab a scene.** If you installed a package, skip this: veiland renders
-the `sakura` scene above — wallpaper, petals, clock — out of the box, with no
-config file. Copy the installed example when you want to *change* it:
+**2. Grab a scene — or don't.** With no config file, veiland renders the
+raymarcher scene from the hero shot at the top of this page. The scene is
+compiled into the binary and renders procedurally, so a package install and
+a source build show exactly the same thing. Copy the installed example when
+you want to *change* it:
 
 ```sh
 mkdir -p ~/.config/veiland
 cp /usr/share/veiland/config.example.toml ~/.config/veiland/config.toml
 ```
 
-From a source build there is no installed wallpaper, so the default scene
-degrades to petals and clock on black. Bring your own:
+For a scene built on assets — `sakura`, say — copy its config and wallpaper
+from the repo:
 
 ```sh
 mkdir -p ~/.config/veiland
@@ -351,9 +353,9 @@ Two boundaries do the work: the compositor enforces the lock, and the process bo
 
 Veiland looks for its config at `~/.config/veiland/config.toml` (or
 `$XDG_CONFIG_HOME/veiland/config.toml`). With no config file it renders a
-default scene (wallpaper, sakura petals, clock) compiled into the binary — a
-config file replaces that scene, it doesn't add to it. See `docs/config.md`
-for the full reference. A minimal config:
+default scene — the raymarched tunnel from the hero shot — compiled into the
+binary; a config file replaces that scene, it doesn't add to it. See
+`docs/config.md` for the full reference. A minimal config:
 
 ```toml
 [password]

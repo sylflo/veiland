@@ -6,83 +6,69 @@
 #   mkdir -p ~/.config/veiland
 #   cp /usr/share/veiland/config.example.toml ~/.config/veiland/config.toml
 #
-# You do not need to copy it to get a scene. This is the "sakura" scene from
-# the README gallery — dusk-sky wallpaper, falling cherry-blossom petals, a
-# clock, the password pill — and veiland already renders it out of the box:
-# the same scene is compiled into the binary and used whenever there is no
-# user config (see veiland-core/src/default-scene.toml, its twin; change one
-# and you probably want to change the other). Copy this file when you want to
-# change something, not to get started.
+# You do not need to copy it to get a scene. This is the raymarcher scene
+# from the README's hero shot — a slow raymarched gyroid tunnel with the
+# password pill — and veiland already renders it out of the box: the same
+# scene is compiled into the binary and used whenever there is no user
+# config (see veiland-core/src/default-scene.toml, its twin; change one
+# and you probably want to change the other). Copy this file when you want
+# to change something, not to get started.
 #
 # A user config replaces the default scene wholesale — the two are not
 # merged, so what you write here is the entire scene.
 #
 # Each `binary` is a bare plugin name: the core resolves it beside the
 # installed `veiland` binary (then on $PATH), so this works on any distro
-# without hardcoding a bindir. Plugin `path` config values (like the
-# wallpaper below) are read verbatim with no $PATH or ~ expansion, so
-# those must be absolute. See docs/config.md for every option.
+# without hardcoding a bindir. Plugin `path` config values (the wallpaper
+# plugin takes one, for instance) are read verbatim with no $PATH or ~
+# expansion, so those must be absolute. See docs/config.md for every
+# option, and docs/examples/ for more ready-made scenes.
 
-# --- Wallpaper: dusk-sky backdrop ----------------------------------
-# z_index -100 keeps it behind everything. The package installs the
-# wallpaper alongside this file; point `path` elsewhere for your own
-# image. A wrong path is harmless: the plugin paints black and logs it,
-# and the rest of the scene still renders.
+# --- Raymarcher: slow raymarched gyroid tunnel ----------------------
+# The camera drifts through the tunnels of a gyroid (a triply periodic
+# minimal surface), fog swallowing the distance. Fully opaque bottom
+# layer: compose vignette, label, or particles on top.
+#
+# Thermal defaults are deliberate: the shader renders at half resolution
+# (the locker upsamples bilinearly) and submits at most 30 frames per
+# second. A locker runs for hours; turn these up only for capture
+# sessions.
 [[plugin]]
-name = "wallpaper"
-binary = "veiland-wallpaper"
-z_index = -100
-
-[plugin.config]
-path = "/usr/share/veiland/sakura-dusk.jpg"   # edit: point at your image
-
-# --- Sakura: falling cherry-blossom petals -------------------------
-# The petal texture is embedded in the binary, so there is nothing to
-# supply. z_index 0 puts it just above the wallpaper.
-[[plugin]]
-name = "sakura"
-binary = "veiland-sakura"
+name = "raymarcher"
+binary = "veiland-raymarcher"
 z_index = 0
 
 [plugin.config]
-count = 30
-size_px = 22
-# White tint = the petal PNG's own pink shows through. Lower the alpha
-# to fade the whole field.
-color = [1.0, 1.0, 1.0, 1.0]
+# Drift speed multiplier. 1.0 crosses one tunnel cell about every 18
+# seconds; 0 freezes the scene.
+speed = 1.0
+# Vertical field of view in degrees. Wider = more tunnel, more warp.
+fov_deg = 70.0
+# Palette stops (2-4). The first stop also tints the fog.
+colors = [
+  [0.08, 0.10, 0.18],
+  [0.55, 0.30, 0.15],
+  [0.20, 0.35, 0.40],
+]
+# Fog density multiplier. Fog hides the march's far boundary, so 0 is
+# possible but not recommended.
+fog = 1.0
+# Buffer resolution as a fraction of the region; the locker upsamples.
+render_scale = 0.5
+# Cap on submitted frames per second. 0 = compositor rate.
+max_fps = 30.0
 
-# --- Clock: time + date, upper-left --------------------------------
-# Uses the default system sans font (no CJK dependency). Positions are
-# fractions of the surface, so they track any resolution.
-[[plugin]]
-name = "clock"
-binary = "veiland-clock"
-z_index = 10
-
-[plugin.config]
-time_format = "%H:%M"
-date_format = "%A, %B %d"
-time_font_size = 0.055        # fraction of surface height (~59px on 1080p)
-date_font_size = 0.014        # fraction of surface height (~15px on 1080p)
-time_color = [0.95, 0.96, 0.98, 0.95]
-date_color = [0.95, 0.96, 0.98, 0.80]
-time_position = [0.04, 0.05]  # fraction of surface, upper-left
-date_position = [0.04, 0.11]
-halign = "left"
-valign = "top"
-shadow_offset = [0, 0.002]    # fraction of surface height (~2px on 1080p)
-shadow_color = [0.0, 0.0, 0.0, 0.9]
-
-# --- Password field: the input pill --------------------------------
+# --- Password field: the input pill ---------------------------------
 # A wide, low, fully-rounded pill with a dark translucent fill and a
-# faint light outline. Painted by the core on top of every plugin.
+# faint light outline, tuned to read over the busy tunnel. Painted by
+# the core on top of every plugin.
 [password]
-y_percent = 72
+y_percent = 68
 box_width = 440
 box_height = 70
 outline_thickness = 2
 rounding = -1                              # full pill
-inner_color = "rgba(28, 36, 52, 0.45)"
+inner_color = "rgba(16, 20, 34, 0.50)"
 outer_color = "rgba(150, 170, 200, 0.45)"
 dot_color = "rgba(235, 238, 245, 1.0)"
 dot_diameter = 10

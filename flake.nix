@@ -121,14 +121,11 @@
           ];
 
           # The package's data directory, matching what the .deb, .rpm and
-          # PKGBUILD install to /usr/share/veiland. It is not decoration:
-          # with no user config, veiland-core renders the default scene
-          # compiled into the binary (veiland-core/src/default-scene.toml)
-          # and resolves that scene's wallpaper relative to the running
-          # executable, at <exe_dir>/../share/veiland — which is
-          # $out/share/veiland here, since buildRustPackage installs the
-          # binaries to $out/bin. Without these files the default scene
-          # still comes up, but degrades to petals and clock on black.
+          # PKGBUILD install to /usr/share/veiland. The default scene
+          # (compiled into the binary) needs nothing from here — it renders
+          # procedurally — but config.example.toml is where the core's
+          # "no config file" log line points users to start customising,
+          # and the wallpaper serves the sakura gallery scene.
           #
           # config.example.toml, not veiland.example.toml: the other
           # packages rename it on install, and the core's "no config file"

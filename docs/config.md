@@ -24,14 +24,12 @@ available`.
 ## 2. What happens when the file is missing or broken
 
 - **Missing file**: not fatal. veiland-core logs a note and renders the
-  **default scene** — a wallpaper, falling sakura petals, and a clock —
-  which is compiled into the binary, so a fresh install (or a wiped
-  `~/.config/`) locks with something to look at rather than a black
-  rectangle. The scene's wallpaper is loaded from the package's data
-  directory, found relative to the running binary
-  (`<exe_dir>/../share/veiland/sakura-dusk.jpg`); if it isn't there — a
-  `cargo run` dev build, say — the wallpaper plugin logs the bad path and
-  paints black, and the petals, clock and password pill still render.
+  **default scene** — the raymarched gyroid tunnel from the README's hero
+  shot, with a styled password pill — which is compiled into the binary,
+  so a fresh install (or a wiped `~/.config/`) locks with something to
+  look at rather than a black rectangle. The scene renders procedurally
+  and references nothing on disk, so it looks the same from a package
+  install and a `cargo run` dev build alike.
   A user config **replaces** the default scene entirely; the two are never
   merged, so a config declaring one plugin gets exactly that one plugin.
   `<datadir>/config.example.toml` (e.g.

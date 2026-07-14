@@ -455,7 +455,7 @@ fn load_from_path(path: &Path) -> Result<Config, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!(
                 "veiland-core: no config file at {:?}; using the default scene \
-                (wallpaper, sakura petals, clock).",
+                (raymarched tunnel).",
                 path
             );
             eprintln!(
@@ -473,38 +473,22 @@ fn load_from_path(path: &Path) -> Result<Config, ConfigError> {
 }
 
 /// The scene veiland renders when the user has no config file: the
-/// sakura scene from the README, compiled into the binary.
+/// raymarcher scene from the README's hero shot, compiled into the binary.
 ///
 /// It is embedded rather than read from `<prefix>/share/veiland/` because
 /// the install prefix isn't knowable at build time — `/usr/share` is right
 /// for the .deb/.rpm/PKGBUILD and wrong for Nix, which puts the package in
-/// the store. So there is no config file to find, and the one thing that
-/// must be located on disk — the wallpaper image — is resolved at runtime
-/// relative to the running executable (`<exe_dir>/../share/veiland`), the
-/// same trick `plugin::host_spawn::resolve_binary` uses for plugin
-/// binaries.
-///
-/// `current_exe()` failing is not an error: `@DATADIR@` then expands to
-/// nothing, the wallpaper path doesn't resolve, and the wallpaper plugin
-/// does what it already does for any bad path — logs it and paints black,
-/// while petals, clock and the password pill still render. That degradation
-/// is what makes a `cargo run` dev build (no installed `share/veiland/`)
-/// behave sensibly with no special-casing.
+/// the store. The scene renders procedurally and references nothing on
+/// disk, so a `cargo run` dev build shows exactly what an installed
+/// package does.
 fn default_scene() -> Result<Config, ConfigError> {
     const DEFAULT: &str = include_str!("default-scene.toml");
 
-    let datadir = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("../share/veiland")))
-        .map(|dir| dir.display().to_string())
-        .unwrap_or_default();
-
-    let text = DEFAULT.replace("@DATADIR@", &datadir);
     // Validated like any user config: the TOML is ours, but a typo in it
     // should fail loudly at startup rather than produce a subtly broken
     // lock screen. `cargo test` catches it earlier still — see
     // `default_scene_parses_and_validates`.
-    let mut config: Config = toml::from_str(&text).map_err(ConfigError::Parse)?;
+    let mut config: Config = toml::from_str(DEFAULT).map_err(ConfigError::Parse)?;
     validate(&mut config)?;
     Ok(config)
 }
@@ -1229,40 +1213,11 @@ mod tests {
         // user's lock screen.
         let config = default_scene().expect("embedded default scene must parse and validate");
         let names: Vec<&str> = config.plugins.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["wallpaper", "sakura", "clock"]);
-        let z: Vec<i32> = config.plugins.iter().map(|p| p.z_index).collect();
-        assert_eq!(z, [-100, 0, 10], "wallpaper behind, clock in front");
-    }
-
-    #[test]
-    fn default_scene_substitutes_datadir() {
-        // The wallpaper path must not still carry the placeholder. The exact
-        // path isn't worth asserting — it depends on where the test binary
-        // lives, and on a dev build it points at a directory that doesn't
-        // exist (which is fine: the plugin logs it and paints black).
-        let config = default_scene().expect("embedded default scene parses");
-        let wallpaper = config
-            .plugins
-            .iter()
-            .find(|p| p.name == "wallpaper")
-            .expect("default scene has a wallpaper plugin");
-        let path = wallpaper
-            .config
-            .as_ref()
-            .and_then(|c| c.as_table())
-            .and_then(|t| t.get("path"))
-            .and_then(|v| v.as_str())
-            .expect("wallpaper plugin declares a path");
-        assert!(
-            !path.contains("@DATADIR@"),
-            "@DATADIR@ should have been substituted, got {:?}",
-            path
-        );
-        assert!(
-            path.ends_with("sakura-dusk.jpg"),
-            "wallpaper path should still name the image, got {:?}",
-            path
-        );
+        assert_eq!(names, ["raymarcher"]);
+        // The [password] table is deliberate styling, not defaults; assert
+        // one non-default field so a dropped table shows up here rather
+        // than as a mis-styled pill on someone's lock screen.
+        assert_eq!(config.password.y_percent, Some(68));
     }
 
     #[test]
