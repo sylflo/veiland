@@ -20,9 +20,13 @@ permissions:
   pages: write
   id-token: write
 
+# Per-branch groups: a site-branch push must never cancel a master run
+# that may be mid-deploy. Superseded branch builds do get cancelled;
+# master runs queue and always finish (GitHub's Pages starter makes the
+# same never-cancel choice for production deployments).
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   build:
