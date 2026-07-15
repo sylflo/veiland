@@ -113,7 +113,5 @@ default = "`0.0`"
 meaning = "Reserved; any value draws a sharp-edged shadow for now and logs a one-time warning."
 +++
 
-The current time and date as two independently styled labels. Time comes from the host, the plugin never reads the system clock, and it follows your timezone.
-
 An invalid strftime pattern does not error; chrono renders the unrecognized parts
 literally. If you see a stray `%q` on your lockscreen, check the pattern.

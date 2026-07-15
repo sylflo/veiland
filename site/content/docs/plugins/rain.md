@@ -35,6 +35,4 @@ default = "`10.0`"
 meaning = "Shared wind angle in degrees from vertical; positive leans the fall rightward. All drops share it, so the rain falls as a coherent sheet."
 +++
 
-Wind-slanted rain streaks with depth: near drops are longer, faster, and brighter than far ones.
-
 `slant_deg` is the only configurable wind in the particle family.

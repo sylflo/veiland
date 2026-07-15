@@ -113,13 +113,8 @@ def render() -> str:
                     f"| `{pr['key']}` | {pr['type']} | {pr['default']} | {pr['meaning']} |"
                 )
             out.append("")
-            # The page body repeats the description as its first paragraph
-            # for the website; skip that repetition here.
-            rest = body
-            if rest.startswith(meta["description"]):
-                rest = rest[len(meta["description"]):].strip()
-            if rest:
-                out.append(rest)
+            if body:
+                out.append(body)
                 out.append("")
 
     out.append(tail.strip())

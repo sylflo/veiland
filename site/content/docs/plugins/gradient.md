@@ -41,8 +41,6 @@ default = "`0.75`"
 meaning = "Ramp lengths per screen height. Smaller means broader, softer bands. Clamped to 0.05 to 10."
 +++
 
-A slow-flowing, seamlessly looping multi-stop color gradient, optionally with a rotating axis.
-
 Default stops are `[[0.10, 0.16, 0.42], [0.38, 0.12, 0.48], [0.05, 0.36, 0.44]]`.
 Fewer than 2 valid stops falls back to that default palette. `speed` is clamped to
 0 to 30 cycles per minute.

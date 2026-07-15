@@ -28,5 +28,3 @@ type = "[r,g,b]"
 default = "`[0.80, 0.18, 0.02]`"
 meaning = "Color of the bottom glow band. Three components, no alpha; the band's strength and height (bottom ~30% of the region) are fixed."
 +++
-
-A warm glow band along the bottom edge with bright sparks rising, curving, and fading as they climb.

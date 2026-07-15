@@ -29,6 +29,4 @@ default = "`60.0`"
 meaning = "Crystal radius in logical px. Below ~40 the fern structure collapses into a dot; this effect wants few and large, not a dense flurry."
 +++
 
-A few large procedural snow crystals: six-fold dendritic flakes, each uniquely shaped, drifting down with a slow tumble.
-
 Every crystal is generated procedurally, so no two are the same shape.

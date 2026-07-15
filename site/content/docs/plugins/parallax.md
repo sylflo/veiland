@@ -53,7 +53,5 @@ default = "`2654435769`"
 meaning = "Layout seed; change it to reshuffle all three layers."
 +++
 
-Three depth layers of soft bokeh circles drifting at different speeds. A subtle depth cue over any background, fully procedural.
-
 The layer ratios (size, speed, and opacity per depth) are fixed. No image files are
 involved; everything is generated.

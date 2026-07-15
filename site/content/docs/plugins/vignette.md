@@ -53,8 +53,6 @@ default = "`0.0`"
 meaning = "Uniform dim over the whole frame, under the corners. `0.15` to `0.3` gives a soft haze; `0` is the classic corners-only look."
 +++
 
-Darkens the corners, and optionally the whole frame, with a soft radial gradient. Static, and costs nearly nothing.
-
 The bottom corners default slightly stronger than the top; that is where wallpapers tend
 to be brightest. The summed opacity saturates at fully opaque rather than overflowing, so
 generous values are safe.

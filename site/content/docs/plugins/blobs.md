@@ -53,7 +53,5 @@ default = "`2654435769`"
 meaning = "Layout and motion seed; change it for a different arrangement."
 +++
 
-Large soft metaballs drifting on slow orbits over a dark background. The lava-lamp look.
-
 Default palette: `[[0.12, 0.20, 0.55], [0.45, 0.15, 0.50], [0.05, 0.42, 0.45], [0.50, 0.28, 0.12]]`.
 Fewer colors than blobs just cycles the palette. The motion never visibly repeats.

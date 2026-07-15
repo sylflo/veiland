@@ -47,8 +47,6 @@ default = "`30.0`"
 meaning = "Frame-rate cap. `0` means uncapped (compositor rate). Clamped to 0 to 240."
 +++
 
-A slow camera drift through infinite raymarched gyroid tunnels. Also the built-in default scene when no config file exists.
-
 The scene itself is fixed: there is one tunnel geometry and no scene-selection key. You
 steer the palette, fog, and pace. Default stops are
 `[[0.08, 0.10, 0.18], [0.55, 0.30, 0.15], [0.20, 0.35, 0.40]]`.

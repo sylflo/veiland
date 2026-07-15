@@ -29,7 +29,5 @@ default = "`22.0`"
 meaning = "Petal size in logical px."
 +++
 
-Falling, swaying, tumbling cherry-blossom petals, drawn from a built-in petal texture.
-
 The petal texture is embedded in the binary, so there is nothing to supply. The motion
 (sway, tumble, timing) is tuned per effect and not configurable.

@@ -15,6 +15,7 @@
     {% endif %}
     {# A real capture (extra.image, a path under static/) wins; until one
        exists, the live canvas placeholder from previews.js renders. #}
+    {% if page.extra.category %}<p class="plugdesc">{{ page.description }}</p>{% endif %}
     {% if page.extra.image %}
     <div class="doc-preview">
       {%- if page.extra.image is ending_with(".mp4") or page.extra.image is ending_with(".webm") -%}

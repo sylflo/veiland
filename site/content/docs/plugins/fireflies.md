@@ -34,5 +34,3 @@ type = "float"
 default = "`0.4`"
 meaning = "Blink character, 0 to 1: `0` is gentle continuous pulsing, `1` is brief sharp flashes with long dark gaps."
 +++
-
-Softly glowing lights wandering on lazy paths, each blinking on its own rhythm.

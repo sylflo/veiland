@@ -95,7 +95,5 @@ default = "`0.0`"
 meaning = "Reserved; draws sharp for now."
 +++
 
-One static styled text label: names, quotes, kaomoji, vertical captions. Run several instances for several labels.
-
 The shinkai example scene runs four label instances at once: two titles and two quotes,
 in two languages.

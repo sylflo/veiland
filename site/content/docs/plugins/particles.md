@@ -29,8 +29,6 @@ default = "`0.4`"
 meaning = "Core radius in logical px. Deliberately tiny; a soft glow halo about 3x the core does the visible work, so small changes go a long way."
 +++
 
-Small soft glowing motes drifting slowly upward, the only riser in the particle family.
-
 Like the rest of the family, `count` is an absolute number, not a density: the same
 value puts the same number of motes on a 1080p and a 4K monitor. Bump it per scene if a
 field tuned on a laptop looks sparse on a large display.
