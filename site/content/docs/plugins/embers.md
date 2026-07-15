@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "rising sparks"
 category = "particles"
 preview = "embers"
+image = "previews/readme/gallery-embers.gif"
 example = "embers.toml"
 
 [[extra.props]]

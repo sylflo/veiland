@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "layered bokeh depth"
 category = "overlays"
 preview = "parallax"
+image = "previews/readme/gallery-parallax.gif"
 example = "parallax.toml"
 
 [[extra.props]]

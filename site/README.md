@@ -53,13 +53,14 @@ python3 scripts/gen-plugins-md.py
 - `templates/docs-page.html`: docs layout with the left sidebar and
   on-this-page TOC; renders a property table when the page has
   `extra.props`.
-- `static/previews.js`: the live canvas scene previews, shared by the landing
-  page and the per-plugin docs pages. Placeholders until real captures exist:
-  drop a capture into `static/previews/` and set e.g.
-  `image = "previews/snow.png"` in that plugin's frontmatter; the page then
-  shows the image instead of the canvas.
-- `static/landing.js`: landing-only behavior (hero clock, password pill,
-  config popup helper).
+- **Previews**: real captures win, canvas placeholders fill the gaps. The
+  README gallery GIFs are copied in by `prepare.sh` (single source:
+  `docs/assets/readme/`); a plugin page shows a capture when its frontmatter
+  sets `image = "previews/..."` (mp4/webm render as looping video, anything
+  else as an image) and otherwise falls back to the live canvas placeholder
+  from `static/previews.js`. New captures go in `static/previews/`.
+  Still on canvas: wallpaper, vignette, particles, clock, label.
+- `static/landing.js`: the config-popup helper.
 
 Keep site prose free of em dashes. Text imported or generated from repo docs
 is exempt; it stays verbatim.

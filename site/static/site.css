@@ -512,3 +512,7 @@
     border: 1px solid var(--line);
   }
   .doc-preview canvas, .doc-preview img { width: 100%; aspect-ratio: 16 / 9; display: block; background: #0a0812; object-fit: cover; }
+
+  .slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scene img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #0a0812; }
+  .doc-preview video { width: 100%; aspect-ratio: 16 / 9; display: block; background: #0a0812; object-fit: cover; }

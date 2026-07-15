@@ -16,7 +16,13 @@
     {# A real capture (extra.image, a path under static/) wins; until one
        exists, the live canvas placeholder from previews.js renders. #}
     {% if page.extra.image %}
-    <div class="doc-preview"><img src="{{ get_url(path=page.extra.image) | safe }}" alt="{{ page.title }} scene capture"></div>
+    <div class="doc-preview">
+      {%- if page.extra.image is ending_with(".mp4") or page.extra.image is ending_with(".webm") -%}
+      <video src="{{ get_url(path=page.extra.image) | safe }}" autoplay loop muted playsinline aria-label="{{ page.title }} scene capture"></video>
+      {%- else -%}
+      <img src="{{ get_url(path=page.extra.image) | safe }}" alt="{{ page.title }} scene capture">
+      {%- endif -%}
+    </div>
     {% elif page.extra.preview %}
     <div class="doc-preview"><canvas data-scene="{{ page.extra.preview }}" aria-label="{{ page.title }} preview"></canvas></div>
     {% endif %}

@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "falling petals"
 category = "particles"
 preview = "sakura"
+image = "previews/readme/gallery-sakura.gif"
 example = "sakura.toml"
 
 [[extra.props]]

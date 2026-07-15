@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "flowing color ramp"
 category = "backgrounds"
 preview = "gradient"
+image = "previews/readme/gallery-gradient.gif"
 example = "gradient.toml"
 
 [[extra.props]]

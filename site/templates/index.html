@@ -34,20 +34,11 @@
   @keydown.window.arrow-right="next()" @keydown.window.arrow-left="prev()">
   <div class="slider">
     <div class="slider-frame">
-      <div class="slide" :class="{ active: i === 0 }"><canvas data-scene="raymarcher" aria-label="raymarcher scene"></canvas></div>
-      <div class="slide" :class="{ active: i === 1 }"><canvas data-scene="sakura" aria-label="sakura scene"></canvas></div>
-      <div class="slide" :class="{ active: i === 2 }"><canvas data-scene="embers" aria-label="embers scene"></canvas></div>
-      <div class="slide" :class="{ active: i === 3 }"><canvas data-scene="snow" aria-label="snow scene"></canvas></div>
-      <div class="slide" :class="{ active: i === 4 }"><canvas data-scene="rain" aria-label="rain scene"></canvas></div>
-
-      <div class="lock-overlay">
-        <div class="lock-clock" id="clock">--:--</div>
-        <div class="lock-date" id="clock-date">&nbsp;</div>
-        <div class="pill" id="pill" aria-label="Password field demo">
-          <span class="placeholder" id="pill-placeholder">password</span>
-        </div>
-        <div class="lock-hint">the scene changes, the lock doesn't. type anything.</div>
-      </div>
+      <div class="slide" :class="{ active: i === 0 }"><img src="{{ get_url(path='previews/readme/hero.gif') | safe }}" alt="raymarcher scene capture"></div>
+      <div class="slide" :class="{ active: i === 1 }"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"></div>
+      <div class="slide" :class="{ active: i === 2 }"><img src="{{ get_url(path='previews/readme/gallery-embers.gif') | safe }}" alt="embers scene capture" loading="lazy"></div>
+      <div class="slide" :class="{ active: i === 3 }"><img src="{{ get_url(path='previews/readme/gallery-snow.gif') | safe }}" alt="snow scene capture" loading="lazy"></div>
+      <div class="slide" :class="{ active: i === 4 }"><img src="{{ get_url(path='previews/readme/gallery-rain.gif') | safe }}" alt="rain scene capture" loading="lazy"></div>
 
       <button class="slider-arrow prev" @click="prev()" aria-label="Previous scene">‹</button>
       <button class="slider-arrow next" @click="next()" aria-label="Next scene">›</button>
@@ -64,8 +55,7 @@
       </div>
     </div>
 
-    <p class="showcase-note">placeholder previews rendered live in-browser. the production
-    site embeds captures of real locked sessions here, straight from wf-recorder.</p>
+    <p class="showcase-note">captures of real locked sessions, recorded with wf-recorder.</p>
   </div>
 </section>
 
@@ -157,10 +147,10 @@
     </p>
 
     <div class="scenes-grid">
-      <div class="scene" role="button" tabindex="0" @click="open('shinkai')" @keydown.enter="open('shinkai')"><canvas data-scene="shinkai" aria-label="shinkai scene preview"></canvas><span class="view-hint">view config</span>
+      <div class="scene" role="button" tabindex="0" @click="open('shinkai')" @keydown.enter="open('shinkai')"><img src="{{ get_url(path='previews/readme/gallery-shinkai.gif') | safe }}" alt="shinkai scene capture" loading="lazy"><span class="view-hint">view config</span>
         <div class="scene-meta"><b>shinkai</b><span>two monitors, ten layers</span><code>shinkai.toml</code></div>
         <div class="ingredients"><span>wallpaper &times;2</span><span>sakura</span><span>particles</span><span>clock</span><span>label &times;4</span><span>vignette</span></div></div>
-      <div class="scene" role="button" tabindex="0" @click="open('sakura')" @keydown.enter="open('sakura')"><canvas data-scene="sakura" aria-label="sakura scene preview"></canvas><span class="view-hint">view config</span>
+      <div class="scene" role="button" tabindex="0" @click="open('sakura')" @keydown.enter="open('sakura')"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"><span class="view-hint">view config</span>
         <div class="scene-meta"><b>sakura</b><span>falling petals at dusk</span><code>sakura.toml</code></div>
         <div class="ingredients"><span>wallpaper</span><span>sakura</span><span>clock</span></div></div>
     </div>
@@ -182,10 +172,9 @@
     </div>
 
     <p class="gallery-note">
-      <b>previews render live in your browser.</b> on your machine the real scenes run
-      on the GPU at your monitor's refresh rate. the production site would embed
-      captures of actual locked sessions. every plugin below also ships an example
-      scene, so this shelf grows as the plugin list does.
+      <b>real locked sessions, captured with wf-recorder.</b> on your machine the
+      scenes run on the GPU at your monitor's refresh rate. every plugin below also
+      ships an example scene, so this shelf grows as the plugin list does.
     </p>
   </div>
 </section>
@@ -207,7 +196,7 @@
     <div class="chips-label">{{ cat.name }} <span class="cat-desc">&middot; {{ cat.desc }}</span></div>
     <div class="gallery-grid">
       {% for p in plugsec.pages %}{% if p.extra.category == cat.name %}
-      <div class="scene" role="button" tabindex="0" @click="plugin = '{{ p.title }}'" @keydown.enter="plugin = '{{ p.title }}'"><canvas data-scene="{{ p.extra.preview }}" aria-label="{{ p.title }} plugin preview"></canvas><span class="view-hint">view properties</span>
+      <div class="scene" role="button" tabindex="0" @click="plugin = '{{ p.title }}'" @keydown.enter="plugin = '{{ p.title }}'">{% if p.extra.image %}<img src="{{ get_url(path=p.extra.image) | safe }}" alt="{{ p.title }} plugin capture" loading="lazy">{% else %}<canvas data-scene="{{ p.extra.preview }}" aria-label="{{ p.title }} plugin preview"></canvas>{% endif %}<span class="view-hint">view properties</span>
         <div class="scene-meta"><b>{{ p.title }}</b><span>{{ p.extra.one_liner }}</span><code>veiland-{{ p.title }}</code></div></div>
       {% endif %}{% endfor %}
     </div>

@@ -11,6 +11,10 @@ cd "$(dirname "$0")"
 mkdir -p static/examples
 cp ../docs/examples/*.toml static/examples/
 
+# Scene captures from the README gallery, reused as site previews.
+mkdir -p static/previews/readme
+cp ../docs/assets/readme/*.gif static/previews/readme/
+
 # Repo docs imported as site pages, verbatim except for:
 #   - dropping the SPDX comment and the top-level H1 (the template draws it),
 #   - rewriting cross-doc links to site URLs (Zola's @/ links, checked at build),

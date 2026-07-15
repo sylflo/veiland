@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "dendritic crystals"
 category = "particles"
 preview = "snow"
+image = "previews/readme/gallery-snow.gif"
 example = "snow.toml"
 
 [[extra.props]]

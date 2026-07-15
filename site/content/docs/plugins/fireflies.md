@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "wandering glow"
 category = "particles"
 preview = "fireflies"
+image = "previews/readme/gallery-fireflies.gif"
 example = "fireflies.toml"
 
 [[extra.props]]
