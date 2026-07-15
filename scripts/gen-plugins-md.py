@@ -88,6 +88,12 @@ def render() -> str:
     # The shared prose: conventions first, everything from the stress
     # section onward goes after the per-plugin sections.
     marker = "## The stress plugin"
+    if marker not in index_body:
+        sys.exit(
+            f"{PLUGINS_DIR / '_index.md'}: heading '{marker}' not found; the "
+            "generator splits the shared prose on it. If the heading was "
+            "renamed, update `marker` in this script to match."
+        )
     conventions, tail = index_body.split(marker, 1)
     tail = marker + tail
 
