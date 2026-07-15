@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "a single image"
 category = "backgrounds"
 preview = "wallpaperprev"
+image = "previews/wallpaper.jpg"
 used_in = "sakura.toml"
 
 [[extra.props]]
