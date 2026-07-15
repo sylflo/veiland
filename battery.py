@@ -205,13 +205,13 @@ def upload(bo, w, h, img):
                          ctypes.byref(stride), ctypes.byref(handle))
     if not ptr:
         sys.exit("veiland-battery: gbm_bo_map failed")
-    # Rows are written bottom-up: the host's compositor samples plugin
-    # buffers GL-style (row 0 = bottom of the image) and Y-flips them
-    # onto the screen. Pillow's row 0 is the top, so mirror here.
+    # Rows are written top-down, Pillow's natural order. The host's
+    # compositor program flips plugin textures such that top-down
+    # memory displays upright (verified against veiland-label, which
+    # produces the same orientation).
     row = w * 4
     for y in range(h):
-        ctypes.memmove(ptr + y * stride.value,
-                       data[(h - 1 - y) * row:(h - y) * row], row)
+        ctypes.memmove(ptr + y * stride.value, data[y * row:(y + 1) * row], row)
     gbm.gbm_bo_unmap(bo, handle)
 
 
