@@ -456,7 +456,12 @@
     margin: 18px 0 6px; padding: 0 10px;
   }
   .side-group:first-child { margin-top: 0; }
-  .side-cat { font-size: 0.66rem; letter-spacing: 0.1em; color: var(--dim); margin: 10px 0 2px; padding: 0 10px; }
+  .side-cat {
+    font-size: 0.74rem; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600;
+    margin: 14px 0 3px; padding: 0 10px;
+  }
+  .doc-side a.side-sub { padding-left: 26px; }
   .doc-toc {
     position: sticky; top: 90px; align-self: start;
     display: flex; flex-direction: column; gap: 6px;

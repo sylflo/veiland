@@ -11,7 +11,7 @@
   {% for cat in plugsec.extra.categories %}
   <div class="side-cat">{{ cat.name }}</div>
   {% for p in plugsec.pages %}{% if p.extra.category == cat.name %}
-  <a href="{{ p.permalink | safe }}" {% if current == p.permalink %}class="active"{% endif %}>{{ p.title }}</a>
+  <a href="{{ p.permalink | safe }}" class="side-sub{% if current == p.permalink %} active{% endif %}">{{ p.title }}</a>
   {% endif %}{% endfor %}
   {% endfor %}
   <div class="side-group">reference</div>
