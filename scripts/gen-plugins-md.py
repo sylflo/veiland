@@ -63,8 +63,14 @@ def repo_links(text: str) -> str:
 
 def split_frontmatter(path: Path) -> tuple[dict, str]:
     raw = path.read_text()
-    _, fm, body = raw.split("+++", 2)
-    return tomllib.loads(fm), body.strip()
+    parts = raw.split("+++", 2)
+    if len(parts) != 3 or parts[0].strip():
+        sys.exit(f"{path}: expected the file to start with '+++' TOML frontmatter fences")
+    try:
+        meta = tomllib.loads(parts[1])
+    except tomllib.TOMLDecodeError as e:
+        sys.exit(f"{path}: invalid TOML frontmatter: {e}")
+    return meta, parts[2].strip()
 
 
 def render() -> str:
