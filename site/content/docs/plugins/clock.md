@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "time + date"
 category = "text"
-preview = "clockprev"
 image = "previews/clock.png"
 used_in = "shinkai.toml"
 

@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "lava-lamp metaballs"
 category = "backgrounds"
-preview = "blobs"
 image = "previews/readme/gallery-blobs.gif"
 example = "blobs.toml"
 

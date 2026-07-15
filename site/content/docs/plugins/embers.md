@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "rising sparks"
 category = "particles"
-preview = "embers"
 image = "previews/readme/gallery-embers.gif"
 example = "embers.toml"
 

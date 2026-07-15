@@ -201,7 +201,7 @@
     <div class="chips-label">{{ cat.name }} <span class="cat-desc">&middot; {{ cat.desc }}</span></div>
     <div class="gallery-grid">
       {% for p in plugsec.pages %}{% if p.extra.category == cat.name %}
-      <div class="scene" role="button" tabindex="0" @click="plugin = '{{ p.title }}'" @keydown.enter="plugin = '{{ p.title }}'">{% if p.extra.image %}<img src="{{ get_url(path=p.extra.image) | safe }}" alt="{{ p.title }} plugin capture" loading="lazy">{% else %}<canvas data-scene="{{ p.extra.preview }}" aria-label="{{ p.title }} plugin preview"></canvas>{% endif %}<span class="view-hint">view properties</span>
+      <div class="scene" role="button" tabindex="0" @click="plugin = '{{ p.title }}'" @keydown.enter="plugin = '{{ p.title }}'">{% if p.extra.image %}<img src="{{ get_url(path=p.extra.image) | safe }}" alt="{{ p.title }} plugin capture" loading="lazy">{% endif %}<span class="view-hint">view properties</span>
         <div class="scene-meta"><b>{{ p.title }}</b><span>{{ p.extra.one_liner }}</span><code>veiland-{{ p.title }}</code></div></div>
       {% endif %}{% endfor %}
     </div>
@@ -355,6 +355,5 @@
 {{ load_data(path="static/examples/" ~ s ~ ".toml", format="plain") | safe }}
 </script>
 {% endfor %}
-<script src="{{ get_url(path='previews.js') | safe }}"></script>
 <script src="{{ get_url(path='landing.js') | safe }}"></script>
 {% endblock scripts %}

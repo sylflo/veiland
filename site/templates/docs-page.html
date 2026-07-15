@@ -23,8 +23,6 @@
       <img src="{{ get_url(path=page.extra.image) | safe }}" alt="{{ page.title }} scene capture">
       {%- endif -%}
     </div>
-    {% elif page.extra.preview %}
-    <div class="doc-preview"><canvas data-scene="{{ page.extra.preview }}" aria-label="{{ page.title }} preview"></canvas></div>
     {% endif %}
     {{ page.content | safe }}
     {% if page.extra.props %}
@@ -51,7 +49,3 @@
   </nav>
 </div>
 {% endblock content %}
-
-{% block scripts %}
-{% if page.extra.preview and not page.extra.image %}<script src="{{ get_url(path='previews.js') | safe }}"></script>{% endif %}
-{% endblock scripts %}

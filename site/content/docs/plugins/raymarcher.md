@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "infinite gyroid tunnels"
 category = "backgrounds"
-preview = "raymarcher"
 image = "previews/readme/hero.gif"
 example = "raymarcher.toml"
 

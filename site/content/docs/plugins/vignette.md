@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "soft corner darkening"
 category = "overlays"
-preview = "vignetteprev"
 image = "previews/vignette.jpg"
 used_in = "shinkai.toml"
 

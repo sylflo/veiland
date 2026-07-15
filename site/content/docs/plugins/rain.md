@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "slanted streaks"
 category = "particles"
-preview = "rain"
 image = "previews/readme/gallery-rain.gif"
 example = "rain.toml"
 

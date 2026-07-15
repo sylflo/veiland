@@ -7,7 +7,6 @@ template = "docs-page.html"
 [extra]
 one_liner = "wandering glow"
 category = "particles"
-preview = "fireflies"
 image = "previews/readme/gallery-fireflies.gif"
 example = "fireflies.toml"
 
