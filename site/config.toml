@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Zola configuration for the veiland website.
+
+base_url = "https://sylflo.github.io/veiland"
+title = "veiland · rice your lock screen"
+description = "A GPU lock screen for Wayland that you compose from layers, each one a separate program."
+
+compile_sass = false
+build_search_index = false
+
+[markdown.highlighting]
+enabled = true
+theme = "ayu-dark"
