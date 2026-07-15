@@ -201,7 +201,19 @@
             # wrapper bundles genisoimage and qemu-img, so this one package
             # covers the seed step; qemu itself comes from the system.
             cloud-utils
+
+            # Python + Pillow for the no-SDK plugin demo (plugin-python.md
+            # / battery.py): a plugin written against the wire protocol
+            # directly, drawing with Pillow into a ctypes-allocated GBM
+            # buffer. Dev-only, never in the package.
+            (python3.withPackages (ps: [ ps.pillow ]))
           ];
+
+          # Let the python demo's ctypes dlopen find libgbm: the shell
+          # links it for cargo via inputsFrom, but dlopen doesn't search
+          # the Nix store. Same libgbm the workspace builds against, so
+          # nothing else in the shell is shadowed.
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libgbm ];
 
           shellHook = ''
             echo "veiland dev shell"

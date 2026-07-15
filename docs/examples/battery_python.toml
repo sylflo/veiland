@@ -1,0 +1,27 @@
+# No [plugin.region]: the shipped host composites a plugin's buffer by
+# stretching it into the region quad (Configure always carries the full
+# surface size), so a widget positions itself inside a full-surface
+# transparent canvas instead — same model as the label/clock plugins.
+[[plugin]]
+name = "battery"
+binary = "/home/sylflo/Projects/veiland/battery.py"
+z_index = 10
+
+
+[[plugin]]
+name = "title-japanese"
+binary = "veiland-label"
+z_index = 31
+
+[plugin.config]
+text = "君の名は。"
+font_family = "Noto Sans CJK JP"
+font_size = 0.035             # fraction of surface height (~38px on 1080p)
+font_weight = 300
+letter_spacing = 0.4          # fraction of font size (~8px with a 20px font)
+color = [0.91, 0.96, 0.97, 0.95]
+halign = "center"
+valign = "middle"
+position = [0.5, 0.387]
+shadow_offset = [0, 0.004]    # fraction of surface height (~4px on 1080p)
+shadow_color = [0.0, 0.0, 0.0, 0.9]
