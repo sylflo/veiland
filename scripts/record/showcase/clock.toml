@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Showcase config for the clock plugin preview: time and date centered
+# large over the black lock surface. Static, so a screenshot is enough:
+# lock with it and grab a frame (grim, or scene.sh -k + ffmpeg).
+
+[[plugin]]
+name = "clock"
+binary = "veiland-clock"
+z_index = 0
+
+[plugin.config]
+time_font_size = 0.1
+date_font_size = 0.025
+time_position = [0.5, 0.38]
+date_position = [0.5, 0.56]
+halign = "center"
+valign = "middle"

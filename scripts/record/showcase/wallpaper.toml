@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Showcase config for the wallpaper plugin preview: one image, full
+# region. The path is repo-relative like sakura.toml's, so launch from
+# the repo root (VEILAND_CONFIG=scripts/record/showcase/wallpaper.toml
+# veiland). Static, so a screenshot is enough.
+
+[[plugin]]
+name = "wallpaper"
+binary = "veiland-wallpaper"
+z_index = 0
+
+[plugin.config]
+path = "docs/examples/assets/sakura-dusk.jpg"

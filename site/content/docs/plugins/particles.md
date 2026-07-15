@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "rising motes"
 category = "particles"
 preview = "particlesprev"
+image = "previews/readme/gallery-particles.gif"
 used_in = "shinkai.toml"
 
 [[extra.props]]

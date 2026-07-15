@@ -8,6 +8,7 @@ template = "docs-page.html"
 one_liner = "any styled text"
 category = "text"
 preview = "labelprev"
+image = "previews/label.png"
 example = "label.toml"
 
 [[extra.props]]
