@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+
+{% block title %}Plugins &middot; veiland docs{% endblock title %}
+
+{% block content %}
+<div class="doc-shell">
+  {{ m::sidebar(current=section.permalink) }}
+  <article class="doc">
+    <h1>Plugins</h1>
+    <p>Each plugin draws one kind of layer and reads its own <code>[plugin.config]</code>
+    table. Every key is optional, colors are 0.0&ndash;1.0 float arrays, and the schema
+    belongs to the plugin: the core passes the table through verbatim, so a plugin you
+    write yourself defines whatever properties it wants.</p>
+    {% for cat in section.extra.categories %}
+    <h2 id="{{ cat.name }}">{{ cat.name }}</h2>
+    {% if cat.notes %}{{ cat.notes | markdown | safe }}{% endif %}
+    <table>
+      <thead><tr><th>plugin</th><th>what it draws</th></tr></thead>
+      <tbody>
+      {% for p in section.pages %}{% if p.extra.category == cat.name %}
+      <tr><td><a href="{{ p.permalink | safe }}"><code>veiland-{{ p.title }}</code></a></td><td>{{ p.extra.one_liner }}</td></tr>
+      {% endif %}{% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+    {{ section.content | safe }}
+  </article>
+  <nav class="doc-toc">
+    <div class="toc-label">on this page</div>
+    {% for cat in section.extra.categories %}
+    <a href="#{{ cat.name }}">{{ cat.name }}</a>
+    {% endfor %}
+    {% for h in section.toc %}
+    <a href="#{{ h.id }}">{{ h.title }}</a>
+    {% endfor %}
+  </nav>
+</div>
+{% endblock content %}

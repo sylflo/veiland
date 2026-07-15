@@ -191,6 +191,11 @@
             # other repo operations without leaving the shell.
             gh
 
+            # Static site generator for the website in site/ (dev-only;
+            # CI builds the site with its own pinned zola in
+            # .github/workflows/site.yml). `./site/serve.sh` to preview.
+            zola
+
             # cloud-localds, used by scripts/vmtest/*.sh to build the
             # cloud-init seed ISO for the packaging-test VMs. The nixpkgs
             # wrapper bundles genisoimage and qemu-img, so this one package

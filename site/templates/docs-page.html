@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+
+{% block title %}{{ page.title }} &middot; veiland docs{% endblock title %}
+
+{% block content %}
+<div class="doc-shell">
+  {{ m::sidebar(current=page.permalink) }}
+  <article class="doc">
+    <h1>{{ page.title }}{% if page.extra.one_liner %} <span class="doc-sub">{{ page.extra.one_liner }}</span>{% endif %}</h1>
+    {% if page.extra.category %}
+    <p class="doc-meta"><code>veiland-{{ page.title }}</code> &middot; {{ page.extra.category }}
+      {% if page.extra.example %} &middot; <a href="https://github.com/sylflo/veiland/blob/master/docs/examples/{{ page.extra.example }}" target="_blank" rel="noopener">example scene: {{ page.extra.example }}</a>
+      {% elif page.extra.used_in %} &middot; <a href="https://github.com/sylflo/veiland/blob/master/docs/examples/{{ page.extra.used_in }}" target="_blank" rel="noopener">used in {{ page.extra.used_in }}</a>{% endif %}</p>
+    {% endif %}
+    {# A real capture (extra.image, a path under static/) wins; until one
+       exists, the live canvas placeholder from previews.js renders. #}
+    {% if page.extra.category %}<p class="plugdesc">{{ page.description }}</p>{% endif %}
+    {% if page.extra.image %}
+    <div class="doc-preview">
+      {%- if page.extra.image is ending_with(".mp4") or page.extra.image is ending_with(".webm") -%}
+      <video src="{{ get_url(path=page.extra.image) | safe }}" autoplay loop muted playsinline aria-label="{{ page.title }} scene capture"></video>
+      {%- else -%}
+      <img src="{{ get_url(path=page.extra.image) | safe }}" alt="{{ page.title }} scene capture">
+      {%- endif -%}
+    </div>
+    {% endif %}
+    {{ page.content | safe }}
+    {% if page.extra.props %}
+    <h2 id="properties">Properties</h2>
+    <table class="props"><thead><tr><th>key</th><th>type</th><th>default</th><th>meaning</th></tr></thead><tbody>
+      {% for pr in page.extra.props %}
+      <tr><td><code>{{ pr.key }}</code></td><td>{{ pr["type"] }}</td><td>{{ pr.default }}</td><td>{{ pr.meaning }}</td></tr>
+      {% endfor %}
+    </tbody></table>
+    <p class="plugnote">every key is optional; omit it and the default applies. misspelled keys are
+    silently ignored, so if a setting seems to do nothing, check the spelling against this table.
+    colors are 0.0&ndash;1.0 float arrays.</p>
+    {% endif %}
+  </article>
+  <nav class="doc-toc">
+    {% if page.toc %}
+    <div class="toc-label">on this page</div>
+    {% for h in page.toc %}
+    <a href="#{{ h.id }}">{{ h.title }}</a>
+    {% for h2 in h.children %}<a class="toc-sub" href="#{{ h2.id }}">{{ h2.title }}</a>{% endfor %}
+    {% endfor %}
+    {% if page.extra.props %}<a href="#properties">Properties</a>{% endif %}
+    {% endif %}
+  </nav>
+</div>
+{% endblock content %}

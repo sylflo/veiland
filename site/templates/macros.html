@@ -1,0 +1,22 @@
+{% macro sidebar(current) %}
+{% set docsec = get_section(path="docs/_index.md") %}
+{% set plugsec = get_section(path="docs/plugins/_index.md") %}
+<aside class="doc-side">
+  <div class="side-group">guide</div>
+  {% for p in docsec.pages %}{% if p.extra.group == "guide" %}
+  <a href="{{ p.permalink | safe }}" {% if current == p.permalink %}class="active"{% endif %}>{{ p.title }}</a>
+  {% endif %}{% endfor %}
+  <div class="side-group">plugins</div>
+  <a href="{{ plugsec.permalink | safe }}" {% if current == plugsec.permalink %}class="active"{% endif %}>All plugins</a>
+  {% for cat in plugsec.extra.categories %}
+  <div class="side-cat">{{ cat.name }}</div>
+  {% for p in plugsec.pages %}{% if p.extra.category == cat.name %}
+  <a href="{{ p.permalink | safe }}" class="side-sub{% if current == p.permalink %} active{% endif %}">{{ p.title }}</a>
+  {% endif %}{% endfor %}
+  {% endfor %}
+  <div class="side-group">reference</div>
+  {% for p in docsec.pages %}{% if p.extra.group == "reference" %}
+  <a href="{{ p.permalink | safe }}" {% if current == p.permalink %}class="active"{% endif %}>{{ p.title }}</a>
+  {% endif %}{% endfor %}
+</aside>
+{% endmacro sidebar %}

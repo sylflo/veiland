@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Showcase config for the vignette plugin preview. The vignette darkens
+# what's beneath it, so it needs something visible to darken: a frozen,
+# muted gradient stands in for a wallpaper (procedural, no asset path
+# to edit). Static, so a screenshot is enough.
+
+[[plugin]]
+name = "gradient"
+binary = "veiland-gradient"
+z_index = 0
+
+[plugin.config]
+colors = [[0.38, 0.40, 0.48], [0.44, 0.38, 0.50]]
+speed = 0
+rotate_deg_per_min = 0
+
+[[plugin]]
+name = "vignette"
+binary = "veiland-vignette"
+z_index = 10
+
+[plugin.config]
+base_opacity = 0.15

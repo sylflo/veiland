@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Showcase config for recording the particles plugin preview:
+# white motes rising over the black lock surface, nothing else.
+#   scripts/record/scene.sh scripts/record/showcase/particles.toml -o DP-1
+
+[[plugin]]
+name = "particles"
+binary = "veiland-particles"
+z_index = 0
+
+[plugin.config]
+count = 80
+color = [1.0, 1.0, 1.0, 1.0]
+radius_px = 1.5
