@@ -147,12 +147,17 @@
     </p>
 
     <div class="scenes-grid">
-      <div class="scene" role="button" tabindex="0" @click="open('shinkai')" @keydown.enter="open('shinkai')"><img src="{{ get_url(path='previews/readme/gallery-shinkai.gif') | safe }}" alt="shinkai scene capture" loading="lazy"><span class="view-hint">view config</span>
+      <div class="scene scene-wide" role="button" tabindex="0" @click="open('shinkai')" @keydown.enter="open('shinkai')"><img src="{{ get_url(path='previews/readme/gallery-shinkai.gif') | safe }}" alt="shinkai scene capture, one different scene on each of two monitors" loading="lazy"><span class="view-hint">view config</span>
         <div class="scene-meta"><b>shinkai</b><span>two monitors, ten layers</span><code>shinkai.toml</code></div>
         <div class="ingredients"><span>wallpaper &times;2</span><span>sakura</span><span>particles</span><span>clock</span><span>label &times;4</span><span>vignette</span></div></div>
       <div class="scene" role="button" tabindex="0" @click="open('sakura')" @keydown.enter="open('sakura')"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"><span class="view-hint">view config</span>
         <div class="scene-meta"><b>sakura</b><span>falling petals at dusk</span><code>sakura.toml</code></div>
         <div class="ingredients"><span>wallpaper</span><span>sakura</span><span>clock</span></div></div>
+      <a class="scene scene-ghost" href="https://github.com/sylflo/veiland/tree/master/docs/examples" target="_blank" rel="noopener">
+        <span class="ghost-plus">+</span>
+        <b>your scene here</b>
+        <span>every config is a scene. built one worth sharing? send it to docs/examples/</span>
+      </a>
     </div>
 
     <div class="modal-backdrop" x-show="scene" x-cloak @click.self="scene = null">
