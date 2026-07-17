@@ -411,6 +411,7 @@ impl Renderer {
             // accidentally read our placeholder texture.
             gl::BindTexture(gl::TEXTURE_2D, 0);
         }
+        crate::gl_debug::check_gl("draw_placeholder: FBO render + composite");
     }
 
     /// Return the offscreen placeholder render target for `(width,
@@ -476,6 +477,7 @@ impl Renderer {
                 gl::DeleteTextures(1, &texture);
                 return None;
             }
+            crate::gl_debug::check_gl("ensure_placeholder_target: FBO setup");
 
             self.placeholder_fbos.push(PlaceholderTarget {
                 fbo,

@@ -178,5 +178,6 @@ impl PluginState {
 
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
         }
+        crate::gl_debug::check_gl("composite: draw plugin texture");
     }
 }

@@ -3,6 +3,7 @@
 mod app;
 mod auth;
 mod config;
+mod gl_debug;
 mod plugin;
 mod region;
 mod renderer;
@@ -184,6 +185,25 @@ fn main() -> ExitCode {
         );
     }
 
+    // GL diagnostics toggle. Strict like VEILAND_ALLOW_DUMP: only the exact
+    // value 1 enables; 0 or unset stays off, and anything else warns. This is
+    // a dev/debug knob a human types interactively, so `=0` must mean off, not
+    // "any value present enables". Read once here into the gl_debug module's
+    // process-global flag; check_gl / install_debug_callback read it later.
+    let gl_debug = match std::env::var_os("VEILAND_GL_DEBUG") {
+        Some(v) if v == "1" => true,
+        Some(v) if v == "0" => false,
+        Some(v) => {
+            eprintln!(
+                "veiland-core: WARNING: VEILAND_GL_DEBUG={v:?} is not 0 or 1 — \
+                ignoring it and leaving GL diagnostics off"
+            );
+            false
+        }
+        None => false,
+    };
+    gl_debug::set_enabled(gl_debug);
+
     // --- 1. Load plugin config ----------------------------------------------
     // Plugins are declared in $VEILAND_CONFIG (dev override) or
     // $XDG_CONFIG_HOME/veiland/config.toml. See docs/config.md.
@@ -299,6 +319,11 @@ fn main() -> ExitCode {
     // dmabuf import (which happens before any lock-surface configure).
     egl.make_current(egl_display, None, None, Some(egl_context))
         .expect("eglMakeCurrent (surfaceless)");
+
+    // Register the driver GL debug callback now that a context is current and
+    // gl::load_with has run, but before `egl` moves into the Renderer. Self-
+    // gates on VEILAND_GL_DEBUG; a no-op (and no driver round-trip) when off.
+    gl_debug::install_debug_callback();
 
     // Build both GL programs and bundle all EGL/GL handles into the
     // Renderer. The context is already current (surfaceless) above,

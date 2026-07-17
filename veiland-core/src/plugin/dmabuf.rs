@@ -117,6 +117,7 @@ pub fn import_dmabuf(
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
     }
+    crate::gl_debug::check_gl("import_dmabuf: EGLImage bind + texture setup");
 
     Ok(GlTexture { image, name })
 }

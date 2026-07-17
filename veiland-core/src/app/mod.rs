@@ -540,6 +540,7 @@ impl AppData {
             gl::Enable(gl::BLEND);
             gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
         }
+        crate::gl_debug::check_gl("repaint: viewport/clear/blend setup");
 
         for slot in self.plugins[output_idx].iter().flatten() {
             let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
@@ -562,6 +563,7 @@ impl AppData {
             w,
             h,
         );
+        crate::gl_debug::check_gl("repaint: composite loop + password field");
 
         // Request the next frame callback BEFORE swap. swap_buffers
         // calls wl_surface.commit; if we requested .frame() after the
