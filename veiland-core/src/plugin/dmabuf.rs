@@ -30,6 +30,30 @@ use super::HostError;
 pub struct GlTexture {
     pub image: egl::Image,
     pub name: gl::types::GLuint,
+    /// Which GL texture target the EGLImage actually bound to. Almost
+    /// always `GL_TEXTURE_2D`; `GL_TEXTURE_EXTERNAL_OES` for dmabufs the
+    /// driver only accepts as external (NVIDIA does this for LINEAR /
+    /// CPU-written buffers, so every CPU plugin lands here on that stack).
+    /// The compositor picks the matching sampler program from this, and
+    /// `PluginState::composite` binds this target rather than assuming 2D.
+    pub target: gl::types::GLenum,
+}
+
+// GL_OES_EGL_image_external texture target. The `gl` 0.14 crate omits it
+// (it's a GLES extension enum), so we hand-roll it -- same idiom as the
+// EGL_* consts below. Public so the repaint loop can recognise an
+// external-bound texture and pick the matching compositor program.
+pub const GL_TEXTURE_EXTERNAL_OES: gl::types::GLenum = 0x8D65;
+
+/// Discard any pending GL error so a following `glGetError` reflects only
+/// the call we care about, not stale state from earlier. Always-on control
+/// flow (not gated behind `VEILAND_GL_DEBUG`): the import path uses the
+/// post-bind error to decide the TEXTURE_2D-vs-external fallback.
+///
+/// # Safety
+/// Requires a current GL context.
+unsafe fn drain_gl_errors() {
+    unsafe { while gl::GetError() != gl::NO_ERROR {} }
 }
 
 // EGL_EXT_image_dma_buf_import constants. Values from the extension
@@ -101,25 +125,83 @@ pub fn import_dmabuf(
     // Bind the EGLImage to a fresh GL texture name. The
     // glEGLImageTargetTexture2DOES entry point is loaded via EGL's
     // proc-address lookup (it's not in GLES2 core).
-    let mut name: gl::types::GLuint = 0;
-    unsafe {
-        gl::GenTextures(1, &mut name);
-        gl::BindTexture(gl::TEXTURE_2D, name);
+    let target_fn: extern "system" fn(gl::types::GLenum, *const std::ffi::c_void) = unsafe {
+        std::mem::transmute(egl.get_proc_address("glEGLImageTargetTexture2DOES").ok_or(
+            HostError::Render("glEGLImageTargetTexture2DOES not available"),
+        )?)
+    };
 
-        let target_fn: extern "system" fn(gl::types::GLenum, *const std::ffi::c_void) =
-            std::mem::transmute(egl.get_proc_address("glEGLImageTargetTexture2DOES").ok_or(
-                HostError::Render("glEGLImageTargetTexture2DOES not available"),
-            )?);
+    // Try GL_TEXTURE_2D first (the common, tiled-modifier path). If the
+    // driver refuses -- NVIDIA rejects LINEAR/CPU-written dmabufs as
+    // "<image> and <target> are incompatible" (GL_INVALID_OPERATION),
+    // marking them external-only -- fall back to GL_TEXTURE_EXTERNAL_OES.
+    // On the fallback path the compositor samples via samplerExternalOES.
+    //
+    // The bind failure is detected with glGetError; note this is
+    // ALWAYS-ON control flow, not gated behind VEILAND_GL_DEBUG. The
+    // debug env var only governs diagnostics; if this check were gated the
+    // fallback would never fire in production and NVIDIA would go black.
+    // The check runs once per imported buffer (not per frame), so it's off
+    // the hot path and costs nothing to leave unconditional.
+    let mut name: gl::types::GLuint = 0;
+    let target = unsafe {
+        gl::GenTextures(1, &mut name);
+
+        // Clear stale error state so the check below reflects only this bind.
+        drain_gl_errors();
+
+        gl::BindTexture(gl::TEXTURE_2D, name);
         target_fn(gl::TEXTURE_2D, image.as_ptr() as *const _);
 
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        if gl::GetError() == gl::NO_ERROR {
+            gl::TEXTURE_2D
+        } else {
+            // The TEXTURE_2D bind failed (NVIDIA: LINEAR/CPU dmabuf is
+            // external-only). Retry against GL_TEXTURE_EXTERNAL_OES, but on
+            // a FRESH texture name: NVIDIA commits a texture object's target
+            // on its first glBindTexture, so reusing `name` here fails with
+            // "Target doesn't match the texture's target." Delete the
+            // 2D-committed name and allocate a new one for the external bind.
+            gl::DeleteTextures(1, &name);
+            let mut ext_name: gl::types::GLuint = 0;
+            gl::GenTextures(1, &mut ext_name);
+            // Clear the GL_INVALID_OPERATION the failed 2D bind just raised,
+            // so the post-bind check sees only the external bind's result.
+            drain_gl_errors();
+
+            gl::BindTexture(GL_TEXTURE_EXTERNAL_OES, ext_name);
+            target_fn(GL_TEXTURE_EXTERNAL_OES, image.as_ptr() as *const _);
+            if gl::GetError() != gl::NO_ERROR {
+                // Both targets refused the image. Clean up and report a
+                // protocol violation; the caller treats the plugin as dead
+                // and draws the fallback -- never a crash (dmabuf care bar).
+                gl::DeleteTextures(1, &ext_name);
+                let _ = egl.destroy_image(display, image);
+                return Err(HostError::ProtocolViolation(
+                    "dmabuf bound to neither GL_TEXTURE_2D nor GL_TEXTURE_EXTERNAL_OES",
+                ));
+            }
+            name = ext_name;
+            GL_TEXTURE_EXTERNAL_OES
+        }
+    };
+
+    // Sampler params on whichever target actually bound. (External
+    // textures require CLAMP_TO_EDGE wrap and non-mip filters, which is
+    // exactly what we set.)
+    unsafe {
+        gl::TexParameteri(target, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(target, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(target, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
     }
     crate::gl_debug::check_gl("import_dmabuf: EGLImage bind + texture setup");
 
-    Ok(GlTexture { image, name })
+    Ok(GlTexture {
+        image,
+        name,
+        target,
+    })
 }
 
 /// Release a `GlTexture`'s GPU resources. Must be called on a thread

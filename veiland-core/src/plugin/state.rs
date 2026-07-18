@@ -158,6 +158,16 @@ impl PluginState {
             return;
         };
 
+        // Program 0 means the caller had no matching program for this
+        // texture's target -- specifically, the texture bound only as
+        // GL_TEXTURE_EXTERNAL_OES but the external-sampler compositor
+        // failed to build on this stack (see renderer.rs). Skip the draw;
+        // the region keeps the clear-to-black fallback rather than issuing
+        // a GL_INVALID_OPERATION with program 0.
+        if program == 0 {
+            return;
+        }
+
         unsafe {
             gl::UseProgram(program);
 
@@ -168,7 +178,12 @@ impl PluginState {
             gl::Uniform4f(rect_loc, rect[0], rect[1], rect[2], rect[3]);
 
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, texture.name);
+            // Bind whichever target the EGLImage actually accepted at
+            // import (TEXTURE_2D normally, TEXTURE_EXTERNAL_OES for
+            // external-only dmabufs). The program passed in samples the
+            // matching sampler type, chosen by the caller from this same
+            // target.
+            gl::BindTexture(texture.target, texture.name);
             gl::Uniform1i(sampler_loc, 0);
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
@@ -177,6 +192,15 @@ impl PluginState {
             gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
+
+            // Unbind this slot's texture from unit 0 on the target it used.
+            // If it was GL_TEXTURE_EXTERNAL_OES (NVIDIA's LINEAR/CPU path),
+            // leaving it bound means the next slot's -- or the password
+            // placeholder's -- GL_TEXTURE_2D draw runs with two different
+            // targets live on the same unit, which NVIDIA rejects with
+            // GL_INVALID_OPERATION at draw time. Mirrors the placeholder
+            // path's own "leave unit 0 unbound" cleanup in renderer.rs.
+            gl::BindTexture(texture.target, 0);
         }
         crate::gl_debug::check_gl("composite: draw plugin texture");
     }
