@@ -267,6 +267,10 @@ password pill still render over black, and veiland logs the bad path. Every
 scene in the [gallery](#gallery) installs the same way from
 `/usr/share/veiland/examples/`.
 
+`veiland --help` lists the options and `veiland --version` prints the
+version; on a build off `master` (e.g. via `nix run`) the version also
+carries the commit, so it says which build you are on in a bug report.
+
 ---
 
 ## Architecture

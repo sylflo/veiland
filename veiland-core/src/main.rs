@@ -137,7 +137,86 @@ pub(crate) struct AppData {
     fractional_scale_manager: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
 }
 
+/// The version line for `--version`, e.g. `veiland 0.1.0` on a tagged build or
+/// `veiland 0.1.0 (b6cbfc3)` on a build off master (with `-dirty` appended for a
+/// modified tree). The rev is baked in by build.rs; empty on a release tarball,
+/// where the bare version is the honest answer. See build.rs for the full story.
+fn version_string() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let rev = env!("VEILAND_GIT_REV");
+    if rev.is_empty() {
+        format!("veiland {version}")
+    } else {
+        format!("veiland {version} ({rev})")
+    }
+}
+
+/// Body of `--help`, minus the version line (prepended at print time). Kept as
+/// a const so the arg loop below stays small.
+const HELP_BODY: &str = "\
+A Wayland screen locker with process-isolated, GPU-accelerated plugins.
+
+Usage:
+  veiland [OPTIONS]
+
+Options:
+  -h, --help       Print this help and exit
+  -V, --version    Print version information and exit
+
+veiland has no positional arguments. Plugins and appearance are set in the
+config file ($VEILAND_CONFIG, or $XDG_CONFIG_HOME/veiland/config.toml); see
+docs/config.md. Behaviour is further tuned by environment variables:
+
+  VEILAND_CONFIG            Path to the config file (dev override)
+  VEILAND_ALLOW_DUMP=1      Leave the core dumpable (debugging; weakens hardening)
+  VEILAND_GL_DEBUG=1        Enable GL diagnostics
+
+Run without arguments to lock the current session.";
+
+/// Handle `--help` / `--version` before any startup work, so they respond from
+/// any shell without a compositor. Returns `Some(exit_code)` when the process
+/// should exit now (a flag was handled, or an unknown argument was rejected);
+/// `None` to proceed with a normal lock. veiland takes no positional arguments
+/// — the config file and `VEILAND_*` env vars are its real inputs — so anything
+/// unrecognized is a mistake and exits FAILURE rather than booting a lock.
+fn handle_cli_args() -> Option<ExitCode> {
+    // Scan every argument (skip argv[0], the program name). `--help`/`--version`
+    // are terminal: if either appears anywhere, honour it and ignore the rest —
+    // an intent-clear request shouldn't be second-guessed by a stray token. Any
+    // other argument is unrecognized; remember the first and reject after the
+    // scan, but only if no help/version flag was also given.
+    let mut unrecognized: Option<String> = None;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                println!("{}\n\n{HELP_BODY}", version_string());
+                return Some(ExitCode::SUCCESS);
+            }
+            "-V" | "--version" => {
+                println!("{}", version_string());
+                return Some(ExitCode::SUCCESS);
+            }
+            // Keep only the first offender for the message; keep scanning in
+            // case a later arg is --help/--version (which wins).
+            other if unrecognized.is_none() => unrecognized = Some(other.to_string()),
+            _ => {}
+        }
+    }
+    if let Some(arg) = unrecognized {
+        eprintln!("veiland: unrecognized argument '{arg}'");
+        eprintln!("Try 'veiland --help' for usage.");
+        return Some(ExitCode::FAILURE);
+    }
+    None
+}
+
 fn main() -> ExitCode {
+    // Answer --help / --version before touching anything else: these must work
+    // from any shell, with no Wayland display and no security setup run.
+    if let Some(code) = handle_cli_args() {
+        return code;
+    }
+
     println!("veiland-core");
 
     #[cfg(feature = "debug-unlock")]

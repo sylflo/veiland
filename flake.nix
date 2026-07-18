@@ -82,6 +82,27 @@
 
           src = ./.;
 
+          # Hand the git revision to veiland-core's build.rs for
+          # `veiland --version`. A `nix build` copies the working tree WITHOUT
+          # `.git/` into the sandbox, so build.rs's `git` fallback finds no repo
+          # — but the flake knows its own revision. Shortened to a 7-char hash
+          # to match the dev-shell `git rev-parse --short` format. `self.rev` is
+          # the clean-tree commit; `self.dirtyRev` is `<hash>-dirty` for a
+          # modified tree (shorten the hash, keep the suffix); `""` when neither
+          # is known (e.g. a tarball checkout with no flake metadata), which
+          # prints the bare version. This is what lets an install off `master`
+          # or a pinned commit report exactly which build it is. See
+          # veiland-core/build.rs.
+          VEILAND_GIT_REV =
+            if self ? rev then
+              builtins.substring 0 7 self.rev
+            else if self ? dirtyRev then
+              # dirtyRev is "<40-char-hash>-dirty"; take the first 7 of the hash
+              # and re-append the marker so the format stays `abc1234-dirty`.
+              "${builtins.substring 0 7 self.dirtyRev}-dirty"
+            else
+              "";
+
           # Reproducible dep fetch straight from the committed lockfile —
           # no cargoHash to maintain, no network in the sandbox.
           cargoLock.lockFile = ./Cargo.lock;
