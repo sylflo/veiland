@@ -215,7 +215,14 @@
           # nothing else in the shell is shadowed.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libgbm ];
 
+          # IN_VEILAND_SHELL is a stable marker any shell can key a prompt
+          # off (Nix's own IN_NIX_SHELL doesn't survive `nix develop -c
+          # $SHELL`). PS1 tweak below only affects the bash `nix develop`
+          # starts; zsh/fish users set their prompt from this var in their
+          # own rc. See CONTRIBUTING "Optional git hooks" neighbours.
           shellHook = ''
+            export IN_VEILAND_SHELL=1
+            PS1="(veiland) $PS1"
             echo "veiland dev shell"
           '';
         };

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# veiland pre-push hook: run the same lint gate as CI before code reaches
+# public master. `nix flake check` = fmt + clippy (see flake.nix `checks`).
+# Tests still run in CI via `nix build`.
+# Install: see CONTRIBUTING.md "Optional git hooks".
+set -euo pipefail
+
+if ! command -v nix >/dev/null 2>&1; then
+	echo "pre-push: nix not on PATH - skipping flake check (CI will still gate)" >&2
+	exit 0
+fi
+
+echo "pre-push: running 'nix flake check' (fmt + clippy)..." >&2
+if ! nix flake check --print-build-logs; then
+	echo >&2
+	echo "pre-push: flake check failed. Fix before pushing, or 'git push --no-verify' to override." >&2
+	exit 1
+fi

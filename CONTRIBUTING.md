@@ -60,6 +60,28 @@ CI): `nix develop .#fuzz`, then `cargo fuzz run client_decode` from
 `veiland-protocol/fuzz/`. If you find a crash, please turn the input
 into a regression unit test in `veiland-protocol` alongside the fix.
 
+### Optional git hooks
+
+Two git hooks catch problems before they reach CI. They ship in
+`scripts/git-hooks/`; git only runs hooks from `.git/hooks/`, so opt in
+by installing them (either point git at the tracked dir, or copy the
+files):
+
+```sh
+git config core.hooksPath scripts/git-hooks   # or: cp scripts/git-hooks/* .git/hooks/
+```
+
+They mirror the checks above:
+
+- **pre-commit** runs `cargo fmt --all --check` only — fast, no compile,
+  so committing (including work-in-progress) stays instant.
+- **pre-push** runs `nix flake check` (rustfmt + clippy, the same gate
+  as CI) so nothing un-linted reaches `master`. Tests still run in CI
+  via `nix build`.
+
+Both skip gracefully if the needed tool (`cargo`, `nix`) isn't on
+`PATH`, and either can be bypassed with `--no-verify` when you need to.
+
 ## Pull request expectations
 
 - **Small, focused commits.** One logical change per commit; a

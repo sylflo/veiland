@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# veiland pre-commit hook: format check only (fast, no compile).
+# Heavier lint/type-check lives in pre-push (nix flake check).
+# Install: see CONTRIBUTING.md "Optional git hooks".
+set -euo pipefail
+
+if ! command -v cargo >/dev/null 2>&1; then
+	echo "pre-commit: cargo not on PATH (enter 'nix develop'?) - skipping fmt check" >&2
+	exit 0
+fi
+
+if ! cargo fmt --all --check; then
+	echo >&2
+	echo "pre-commit: rustfmt found unformatted code. Run 'cargo fmt --all' and re-stage." >&2
+	exit 1
+fi
