@@ -158,6 +158,16 @@ impl PluginState {
             return;
         };
 
+        // Program 0 means the caller had no matching program for this
+        // texture's target -- specifically, the texture bound only as
+        // GL_TEXTURE_EXTERNAL_OES but the external-sampler compositor
+        // failed to build on this stack (see renderer.rs). Skip the draw;
+        // the region keeps the clear-to-black fallback rather than issuing
+        // a GL_INVALID_OPERATION with program 0.
+        if program == 0 {
+            return;
+        }
+
         unsafe {
             gl::UseProgram(program);
 
@@ -168,7 +178,12 @@ impl PluginState {
             gl::Uniform4f(rect_loc, rect[0], rect[1], rect[2], rect[3]);
 
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, texture.name);
+            // Bind whichever target the EGLImage actually accepted at
+            // import (TEXTURE_2D normally, TEXTURE_EXTERNAL_OES for
+            // external-only dmabufs). The program passed in samples the
+            // matching sampler type, chosen by the caller from this same
+            // target.
+            gl::BindTexture(texture.target, texture.name);
             gl::Uniform1i(sampler_loc, 0);
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);

@@ -27,6 +27,22 @@ pub struct Renderer {
     pub compositor_vbo: gl::types::GLuint,
     pub compositor_sampler_loc: gl::types::GLint,
     pub compositor_rect_loc: gl::types::GLint,
+    /// External-texture compositor variant, for dmabufs that only bind as
+    /// `GL_TEXTURE_EXTERNAL_OES` (NVIDIA marks LINEAR/CPU-written buffers
+    /// external-only, so every CPU plugin lands here on that stack). Same
+    /// vertex shader and VBO as the plain compositor; the fragment shader
+    /// samples `samplerExternalOES` instead of `sampler2D`. See
+    /// `build_compositor_ext_program` and the import path in
+    /// `plugin/dmabuf.rs`.
+    ///
+    /// `0` when the stack doesn't expose `GL_OES_EGL_image_external` (the
+    /// ext program failed to build). We log once and keep locking:
+    /// `TEXTURE_2D` plugins still work; a plugin that needs the external
+    /// target draws the fallback rather than crashing the core. `composite`
+    /// treats program `0` as "no program" and skips the draw.
+    pub compositor_ext_program: gl::types::GLuint,
+    pub compositor_ext_sampler_loc: gl::types::GLint,
+    pub compositor_ext_rect_loc: gl::types::GLint,
     pub indicator_program: gl::types::GLuint,
     pub indicator_vbo: gl::types::GLuint,
     pub indicator_centre_loc: gl::types::GLint,
@@ -97,6 +113,27 @@ impl Renderer {
             unsafe { build_compositor_program()? };
         eprintln!("built compositor program id={}", compositor_program);
 
+        // External-texture compositor variant. Unlike the programs above we
+        // do NOT `?` on failure: a stack without `GL_OES_EGL_image_external`
+        // (rare on desktop GL, but not guaranteed) should still lock — only
+        // plugins needing the external target lose their image, and they get
+        // the fallback. Store `0` and log; `composite` treats `0` as absent.
+        let (compositor_ext_program, compositor_ext_sampler_loc, compositor_ext_rect_loc) =
+            match unsafe { build_compositor_ext_program() } {
+                Ok((p, s, r)) => {
+                    eprintln!("built compositor-ext program id={p}");
+                    (p, s, r)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "veiland-core: external-texture compositor unavailable ({e}); \
+                        CPU/linear plugins that need GL_TEXTURE_EXTERNAL_OES will \
+                        draw the fallback on this stack"
+                    );
+                    (0, -1, -1)
+                }
+            };
+
         let (
             indicator_program,
             indicator_vbo,
@@ -118,6 +155,9 @@ impl Renderer {
             compositor_vbo,
             compositor_sampler_loc,
             compositor_rect_loc,
+            compositor_ext_program,
+            compositor_ext_sampler_loc,
+            compositor_ext_rect_loc,
             indicator_program,
             indicator_vbo,
             indicator_centre_loc,
@@ -599,6 +639,59 @@ unsafe fn build_compositor_program() -> Result<
         let rect_loc = gl::GetUniformLocation(program, c"u_rect".as_ptr());
 
         Ok((program, vbo, sampler_loc, rect_loc))
+    }
+}
+
+/// Build the external-texture compositor variant.
+///
+/// Identical to `build_compositor_program` except the fragment shader
+/// samples a `samplerExternalOES` (backed by `GL_TEXTURE_EXTERNAL_OES`)
+/// instead of a `sampler2D`. Needed for dmabufs the driver only lets us
+/// bind as an external texture -- on NVIDIA that is every LINEAR /
+/// CPU-written buffer, which covers CPU-drawing plugins (e.g. the Python
+/// battery demo). The vertex shader and the Y-flip UV are the same, so the
+/// caller reuses the plain compositor's VBO; only the program and its two
+/// uniform locations are new.
+///
+/// Returns `Err` (not a crash) if the stack lacks
+/// `GL_OES_EGL_image_external` -- the shader then fails to compile and the
+/// caller degrades to "no external path" rather than refusing to lock.
+unsafe fn build_compositor_ext_program()
+-> Result<(gl::types::GLuint, gl::types::GLint, gl::types::GLint), String> {
+    // Same remap + Y-flip as the plain compositor's vertex shader.
+    let vs_src = b"#version 100\n\
+        attribute vec2 a_pos;\n\
+        uniform vec4 u_rect;\n\
+        varying vec2 v_uv;\n\
+        void main() {\n\
+            vec2 unit01 = a_pos * 0.5 + 0.5;\n\
+            vec2 clip = u_rect.xy + unit01 * u_rect.zw;\n\
+            gl_Position = vec4(clip.x, clip.y, 0.0, 1.0);\n\
+            v_uv = vec2(unit01.x, 1.0 - unit01.y);\n\
+        }\n\0";
+
+    // The #extension directive must precede any other statement, including
+    // the precision qualifier. samplerExternalOES is still sampled with
+    // texture2D in GLES 2. If the stack lacks the extension, compile_shader
+    // returns Err and the caller degrades gracefully.
+    let fs_src = b"#version 100\n\
+        #extension GL_OES_EGL_image_external : require\n\
+        precision mediump float;\n\
+        varying vec2 v_uv;\n\
+        uniform samplerExternalOES u_tex;\n\
+        void main() {\n\
+            gl_FragColor = texture2D(u_tex, v_uv);\n\
+        }\n\0";
+
+    unsafe {
+        let vs = compile_shader(gl::VERTEX_SHADER, vs_src)?;
+        let fs = compile_shader(gl::FRAGMENT_SHADER, fs_src)?;
+        let program = link_program(vs, fs)?;
+
+        let sampler_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
+        let rect_loc = gl::GetUniformLocation(program, c"u_rect".as_ptr());
+
+        Ok((program, sampler_loc, rect_loc))
     }
 }
 

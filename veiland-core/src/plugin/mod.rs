@@ -10,6 +10,7 @@ mod state;
 mod sync;
 
 pub use connection::{HostConnection, ReceivedFds};
+pub use dmabuf::GL_TEXTURE_EXTERNAL_OES;
 pub use error::HostError;
 pub use host_spawn::{
     current_time_for_configure, entry_matches_output, kill_slot, teardown_one_plugin, try_spawn_one,

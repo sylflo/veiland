@@ -544,11 +544,36 @@ impl AppData {
 
         for slot in self.plugins[output_idx].iter().flatten() {
             let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
+            // Pick the compositor variant matching how this plugin's dmabuf
+            // bound at import: the plain sampler2D program for TEXTURE_2D,
+            // the samplerExternalOES program for external-only dmabufs
+            // (NVIDIA's LINEAR/CPU path). Both share compositor_vbo (same
+            // unit quad + a_pos). If the texture is external but the ext
+            // program failed to build, we pass program 0 and composite
+            // skips the draw (region stays black) instead of crashing.
+            let is_external = slot
+                .state
+                .texture
+                .as_ref()
+                .is_some_and(|t| t.target == plugin::GL_TEXTURE_EXTERNAL_OES);
+            let (program, sampler_loc, rect_loc) = if is_external {
+                (
+                    self.renderer.compositor_ext_program,
+                    self.renderer.compositor_ext_sampler_loc,
+                    self.renderer.compositor_ext_rect_loc,
+                )
+            } else {
+                (
+                    self.renderer.compositor_program,
+                    self.renderer.compositor_sampler_loc,
+                    self.renderer.compositor_rect_loc,
+                )
+            };
             slot.state.composite(
-                self.renderer.compositor_program,
+                program,
                 self.renderer.compositor_vbo,
-                self.renderer.compositor_sampler_loc,
-                self.renderer.compositor_rect_loc,
+                sampler_loc,
+                rect_loc,
                 rect,
             );
         }
