@@ -9,3 +9,7 @@ result-*
 
 # Personal scratch notes.
 TODO
+
+# Python bytecode caches (the Python SDK in python/ and its pytest run).
+__pycache__/
+*.pyc

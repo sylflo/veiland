@@ -223,11 +223,12 @@
             # covers the seed step; qemu itself comes from the system.
             cloud-utils
 
-            # Python + Pillow for the no-SDK plugin demo (plugin-python.md
-            # / battery.py): a plugin written against the wire protocol
-            # directly, drawing with Pillow into a ctypes-allocated GBM
-            # buffer. Dev-only, never in the package.
-            (python3.withPackages (ps: [ ps.pillow ]))
+            # Python for the plugin track: Pillow for the no-SDK demo
+            # (plugin-python.md / battery.py, a plugin drawing with Pillow
+            # into a ctypes-allocated GBM buffer), and pytest for the
+            # Python SDK's codec suite (python/veiland_plugin.py +
+            # python/tests). Dev-only, never in the package.
+            (python3.withPackages (ps: [ ps.pillow ps.pytest ]))
           ];
 
           # Let the python demo's ctypes dlopen find libgbm: the shell
