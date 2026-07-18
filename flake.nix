@@ -223,14 +223,15 @@
             # covers the seed step; qemu itself comes from the system.
             cloud-utils
 
-            # Python for the plugin track: Pillow for the battery examples
-            # (python/examples/battery.py on the SDK, and the no-SDK reference
-            # docs/examples/battery_nosdk.py -- both draw with Pillow into a
-            # ctypes-allocated GBM buffer), plus pytest + mypy for the Python
-            # SDK's codec suite (python/veiland_plugin.py + python/tests).
-            # Dev-only, never in the package. Tooling config (ruff + mypy)
-            # lives in python/pyproject.toml.
-            (python3.withPackages (ps: [ ps.pillow ps.pytest ps.mypy ]))
+            # Python for the plugin track: drawing libs for the examples --
+            # Pillow (the battery examples, PIL upload() convenience) and
+            # pycairo (the cairo battery rewrite + the eventual now-playing
+            # example, drawing zero-copy into buf.map()); plus pytest + mypy
+            # for the Python SDK's codec suite (python/veiland_plugin.py +
+            # python/tests). All example/dev-only, never in the package and
+            # never imported by the SDK (stdlib + ctypes only). Tooling config
+            # (ruff + mypy) lives in python/pyproject.toml.
+            (python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ]))
 
             # ruff: formatter + import-sort + linter for the Python SDK, in
             # one binary (replaces black + isort + flake8). Standalone, so it
@@ -354,8 +355,9 @@
         # A plain runCommand like the fmt check -- the SDK is stdlib-only, so
         # no build env is needed, just the interpreter + tools. Mirrors the
         # `nix develop` tooling (config in python/pyproject.toml) so CI and the
-        # dev shell check the same thing. Pillow is in the interpreter env for
-        # import parity with the demo, though PR A's suite doesn't need it.
+        # dev shell check the same thing. Pillow + pycairo are in the
+        # interpreter env for import parity with the examples (ruff lints
+        # them), though the pytest suite itself needs neither.
         #
         # Copy python/ into the writable build dir first: the sources live in
         # the read-only /nix/store, and ruff/mypy/pytest all want to write
@@ -364,7 +366,7 @@
         python = pkgs.runCommand "veiland-python-check"
           {
             nativeBuildInputs = [
-              (pkgs.python3.withPackages (ps: [ ps.pillow ps.pytest ps.mypy ]))
+              (pkgs.python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ]))
               pkgs.ruff
             ];
           }

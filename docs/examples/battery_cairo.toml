@@ -1,0 +1,20 @@
+# Test config for the cairo battery example (python/examples/battery_cairo.py):
+# the same widget as battery_python.toml but drawn via pycairo into buf.map()
+# instead of Pillow into buf.upload(). Run this to confirm the cairo zero-copy
+# path renders identically to the PIL version -- the "SDK is drawing-library-
+# agnostic" check. Just the battery, no label, so the cairo card is what you
+# are evaluating.
+#
+# The binary path is relative, so run veiland from the repo root (the host
+# resolves it against its own working directory); a name-based plugin search
+# path is deferred, see docs/plans/python-sdk.md. The script must be chmod +x
+# or the host spawn fails with "Permission denied (os error 13)".
+#
+# No [plugin.region]: the host composites by stretching the buffer into the
+# region quad (Configure carries the full surface size), so the widget draws
+# into a full-surface transparent canvas -- same model as the label/clock
+# plugins and battery_python.toml.
+[[plugin]]
+name = "veiland-battery-cairo"
+binary = "./python/examples/battery_cairo.py"
+z_index = 10
