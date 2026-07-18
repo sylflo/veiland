@@ -10,10 +10,11 @@
 // thing you want in a bug report.
 //
 // Resolution order for the rev (first hit wins):
-//   1. $VEILAND_GIT_REV set at build time. The flake sets this from `self.rev`
-//      / `self.dirtyRev` because a `nix build` copies the working tree WITHOUT
-//      `.git/` into the sandbox, so the `git` command below finds no repo.
-//      This is the path that makes a flake-off-master build carry its commit.
+//   1. $VEILAND_GIT_REV set at build time. The flake sets this (a 7-char rev,
+//      already `-dirty`-suffixed when the tree is dirty) because a `nix build`
+//      copies the working tree WITHOUT `.git/` into the sandbox, so the `git`
+//      command below finds no repo. This is the path that makes a flake-off-
+//      master build carry its commit.
 //   2. `git rev-parse` in the source tree. Covers a plain `cargo build` in the
 //      dev shell, where `.git/` is present.
 //   3. Empty. A release tarball (.deb/.rpm/AUR) has neither the env var nor a
@@ -28,10 +29,25 @@ fn main() {
     // empty) so the `env!` never fails to resolve.
     println!("cargo:rustc-env=VEILAND_GIT_REV={rev}");
 
-    // Rebuild the version string when HEAD moves or the flake passes a new rev,
-    // so `--version` never reports a stale commit from an earlier build.
+    // Rebuild the version string when the commit or dirty state changes, so
+    // `--version` never reports a stale rev from an earlier build. `build.rs`
+    // runs in the crate dir, so `../.git` is the repo root.
+    //
+    // Watching `.git/HEAD` alone is not enough: on a branch it holds
+    // `ref: refs/heads/<branch>` and stays byte-identical when the branch
+    // advances (an ordinary commit or amend moves `refs/heads/<branch>`, not
+    // HEAD). So also watch:
+    //   - logs/HEAD: appended to on every commit / checkout / reset / amend —
+    //     the single most reliable "the rev moved" signal, and it changes for
+    //     branch commits where HEAD does not.
+    //   - index:     changes when files are staged, so a clean <-> dirty
+    //     transition re-runs us and the `-dirty` suffix stays honest.
+    // A path that does not exist (a fresh clone before its first reflog entry,
+    // a packaged tarball with no `.git`) is simply ignored by cargo.
     println!("cargo:rerun-if-env-changed=VEILAND_GIT_REV");
     println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../.git/logs/HEAD");
+    println!("cargo:rerun-if-changed=../.git/index");
 }
 
 /// The short revision, with a `-dirty` suffix when the working tree has
@@ -49,8 +65,11 @@ fn git_rev() -> String {
     };
 
     // `git status --porcelain` prints nothing for a clean tree, one line per
-    // change otherwise — so a non-empty result means dirty.
-    let dirty = git(&["status", "--porcelain"])
+    // change otherwise — so a non-empty result means dirty. `--untracked-files=no`
+    // so a stray untracked file (a scratch dir, an editor temp) does not mark
+    // the *build* dirty; only modifications to tracked files count, since those
+    // are what actually change what got compiled.
+    let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
         .map(|s| !s.is_empty())
         .unwrap_or(false);
 
