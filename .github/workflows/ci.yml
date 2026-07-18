@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# CI: the flake is the gate. `nix flake check` runs fmt + clippy (see
-# flake.nix `checks`); `nix build` builds the package and runs the test
-# suite in its check phase. No apt package list to maintain — the flake
-# pins every system library.
+# CI: the flake is the gate. `nix flake check` runs fmt + clippy + the
+# python check (ruff/mypy/pytest over python/; see flake.nix `checks`);
+# `nix build` builds the package and runs the test suite in its check
+# phase. No apt package list to maintain — the flake pins every system
+# library.
 
 name: CI
 

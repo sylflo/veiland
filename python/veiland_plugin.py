@@ -169,7 +169,10 @@ class _Reader:
         self._buf = buf
         self._off = 0
 
-    def _take(self, fmt: str):
+    def _take(self, fmt: str) -> int:
+        # Every fmt this class passes ("<H"/"<I"/"<Q"/"<i"/"<q") unpacks to a
+        # single Python int; struct.unpack_from types the element as Any, so
+        # int() both narrows the type and documents that invariant.
         size = struct.calcsize(fmt)
         if self._off + size > len(self._buf):
             raise Truncated(
@@ -178,7 +181,7 @@ class _Reader:
             )
         (value,) = struct.unpack_from(fmt, self._buf, self._off)
         self._off += size
-        return value
+        return int(value)
 
     def u16(self) -> int:
         return self._take("<H")
@@ -201,8 +204,7 @@ class _Reader:
             raise StringTooLong(max_len, length)
         if self._off + length > len(self._buf):
             raise Truncated(
-                f"str claims {length} bytes, "
-                f"only {len(self._buf) - self._off} remain"
+                f"str claims {length} bytes, only {len(self._buf) - self._off} remain"
             )
         raw = self._buf[self._off : self._off + length]
         self._off += length
@@ -214,9 +216,7 @@ class _Reader:
     def finish(self) -> None:
         """A frame carries exactly one message; leftover bytes are a fault."""
         if self._off != len(self._buf):
-            raise TrailingBytes(
-                f"{len(self._buf) - self._off} bytes after message end"
-            )
+            raise TrailingBytes(f"{len(self._buf) - self._off} bytes after message end")
 
 
 # -------------------------------------------------------------- codec: write
@@ -329,6 +329,7 @@ def decode_server_message(frame: bytes) -> ServerMessage:
     Truncated / OutOfRange / InvalidUtf8 / StringTooLong on a bad frame."""
     r = _Reader(frame)
     tag = r.u16()
+    msg: ServerMessage
     if tag == TAG_CONFIGURE:
         msg = _decode_configure(r)
     elif tag == TAG_FRAME_DONE:
@@ -387,7 +388,7 @@ class Connection:
         self.host_capabilities = host_capabilities
 
     @classmethod
-    def connect(cls, name: str, version: str) -> "Connection":
+    def connect(cls, name: str, version: str) -> Connection:
         """Read the socket fd from VEILAND_PLUGIN_SOCKET, run the version +
         capability handshake, and send Hello. Do this before any heavy setup
         of your own -- the host applies a spawn deadline (docs/protocol.md 5)."""
@@ -401,9 +402,7 @@ class Connection:
                 f"VEILAND_PLUGIN_SOCKET={raw_fd!r} is not an integer"
             ) from None
 
-        sock = socket.socket(
-            socket.AF_UNIX, socket.SOCK_SEQPACKET, fileno=fd
-        )
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET, fileno=fd)
         try:
             # 1. client -> server: our version.
             sock.send(struct.pack("<I", PROTOCOL_VERSION))
@@ -473,9 +472,7 @@ class Connection:
         """Send a Buffer message with the dmabuf fd attached via SCM_RIGHTS.
         Exactly one fd, always (slow path); no fence. send_fds dups the fd, so
         the caller retains ownership and reuses it for the buffer's lifetime."""
-        frame = encode_buffer(
-            buf_id, width, height, fourcc, modifier, stride, offset
-        )
+        frame = encode_buffer(buf_id, width, height, fourcc, modifier, stride, offset)
         socket.send_fds(self._sock, [frame], [dmabuf_fd])
 
     def send_buffer_destroy(self, buf_id: int) -> None:
@@ -488,10 +485,10 @@ class Connection:
     def close(self) -> None:
         self._sock.close()
 
-    def __enter__(self) -> "Connection":
+    def __enter__(self) -> Connection:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
 
@@ -502,4 +499,4 @@ def _recv_u32(sock: socket.socket, what: str) -> int:
     data = sock.recv(4)
     if len(data) != 4:
         raise HandshakeError(f"host closed while reading {what}")
-    return struct.unpack("<I", data)[0]
+    return int(struct.unpack("<I", data)[0])

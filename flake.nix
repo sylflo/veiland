@@ -6,7 +6,7 @@
 #   nix build            -> veiland-core + reference plugins in ./result/bin
 #                           (also runs the test suite in the check phase)
 #   nix develop          -> dev shell (Rust toolchain + system libs + tooling)
-#   nix flake check      -> fmt + clippy
+#   nix flake check      -> fmt + clippy + python (ruff/mypy/pytest)
 {
   description = "Wayland screen locker with process-isolated GPU plugins";
 
@@ -225,10 +225,16 @@
 
             # Python for the plugin track: Pillow for the no-SDK demo
             # (plugin-python.md / battery.py, a plugin drawing with Pillow
-            # into a ctypes-allocated GBM buffer), and pytest for the
+            # into a ctypes-allocated GBM buffer), plus pytest + mypy for the
             # Python SDK's codec suite (python/veiland_plugin.py +
-            # python/tests). Dev-only, never in the package.
-            (python3.withPackages (ps: [ ps.pillow ps.pytest ]))
+            # python/tests). Dev-only, never in the package. Tooling config
+            # (ruff + mypy) lives in python/pyproject.toml.
+            (python3.withPackages (ps: [ ps.pillow ps.pytest ps.mypy ]))
+
+            # ruff: formatter + import-sort + linter for the Python SDK, in
+            # one binary (replaces black + isort + flake8). Standalone, so it
+            # goes here rather than in the interpreter env above.
+            ruff
           ];
 
           # Let the python demo's ctypes dlopen find libgbm: the shell
@@ -342,6 +348,35 @@
             runHook postInstall
           '';
         });
+
+        # Python SDK gate: ruff (format + lint) + mypy + pytest over python/.
+        # A plain runCommand like the fmt check -- the SDK is stdlib-only, so
+        # no build env is needed, just the interpreter + tools. Mirrors the
+        # `nix develop` tooling (config in python/pyproject.toml) so CI and the
+        # dev shell check the same thing. Pillow is in the interpreter env for
+        # import parity with the demo, though PR A's suite doesn't need it.
+        #
+        # Copy python/ into the writable build dir first: the sources live in
+        # the read-only /nix/store, and ruff/mypy/pytest all want to write
+        # cache dirs (.ruff_cache, .mypy_cache, .pytest_cache) next to them.
+        # Cache flags are belt-and-suspenders on top of the writable copy.
+        python = pkgs.runCommand "veiland-python-check"
+          {
+            nativeBuildInputs = [
+              (pkgs.python3.withPackages (ps: [ ps.pillow ps.pytest ps.mypy ]))
+              pkgs.ruff
+            ];
+          }
+          ''
+            cp -r ${./.}/python ./python
+            chmod -R u+w ./python
+            cd ./python
+            ruff format --check .
+            ruff check --no-cache .
+            mypy --no-incremental --config-file pyproject.toml
+            pytest tests -q -p no:cacheprovider
+            touch "$out"
+          '';
       });
 
       # NixOS module: `services.veiland.enable = true` installs the

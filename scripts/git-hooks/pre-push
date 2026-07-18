@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # veiland pre-push hook: run the same lint gate as CI before code reaches
-# public master. `nix flake check` = fmt + clippy (see flake.nix `checks`).
-# Tests still run in CI via `nix build`.
+# public master. `nix flake check` = fmt + clippy + python (ruff/mypy/pytest;
+# see flake.nix `checks`). Rust tests still run in CI via `nix build`.
 # Install: see CONTRIBUTING.md "Optional git hooks".
 set -euo pipefail
 

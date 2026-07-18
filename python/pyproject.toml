@@ -1,0 +1,46 @@
+# Tooling config for the Python plugin SDK. Lives under python/ (not the repo
+# root, which is a Cargo workspace) and pins ruff + mypy so lint/format/type
+# results are reproducible across machines and CI. This is NOT packaging
+# metadata -- the SDK is a single vendorable file; a real [project] table for
+# PyPI is a packaging-time task (see docs/plans/python-sdk.md).
+
+[tool.ruff]
+# Match the SDK's supported floor (socket.send_fds / recv_fds landed in 3.9).
+target-version = "py39"
+line-length = 88
+
+[tool.ruff.lint]
+# A pragmatic default set: pyflakes (F) + pycodestyle (E/W) + import sorting
+# (I) + pyupgrade (UP) + flake8-bugbear (B). Replaces black+isort+flake8.
+select = ["E", "W", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+# The vendorable file has no package structure; point mypy at the sources
+# explicitly rather than relying on package discovery.
+files = ["veiland_plugin.py", "tests"]
+
+# The tests are checked, but not held to full --strict. Requiring a `-> None`
+# on every pytest function and typing every fixture is high-noise, low-value
+# ceremony on a test suite; strictness is what the *shipped* SDK earns. Real
+# type errors in test logic are still caught (return-type inference, arg
+# checks) -- we only relax the untyped-def requirement and silence the
+# missing third-party pytest stub (pytest is an example/dev dep, never
+# imported by the SDK).
+# tests/ has no __init__.py, so mypy sees the files as top-level modules
+# (test_codec, conftest), not tests.*. Match those names directly.
+[[tool.mypy.overrides]]
+module = ["test_codec", "conftest"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# Don't analyze pytest's own source. Depending on the environment mypy may
+# find the installed package (not just a missing stub), and checking its
+# internals against our python_version=3.9 setting trips on pytest's 3.10+
+# match statements. follow_imports=skip treats the module as Any without
+# descending into it; ignore_missing_imports covers the no-stub case too.
+[[tool.mypy.overrides]]
+module = "pytest"
+follow_imports = "skip"
+ignore_missing_imports = true

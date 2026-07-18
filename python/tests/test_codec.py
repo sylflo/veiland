@@ -6,6 +6,8 @@
 # implementations agree on the wire, which is the whole point of a second
 # independent implementation of the spec.
 
+from __future__ import annotations
+
 import os
 import socket
 import struct
@@ -13,7 +15,6 @@ import struct
 import pytest
 
 import veiland_plugin as vp
-
 
 # ------------------------------------------------------------------ fixtures
 
@@ -41,7 +42,7 @@ def handshook(host):
     host.send(struct.pack("<I", vp.PROTOCOL_VERSION))
     host.send(struct.pack("<I", 0))
     conn = vp.Connection.connect("battery", "0.1.0")
-    host.recv(4)              # client version
+    host.recv(4)  # client version
     host.recv(vp._RECV_SIZE)  # Hello
     yield conn, host
     conn.close()
@@ -61,15 +62,20 @@ def handshook(host):
 
 def test_hello_wire_format():
     # tag 0x0001, name "hello" (len 5), version "1.0" (len 3).
+    # Hand-aligned to mirror the wire layout; do not reflow.
+    # fmt: off
     expected = bytes(
         [0x01, 0x00, 0x05, 0x00, ord("h"), ord("e"), ord("l"), ord("l"),
          ord("o"), 0x03, 0x00, ord("1"), ord("."), ord("0")]
     )
+    # fmt: on
     assert vp.encode_hello("hello", "1.0") == expected
 
 
 def test_buffer_wire_format():
     # id 0, 64x64, ARGB8888, LINEAR (modifier 0), stride 256, offset 0.
+    # Hand-aligned byte table (one field per row); do not reflow.
+    # fmt: off
     expected = bytes(
         [
             0x02, 0x00,                                      # tag
@@ -82,9 +88,15 @@ def test_buffer_wire_format():
             0x00, 0x00, 0x00, 0x00,                          # offset = 0
         ]
     )
+    # fmt: on
     got = vp.encode_buffer(
-        buf_id=0, width=64, height=64, fourcc=vp.FOURCC_ARGB8888,
-        modifier=0, stride=256, offset=0,
+        buf_id=0,
+        width=64,
+        height=64,
+        fourcc=vp.FOURCC_ARGB8888,
+        modifier=0,
+        stride=256,
+        offset=0,
     )
     assert got == expected
     # ARGB8888 constant really is the 'A','R','2','4' little-endian u32.
@@ -97,22 +109,41 @@ def test_buffer_destroy_wire_format():
 
 
 def _configure_frame(
-    region_x=100, region_y=200, region_w=800, region_h=600, scale_120=120,
-    time_unix=1_700_000_000, tz=3600, output_name="DP-1",
+    region_x=100,
+    region_y=200,
+    region_w=800,
+    region_h=600,
+    scale_120=120,
+    time_unix=1_700_000_000,
+    tz=3600,
+    output_name="DP-1",
 ) -> bytes:
     """Build a Configure frame the way the host encodes it (server.rs order),
     so decode tests have well-formed input. Not part of the SDK -- the SDK
     only decodes server messages, never encodes them."""
     out = bytearray(struct.pack("<H", vp.TAG_CONFIGURE))
-    out += struct.pack("<iiIIIqi", region_x, region_y, region_w, region_h,
-                       scale_120, time_unix, tz)
+    out += struct.pack(
+        "<iiIIIqi", region_x, region_y, region_w, region_h, scale_120, time_unix, tz
+    )
     raw = output_name.encode("utf-8")
     out += struct.pack("<H", len(raw)) + raw
     return bytes(out)
 
 
+def _decode_configure(frame: bytes) -> vp.Configure:
+    """Decode a frame the test expects to be a Configure, asserting the type.
+    Narrows the ServerMessage union to Configure so field access is both
+    type-safe and self-documenting -- a decode returning anything else here is
+    a test-setup bug, caught immediately."""
+    msg = vp.decode_server_message(frame)
+    assert isinstance(msg, vp.Configure)
+    return msg
+
+
 def test_configure_wire_format():
     # The exact 40-byte vector from server.rs::configure_wire_format.
+    # Hand-aligned byte table (one field per row); do not reflow.
+    # fmt: off
     expected = bytes(
         [
             0x01, 0x00,                                      # tag = Configure
@@ -127,14 +158,20 @@ def test_configure_wire_format():
             ord("D"), ord("P"), ord("-"), ord("1"),          # "DP-1"
         ]
     )
+    # fmt: on
     # Our helper must reproduce the spec's bytes...
     assert _configure_frame() == expected
     # ...and the SDK must decode them into the expected message.
-    cfg = vp.decode_server_message(expected)
+    cfg = _decode_configure(expected)
     assert cfg == vp.Configure(
-        region_x=100, region_y=200, region_w=800, region_h=600,
-        scale_120=120, time_unix_seconds=1_700_000_000,
-        time_tz_offset_seconds=3600, output_name="DP-1",
+        region_x=100,
+        region_y=200,
+        region_w=800,
+        region_h=600,
+        scale_120=120,
+        time_unix_seconds=1_700_000_000,
+        time_tz_offset_seconds=3600,
+        output_name="DP-1",
     )
     assert cfg.scale == pytest.approx(1.0)
 
@@ -143,7 +180,7 @@ def test_configure_wire_format():
     "frame, singleton",
     [
         (bytes([0x02, 0x00]), vp.FRAME_DONE),  # tag 0x0002, empty payload
-        (bytes([0x04, 0x00]), vp.SHUTDOWN),    # tag 0x0004, empty payload
+        (bytes([0x04, 0x00]), vp.SHUTDOWN),  # tag 0x0004, empty payload
     ],
 )
 def test_singleton_wire_format(frame, singleton):
@@ -159,16 +196,32 @@ def test_buffer_released_wire_format():
 # --------------------------------------------------------------- round-trips
 
 
-def _decode_client(frame: bytes):
+def _decode_client(frame: bytes) -> tuple[object, ...]:
     """Decode a client-direction frame back into its fields. The SDK doesn't
     ship a client decoder (the host does that in Rust) so tests roll a tiny
-    one to prove the encoders are self-consistent and reversible."""
+    one to prove the encoders are self-consistent and reversible. The returned
+    tuple's shape depends on the tag (a str label plus the fields), so its
+    element type is the honest `object`."""
     r = vp._Reader(frame)
     tag = r.u16()
+    result: tuple[object, ...]
     if tag == vp.TAG_HELLO:
-        result = ("hello", r.string(vp.PLUGIN_NAME_MAX), r.string(vp.PLUGIN_VERSION_MAX))
+        result = (
+            "hello",
+            r.string(vp.PLUGIN_NAME_MAX),
+            r.string(vp.PLUGIN_VERSION_MAX),
+        )
     elif tag == vp.TAG_BUFFER:
-        result = ("buffer", r.u32(), r.u32(), r.u32(), r.u32(), r.u64(), r.u32(), r.u32())
+        result = (
+            "buffer",
+            r.u32(),
+            r.u32(),
+            r.u32(),
+            r.u32(),
+            r.u64(),
+            r.u32(),
+            r.u32(),
+        )
     elif tag == vp.TAG_BUFFER_DESTROY:
         result = ("destroy", r.u32())
     else:
@@ -178,13 +231,23 @@ def _decode_client(frame: bytes):
 
 
 def test_hello_roundtrip():
-    assert _decode_client(vp.encode_hello("gradient", "0.1")) == ("hello", "gradient", "0.1")
+    got = _decode_client(vp.encode_hello("gradient", "0.1"))
+    assert got == ("hello", "gradient", "0.1")
 
 
 def test_buffer_roundtrip():
-    frame = vp.encode_buffer(7, 128, 96, vp.FOURCC_ARGB8888, vp.MODIFIER_INVALID, 512, 0)
+    frame = vp.encode_buffer(
+        7, 128, 96, vp.FOURCC_ARGB8888, vp.MODIFIER_INVALID, 512, 0
+    )
     assert _decode_client(frame) == (
-        "buffer", 7, 128, 96, vp.FOURCC_ARGB8888, vp.MODIFIER_INVALID, 512, 0,
+        "buffer",
+        7,
+        128,
+        96,
+        vp.FOURCC_ARGB8888,
+        vp.MODIFIER_INVALID,
+        512,
+        0,
     )
 
 
@@ -193,8 +256,9 @@ def test_buffer_destroy_roundtrip():
 
 
 def test_configure_roundtrip():
-    frame = _configure_frame(region_x=-10, region_y=5, scale_120=240, tz=-3600)
-    cfg = vp.decode_server_message(frame)
+    cfg = _decode_configure(
+        _configure_frame(region_x=-10, region_y=5, scale_120=240, tz=-3600)
+    )
     assert cfg.region_x == -10 and cfg.region_y == 5
     assert cfg.scale_120 == 240 and cfg.scale == pytest.approx(2.0)
     assert cfg.time_tz_offset_seconds == -3600
@@ -205,25 +269,25 @@ def test_configure_multibyte_utf8_output_name():
     # str_roundtrip_multibyte_utf8). Proves length is bytes, not chars.
     name = "héllo"
     assert len(name.encode("utf-8")) == 6
-    cfg = vp.decode_server_message(_configure_frame(output_name=name))
+    cfg = _decode_configure(_configure_frame(output_name=name))
     assert cfg.output_name == name
 
 
 def test_configure_empty_output_name():
     # Transient hotplug case: an output with no name yet (protocol.md 7.1).
-    cfg = vp.decode_server_message(_configure_frame(output_name=""))
+    cfg = _decode_configure(_configure_frame(output_name=""))
     assert cfg.output_name == ""
 
 
 def test_configure_max_length_output_name():
     name = "a" * vp.OUTPUT_NAME_MAX  # 64 bytes, at the inclusive cap
-    cfg = vp.decode_server_message(_configure_frame(output_name=name))
+    cfg = _decode_configure(_configure_frame(output_name=name))
     assert cfg.output_name == name
 
 
 def test_configure_fractional_scale_accepted():
     # 150 = 1.25x, a common laptop fractional scale.
-    cfg = vp.decode_server_message(_configure_frame(scale_120=150))
+    cfg = _decode_configure(_configure_frame(scale_120=150))
     assert cfg.scale == pytest.approx(1.25)
 
 
@@ -304,11 +368,11 @@ def test_decode_output_name_too_long():
 @pytest.mark.parametrize(
     "region_w, region_h, scale_120",
     [
-        (0, 600, 120),      # region_w below min
-        (9000, 600, 120),   # region_w above max
-        (800, 0, 120),      # region_h below min
-        (800, 9000, 120),   # region_h above max
-        (800, 600, 0),      # scale below min
+        (0, 600, 120),  # region_w below min
+        (9000, 600, 120),  # region_w above max
+        (800, 0, 120),  # region_h below min
+        (800, 9000, 120),  # region_h above max
+        (800, 600, 0),  # scale below min
         (800, 600, 10000),  # scale above max
     ],
 )
@@ -320,8 +384,9 @@ def test_decode_configure_out_of_range(region_w, region_h, scale_120):
 
 @pytest.mark.parametrize("region_w, region_h, scale_120", [(8192, 8192, 9999)])
 def test_decode_configure_edge_values_accepted(region_w, region_h, scale_120):
-    frame = _configure_frame(region_w=region_w, region_h=region_h, scale_120=scale_120)
-    cfg = vp.decode_server_message(frame)
+    cfg = _decode_configure(
+        _configure_frame(region_w=region_w, region_h=region_h, scale_120=scale_120)
+    )
     assert (cfg.region_w, cfg.region_h, cfg.scale_120) == (8192, 8192, 9999)
 
 
@@ -332,11 +397,11 @@ def test_decode_configure_edge_values_accepted(region_w, region_h, scale_120):
 @pytest.mark.parametrize(
     "width, height, stride",
     [
-        (0, 64, 256),      # width below min
-        (9000, 64, 36000), # width above max (stride kept >= width)
-        (64, 0, 256),      # height below min
-        (64, 9000, 256),   # height above max
-        (64, 64, 32),      # stride < width
+        (0, 64, 256),  # width below min
+        (9000, 64, 36000),  # width above max (stride kept >= width)
+        (64, 0, 256),  # height below min
+        (64, 9000, 256),  # height above max
+        (64, 64, 32),  # stride < width
     ],
 )
 def test_encode_buffer_out_of_range(width, height, stride):
@@ -441,7 +506,7 @@ def test_wait_for_configure(handshook):
 
 def test_recv_event_frame_done_then_released(handshook):
     conn, host = handshook
-    host.send(bytes([0x02, 0x00]))                          # FrameDone
+    host.send(bytes([0x02, 0x00]))  # FrameDone
     host.send(bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x00]))  # BufferReleased id 0
     assert conn.recv_event() is vp.FRAME_DONE
     assert conn.recv_event() == vp.BufferReleased(id=0)
@@ -467,8 +532,13 @@ def test_send_buffer_carries_one_fd(handshook):
     r, w = socket.socketpair()
     try:
         conn.send_buffer(
-            dmabuf_fd=r.fileno(), buf_id=0, width=64, height=64,
-            fourcc=vp.FOURCC_ARGB8888, modifier=0, stride=256,
+            dmabuf_fd=r.fileno(),
+            buf_id=0,
+            width=64,
+            height=64,
+            fourcc=vp.FOURCC_ARGB8888,
+            modifier=0,
+            stride=256,
         )
         msg, fds, _flags, _addr = socket.recv_fds(host, vp._RECV_SIZE, 1)
         assert msg == vp.encode_buffer(0, 64, 64, vp.FOURCC_ARGB8888, 0, 256)

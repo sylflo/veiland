@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# veiland pre-commit hook: format check only (fast, no compile).
-# Heavier lint/type-check lives in pre-push (nix flake check).
+# veiland pre-commit hook: format checks only (fast, no compile) for both
+# the Rust workspace and the Python SDK. Heavier lint/type-check/tests live
+# in pre-push (nix flake check, which now includes ruff + mypy + pytest).
 # Install: see CONTRIBUTING.md "Optional git hooks".
 set -euo pipefail
 
@@ -14,5 +15,18 @@ fi
 if ! cargo fmt --all --check; then
 	echo >&2
 	echo "pre-commit: rustfmt found unformatted code. Run 'cargo fmt --all' and re-stage." >&2
+	exit 1
+fi
+
+# Python SDK format check (config in python/pyproject.toml). Fast like
+# rustfmt; the matching lint/type/test pass runs in pre-push via the flake.
+if ! command -v ruff >/dev/null 2>&1; then
+	echo "pre-commit: ruff not on PATH (enter 'nix develop'?) - skipping python fmt check" >&2
+	exit 0
+fi
+
+if ! ruff format --check python; then
+	echo >&2
+	echo "pre-commit: ruff found unformatted Python. Run 'ruff format python' and re-stage." >&2
 	exit 1
 fi
