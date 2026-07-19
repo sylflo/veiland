@@ -17,3 +17,8 @@ wifi-0/25/50/75/100.svg share one three-arc fan over a dot and light more arcs
 as the bucket rises (unlit arcs are dimmed, not removed, so the level reads at a
 glance); wifi-75 thins its outer arc the way battery-75 narrows its fill-bar, so
 75 and 100 stay distinct. wifi-off.svg dims the whole fan and adds a slash.
+
+ethernet-up/down.svg use the "wired network" motif (a top node feeding two lower
+nodes over a bus, as in GNOME's network-wired). ethernet-up is the solid glyph;
+ethernet-down dims it and adds a slash, the same disabled-state convention as
+wifi-off.

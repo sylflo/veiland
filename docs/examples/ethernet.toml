@@ -1,0 +1,30 @@
+# Test config for the ethernet example (python/examples/ethernet.py): a
+# monochrome-white RJ45 glyph in a small circular translucent pill, inset from
+# the top-right corner (matching the reference lockscreen's status chip). Two
+# states, no bucketing: ethernet-up.svg when the wired link is active,
+# ethernet-down.svg when it is not (unplugged / no device / no bus). It is the
+# battery_svg.py template with a wired-link reading; READ-ONLY (shows link,
+# never connects).
+#
+# Data: NetworkManager over the SYSTEM bus, via the veiland_dbus companion (the
+# same source wifi.py uses, wired branch). A cable plug/unplug flips the device
+# State and wakes the pill immediately (its D-Bus socket is on the pacer's
+# extra_fds); with no system bus at all it draws the down glyph rather than
+# failing. NM also exposes the negotiated speed, but this example stays
+# icon-only (no text label) to keep the pill a clean circular chip.
+#
+# Needs the SVG stack (pygobject3 + librsvg + the Rsvg typelib on
+# GI_TYPELIB_PATH) AND jeepney; the flake's dev shell wires both, so run veiland
+# from inside `nix develop`. The binary path is relative, so run veiland from the
+# repo root; the script must be chmod +x or the host spawn fails with os error 13.
+#
+# [plugin.region] uses the ANCHORED form: halign/valign pin the box to the
+# top-right corner and width/height/margin are FRACTIONS of the surface, resolved
+# host-side per output, so the chip is the same relative size on 1080p/1440p/4K.
+# See battery_svg.toml / wifi.toml (its siblings) and status_cluster.toml (all
+# the pills in a row).
+[[plugin]]
+name = "veiland-ethernet"
+binary = "./python/examples/ethernet.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }

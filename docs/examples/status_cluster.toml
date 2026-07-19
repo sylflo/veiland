@@ -4,10 +4,10 @@
 # roadmap is aiming at: several small glyphs that together read as a real daily
 # driver.
 #
-# Right now the row is battery + wifi (the two SVG pills that exist); as the
-# ethernet and bluetooth siblings land they get added here, extending the row
-# leftward. Each pill is the battery_svg.py template: bucket a reading to a
-# glyph, draw a centered pill. All are READ-ONLY.
+# Right now the row is battery + wifi + ethernet (the SVG pills that exist);
+# bluetooth is added here as it lands, extending the row leftward. Each pill is
+# the battery_svg.py template: bucket a reading to a glyph, draw a centered pill.
+# All are READ-ONLY.
 #
 # WHY EXPLICIT PIXELS HERE (and not the anchored fractions the single-pill
 # battery_svg.toml / wifi.toml use): a row of chips needs them TOP-ALIGNED (same
@@ -46,9 +46,9 @@ speed = 0.6
 
 # --- the chip row (explicit pixels, 1920x1080, right to left) -----------------
 # All chips share y = 14, w = h = 60 (top-aligned, same size); only x differs.
-# Battery hugs the right edge (x = 1920 - 14 - 60 = 1846); wifi sits one slot
-# left with a 20px gap (x = 1846 - 60 - 20 = 1766). Add ethernet at 1686 and
-# bluetooth at 1606 as they land, continuing the row.
+# Battery hugs the right edge (x = 1920 - 14 - 60 = 1846); each chip to its left
+# steps back one 60px slot + a 20px gap = 80px. So wifi = 1766, ethernet = 1686,
+# and bluetooth = 1606 (added as it lands).
 
 # Battery: rightmost chip.
 [[plugin]]
@@ -64,6 +64,14 @@ name = "veiland-wifi"
 binary = "./python/examples/wifi.py"
 z_index = 10
 region = { x = 1766, y = 14, w = 60, h = 60 }
+
+# Ethernet: one slot left of wifi, same wired NetworkManager source; the RJ45
+# glyph shows up vs down (unplugged / no device / no bus -> down).
+[[plugin]]
+name = "veiland-ethernet"
+binary = "./python/examples/ethernet.py"
+z_index = 10
+region = { x = 1686, y = 14, w = 60, h = 60 }
 
 # Password indicator near the bottom-center, clear of the top-right cluster. `x`
 # unset -> the core centers it horizontally; `y_percent` is the box CENTER as a

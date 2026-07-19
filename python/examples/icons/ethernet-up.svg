@@ -1,0 +1,11 @@
+<!-- ethernet-up icon (wired link active): the GNOME-style network-wired motif, a top node feeding two lower nodes over a bus. CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- top node -->
+  <rect x="9" y="4" width="6" height="5" rx="1.2" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+  <!-- trunk down to the bus, and the bus feeding the two lower nodes -->
+  <path d="M12 9 v3 M6 15 v-1.5 a1.5 1.5 0 0 1 1.5 -1.5 h9 a1.5 1.5 0 0 1 1.5 1.5 V15"
+        fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- two lower nodes -->
+  <rect x="3" y="15" width="6" height="5" rx="1.2" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+  <rect x="15" y="15" width="6" height="5" rx="1.2" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+</svg>
