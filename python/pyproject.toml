@@ -17,9 +17,11 @@ select = ["E", "W", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.9"
 strict = true
-# The vendorable file has no package structure; point mypy at the sources
-# explicitly rather than relying on package discovery.
-files = ["veiland_plugin.py", "tests"]
+# The vendorable files have no package structure; point mypy at the sources
+# explicitly rather than relying on package discovery. veiland_dbus.py is the
+# opt-in D-Bus companion (like veiland_svg.py's SVG one), held to the same
+# --strict bar as the core SDK file; the examples are not checked here.
+files = ["veiland_plugin.py", "veiland_dbus.py", "tests"]
 
 # The tests are checked, but not held to full --strict. Requiring a `-> None`
 # on every pytest function and typing every fixture is high-noise, low-value
@@ -31,7 +33,7 @@ files = ["veiland_plugin.py", "tests"]
 # tests/ has no __init__.py, so mypy sees the files as top-level modules
 # (test_codec, conftest), not tests.*. Match those names directly.
 [[tool.mypy.overrides]]
-module = ["test_codec", "test_buffer_chain", "conftest"]
+module = ["test_codec", "test_buffer_chain", "test_dbus", "conftest"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
@@ -43,4 +45,12 @@ disallow_incomplete_defs = false
 [[tool.mypy.overrides]]
 module = "pytest"
 follow_imports = "skip"
+ignore_missing_imports = true
+
+# jeepney (the D-Bus client) ships no py.typed / stubs, so veiland_dbus.py's
+# imports of it are untyped. It is an example/companion dep, never imported by
+# the core SDK file; treat it as Any rather than failing --strict on the missing
+# marker. The companion's own surface stays fully typed.
+[[tool.mypy.overrides]]
+module = ["jeepney", "jeepney.io.blocking"]
 ignore_missing_imports = true
