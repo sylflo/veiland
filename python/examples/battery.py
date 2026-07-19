@@ -126,34 +126,31 @@ def main():
     conn = vp.Connection.connect("battery", "0.1.0")  # env fd, handshake, Hello
     cfg = conn.wait_for_configure()
     dev = vp.GbmDevice()
-    buf = vp.LinearBuffer(dev, cfg.region_w, cfg.region_h)
+    # BufferChain, not a single LinearBuffer: this widget redraws (the % and bar
+    # change), and a CPU plugin redrawing one buffer in place races the host's
+    # live sampling -> a flicker. The chain hands out the buffer the host is not
+    # showing (via acquire()), so the shown one is never mid-edit. upload() works
+    # on the acquired LinearBuffer exactly as before. See veiland_plugin.
+    chain = vp.BufferChain(dev, cfg.region_w, cfg.region_h)
 
     # on_demand: the widget only repaints when the battery reading might have
     # changed. A 30 s TIMEOUT tick drives that refresh with no host message.
     pacer = vp.FramePacer.on_demand()
     for ev in pacer.events(conn, timeout=30.0):
         if ev.kind is vp.Event.RENDER:
-            buf.upload(draw_widget(cfg, read_battery()))
-            conn.send_buffer(
-                buf.fd,
-                0,
-                buf.width,
-                buf.height,
-                vp.FOURCC_ARGB8888,
-                buf.modifier,
-                buf.stride,
-            )
+            chain.acquire().upload(draw_widget(cfg, read_battery()))
+            chain.send(conn)
             pacer.submitted()
         elif ev.kind is vp.Event.RECONFIGURE:
             cfg = ev.configure
-            buf = buf.resize_or_keep(dev, cfg)
+            chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()
         elif ev.kind is vp.Event.TIMEOUT:
             pacer.mark_dirty()  # re-read the battery percentage
         elif ev.kind is vp.Event.SHUTDOWN:
             break
 
-    buf.close()
+    chain.close()
     dev.close()
     conn.close()
 

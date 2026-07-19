@@ -155,33 +155,30 @@ def main():
     cfg = conn.wait_for_configure()
     icons = load_icons()
     dev = vp.GbmDevice()
-    buf = vp.LinearBuffer(dev, cfg.region_w, cfg.region_h)
+    # BufferChain, not a single LinearBuffer: this widget REDRAWS (the icon
+    # changes with the battery level), and a CPU plugin that redraws one buffer
+    # in place races the host's live sampling -> a flicker. The chain hands out
+    # the buffer the host is not showing, so the shown one is never mid-edit.
+    # (Any status widget cloned from this one redraws too -- keep the chain.)
+    chain = vp.BufferChain(dev, cfg.region_w, cfg.region_h)
 
     pacer = vp.FramePacer.on_demand()
     for ev in pacer.events(conn, timeout=30.0):
         if ev.kind is vp.Event.RENDER:
             pct, charging = read_battery_state()
-            draw_into(buf, icons.get(pick_icon(pct, charging)))
-            conn.send_buffer(
-                buf.fd,
-                0,
-                buf.width,
-                buf.height,
-                vp.FOURCC_ARGB8888,
-                buf.modifier,
-                buf.stride,
-            )
+            draw_into(chain.acquire(), icons.get(pick_icon(pct, charging)))
+            chain.send(conn)
             pacer.submitted()
         elif ev.kind is vp.Event.RECONFIGURE:
             cfg = ev.configure
-            buf = buf.resize_or_keep(dev, cfg)
+            chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()
         elif ev.kind is vp.Event.TIMEOUT:
             pacer.mark_dirty()  # re-read the battery state
         elif ev.kind is vp.Event.SHUTDOWN:
             break
 
-    buf.close()
+    chain.close()
     dev.close()
     conn.close()
 

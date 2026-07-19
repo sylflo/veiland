@@ -31,7 +31,7 @@ files = ["veiland_plugin.py", "tests"]
 # tests/ has no __init__.py, so mypy sees the files as top-level modules
 # (test_codec, conftest), not tests.*. Match those names directly.
 [[tool.mypy.overrides]]
-module = ["test_codec", "conftest"]
+module = ["test_codec", "test_buffer_chain", "conftest"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 

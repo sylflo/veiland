@@ -38,6 +38,7 @@ __all__ = [
     # GPU buffers + pacing (PR B)
     "GbmDevice",
     "LinearBuffer",
+    "BufferChain",
     "FramePacer",
     "FrameEvent",
     "Event",
@@ -853,6 +854,98 @@ class LinearBuffer:
             self._bo = 0
 
     def __enter__(self) -> LinearBuffer:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+# --------------------------------------------------------------- BufferChain
+
+
+class BufferChain:
+    """A two-buffer swap chain for CPU plugins that REDRAW their content.
+
+    Why this exists: the host samples a plugin's dmabuf live and zero-copy at
+    the compositor's rate, and keeps sampling the last buffer sent until a new
+    one replaces it. A CPU plugin sends no GPU fence, so redrawing a *single*
+    LinearBuffer in place mutates the exact memory the host is displaying -- a
+    host sample landing inside the draw window shows a half-cleared buffer, i.e.
+    a flicker. The flash is probabilistic: its frequency is roughly
+    draw_time / frame_time, so a cheap widget flickers rarely (easy to miss) and
+    a heavy one flickers constantly. Either way it is a real race.
+
+    The fix is to never redraw the buffer the host is showing. This chain holds
+    two LinearBuffers and hands out the one that is NOT in flight: draw into
+    acquire(), then send() -- which ships it and flips, so the next acquire()
+    returns the other buffer while the host samples the one just sent. (GPU
+    plugins avoid this with one buffer because their fence serializes the write
+    against the host's sample; the CPU slow path has no fence, so it needs the
+    spare buffer instead.)
+
+    Contract: drive this from a FramePacer's RENDER events. The pacer only
+    yields RENDER once the previous buffer's BufferReleased has arrived, which
+    is what guarantees the buffer acquire() returns is free to overwrite. One
+    buffer is in flight at a time; the two buffers carry ids 0 and 1 so the host
+    swaps its texture on each send.
+
+    Static plugins that draw ONCE and never change (a fixed logo, a
+    non-animated wallpaper) do not need this -- a single LinearBuffer is fine
+    because nothing is ever redrawn in place. Reach for BufferChain only when
+    the content updates."""
+
+    def __init__(self, dev: GbmDevice, width: int, height: int):
+        self._dev = dev
+        self._bufs = [
+            LinearBuffer(dev, width, height),
+            LinearBuffer(dev, width, height),
+        ]
+        self._front = 0  # index of the buffer acquire() hands out (not in flight)
+
+    @property
+    def width(self) -> int:
+        return self._bufs[self._front].width
+
+    @property
+    def height(self) -> int:
+        return self._bufs[self._front].height
+
+    def acquire(self) -> LinearBuffer:
+        """The buffer to draw into this frame -- the one the host is NOT
+        currently sampling. Fill it (map()/upload()), then call send()."""
+        return self._bufs[self._front]
+
+    def send(self, conn: Connection) -> None:
+        """Send the acquired buffer to the host, then flip so the next
+        acquire() returns the other one. The buffer's index is its buffer id,
+        so the host replaces its texture with the just-sent buffer and releases
+        the previous one. Call this exactly once per acquire(), after drawing."""
+        buf = self._bufs[self._front]
+        conn.send_buffer(
+            buf.fd,
+            self._front,  # buffer id: 0/1, so the host swaps textures
+            buf.width,
+            buf.height,
+            FOURCC_ARGB8888,
+            buf.modifier,
+            buf.stride,
+        )
+        self._front ^= 1
+
+    def resize_or_keep(self, dev: GbmDevice, configure: Configure) -> BufferChain:
+        """Resize both buffers to the configure's dimensions (or keep them if
+        unchanged), and reset the chain so the next acquire() starts clean.
+        Safe on RECONFIGURE: the pacer has drained the in-flight release first."""
+        self._bufs = [b.resize_or_keep(dev, configure) for b in self._bufs]
+        self._front = 0
+        return self
+
+    def close(self) -> None:
+        """Close both buffers. Idempotent."""
+        for b in self._bufs:
+            b.close()
+
+    def __enter__(self) -> BufferChain:
         return self
 
     def __exit__(self, *exc: object) -> None:
