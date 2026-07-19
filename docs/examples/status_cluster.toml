@@ -1,0 +1,72 @@
+# A STATUS CLUSTER scene: the top-right chip row every polished lockscreen has,
+# built from the composable SVG status pills -- each its own plugin, placed a la
+# carte, NOT one status-bar mega-plugin. This is the "at-rest picture" the widget
+# roadmap is aiming at: several small glyphs that together read as a real daily
+# driver.
+#
+# Right now the row is battery + wifi (the two SVG pills that exist); as the
+# ethernet and bluetooth siblings land they get added here, extending the row
+# leftward. Each pill is the battery_svg.py template: bucket a reading to a
+# glyph, draw a centered pill. All are READ-ONLY.
+#
+# WHY EXPLICIT PIXELS HERE (and not the anchored fractions the single-pill
+# battery_svg.toml / wifi.toml use): a row of chips needs them TOP-ALIGNED (same
+# y) but at DIFFERENT x. The anchored form has a single `margin` that the host
+# applies to BOTH axes (config.rs), so spacing two chips horizontally (a larger
+# margin) also pushes one of them DOWN -- the row would not line up. Until the
+# core grows a per-axis margin / along-edge offset (its own change), the pixel
+# escape hatch is the honest way to get an aligned row: every chip shares y/w/h
+# and only x differs. THE TRADE-OFF: pixel coords are tuned for ONE resolution
+# (1920x1080 below) and will not land right on 1440p/4K -- retune x/y/w/h for
+# your display, or use the standalone anchored TOMLs which ARE
+# resolution-independent. See docs/config.md (explicit-pixel escape hatch).
+#
+# Prerequisites: the SVG stack (pygobject3 + librsvg + the Rsvg typelib) and
+# jeepney, both wired by the flake's dev shell -- run veiland from the repo root
+# inside `nix develop`. The plugin scripts must be chmod +x (they are in-tree).
+
+# A full-surface gradient wallpaper BEHIND the chips (z_index -100). Not just
+# decor: the host clears the lock surface to opaque black each repaint and
+# re-composites plugins on top, so translucent chips on a BARE surface would
+# flash black through their transparent areas on every keystroke. An opaque
+# full-surface plugin underneath covers the clear. Any wallpaper/ambient plugin
+# works; gradient is self-contained (no image file).
+[[plugin]]
+name = "gradient"
+binary = "veiland-gradient"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.10, 0.16, 0.42],
+    [0.38, 0.12, 0.48],
+    [0.05, 0.36, 0.44],
+]
+angle_deg = 45.0
+speed = 0.6
+
+# --- the chip row (explicit pixels, 1920x1080, right to left) -----------------
+# All chips share y = 14, w = h = 60 (top-aligned, same size); only x differs.
+# Battery hugs the right edge (x = 1920 - 14 - 60 = 1846); wifi sits one slot
+# left with a 20px gap (x = 1846 - 60 - 20 = 1766). Add ethernet at 1686 and
+# bluetooth at 1606 as they land, continuing the row.
+
+# Battery: rightmost chip.
+[[plugin]]
+name = "veiland-battery-svg"
+binary = "./python/examples/battery_svg.py"
+z_index = 10
+region = { x = 1846, y = 14, w = 60, h = 60 }
+
+# Wifi: one slot to the LEFT of battery, same y/w/h so the two line up.
+# NetworkManager over the SYSTEM bus; wifi-off when the radio is disabled.
+[[plugin]]
+name = "veiland-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 10
+region = { x = 1766, y = 14, w = 60, h = 60 }
+
+# Password indicator near the bottom-center, clear of the top-right cluster. `x`
+# unset -> the core centers it horizontally; `y_percent` is the box CENTER as a
+# percent of surface height.
+[password]
+y_percent = 92

@@ -1,4 +1,5 @@
-Battery status glyphs for the SVG battery example (../battery_svg.py).
+Status glyphs for the SVG status-pill examples (../battery_svg.py, ../wifi.py,
+and the ethernet/bluetooth siblings).
 
 Self-drawn for veiland and released under CC0-1.0 (Creative Commons public
 domain dedication, https://creativecommons.org/publicdomain/zero/1.0/). No
@@ -7,5 +8,12 @@ repository is unencumbered -- copy, modify, and ship them freely.
 
 Each file is a square (viewBox="0 0 24 24") monochrome-white glyph with no text,
 fonts, or external references, so librsvg renders it with nothing beyond the
-library itself. battery-25/50/75/100.svg share one battery shell and differ only
-in the inner fill-bar width; battery-charging.svg swaps the fill bar for a bolt.
+library itself.
+
+battery-25/50/75/100.svg share one battery shell and differ only in the inner
+fill-bar width; battery-charging.svg swaps the fill bar for a bolt.
+
+wifi-0/25/50/75/100.svg share one three-arc fan over a dot and light more arcs
+as the bucket rises (unlit arcs are dimmed, not removed, so the level reads at a
+glance); wifi-75 thins its outer arc the way battery-75 narrows its fill-bar, so
+75 and 100 stay distinct. wifi-off.svg dims the whole fan and adds a slash.

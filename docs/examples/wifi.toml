@@ -1,0 +1,30 @@
+# Test config for the wifi example (python/examples/wifi.py): a monochrome-white
+# signal-strength glyph in a small circular translucent pill, inset from the
+# top-right corner (matching the reference lockscreen's status chip). An if/else
+# buckets the reading to a wifi-0/25/50/75/100.svg glyph -- or wifi-off.svg when
+# the radio is off or absent -- and draw_svg blits it onto the same cairo context
+# that writes into buf.map(). It is the battery_svg.py template with the reading
+# swapped for a live source. READ-ONLY: it shows signal, it never connects.
+#
+# Data: NetworkManager over the SYSTEM bus, via the veiland_dbus companion. A
+# connect/disconnect or a strength change wakes the pill immediately (its D-Bus
+# socket is on the pacer's extra_fds); with no system bus at all it draws the
+# off glyph rather than failing. So it works whether or not wifi is enabled --
+# with the radio off you get wifi-off, which is a real state to eyeball.
+#
+# Needs the SVG stack (pygobject3 + librsvg + the Rsvg typelib on
+# GI_TYPELIB_PATH) AND jeepney; the flake's dev shell wires both, so run veiland
+# from inside `nix develop`. The binary path is relative, so run veiland from the
+# repo root; the script must be chmod +x or the host spawn fails with os error 13.
+#
+# [plugin.region] uses the ANCHORED form: halign/valign pin the box to the
+# top-right corner and width/height/margin are FRACTIONS of the surface, resolved
+# host-side per output, so the chip is the same relative size on 1080p/1440p/4K.
+# The host sizes the buffer to the box and composites it 1:1 (no stretch); the
+# plugin just centers the pill in its own buffer. See battery_svg.toml (its
+# sibling) and status_cluster.toml (both pills in a row).
+[[plugin]]
+name = "veiland-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
