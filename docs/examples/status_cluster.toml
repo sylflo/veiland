@@ -9,17 +9,20 @@
 # glyph, draw a centered pill. All are READ-ONLY. Drop any one you do not want,
 # or reorder by swapping their x values.
 #
-# WHY EXPLICIT PIXELS HERE (and not the anchored fractions the single-pill
-# battery_svg.toml / wifi.toml use): a row of chips needs them TOP-ALIGNED (same
-# y) but at DIFFERENT x. The anchored form has a single `margin` that the host
-# applies to BOTH axes (config.rs), so spacing two chips horizontally (a larger
-# margin) also pushes one of them DOWN -- the row would not line up. Until the
-# core grows a per-axis margin / along-edge offset (its own change), the pixel
-# escape hatch is the honest way to get an aligned row: every chip shares y/w/h
-# and only x differs. THE TRADE-OFF: pixel coords are tuned for ONE resolution
-# (1920x1080 below) and will not land right on 1440p/4K -- retune x/y/w/h for
-# your display, or use the standalone anchored TOMLs which ARE
-# resolution-independent. See docs/config.md (explicit-pixel escape hatch).
+# HOW THE ROW IS LAID OUT (resolution-independent, no pixels): every chip
+# anchors to the top-right corner (halign=right, valign=top) with the same
+# fractional width/height, the SAME margin_y (so all four share a top inset and
+# line up), and a stepping margin_x that pushes each one further LEFT of the
+# corner. margin_x/margin_y are per-axis anchor margins (margin_x a fraction of
+# surface width, margin_y a fraction of height) -- exactly the case a single
+# both-axes `margin` cannot express, since spacing chips horizontally with it
+# would also push them down. Because every value is a fraction of the surface,
+# the whole row keeps its shape on 1080p/1440p/4K. See docs/config.md.
+#
+# The rightmost chip has the smallest margin_x; each chip to its left adds
+# (width + gap) ~= 0.031 + 0.011 = 0.042. So battery = 0.013, wifi = 0.055,
+# ethernet = 0.097, bluetooth = 0.139. Reorder by swapping margin_x values; drop
+# any chip you do not want.
 #
 # Prerequisites: the SVG stack (pygobject3 + librsvg + the Rsvg typelib) and
 # jeepney, both wired by the flake's dev shell -- run veiland from the repo root
@@ -44,26 +47,24 @@ colors = [
 angle_deg = 45.0
 speed = 0.6
 
-# --- the chip row (explicit pixels, 1920x1080, right to left) -----------------
-# All chips share y = 14, w = h = 60 (top-aligned, same size); only x differs.
-# Battery hugs the right edge (x = 1920 - 14 - 60 = 1846); each chip to its left
-# steps back one 60px slot + a 20px gap = 80px. So wifi = 1766, ethernet = 1686,
-# bluetooth = 1606.
+# --- the chip row (anchored, resolution-independent, right to left) -----------
+# All chips share halign=right, valign=top, width/height, and margin_y (so they
+# top-align); only margin_x steps to space them horizontally.
 
-# Battery: rightmost chip.
+# Battery: rightmost chip, smallest margin_x (hugs the corner).
 [[plugin]]
 name = "veiland-battery-svg"
 binary = "./python/examples/battery_svg.py"
 z_index = 10
-region = { x = 1846, y = 14, w = 60, h = 60 }
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
 
-# Wifi: one slot to the LEFT of battery, same y/w/h so the two line up.
+# Wifi: one slot to the LEFT of battery (margin_x += width + gap).
 # NetworkManager over the SYSTEM bus; wifi-off when the radio is disabled.
 [[plugin]]
 name = "veiland-wifi"
 binary = "./python/examples/wifi.py"
 z_index = 10
-region = { x = 1766, y = 14, w = 60, h = 60 }
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.055, margin_y = 0.013 }
 
 # Ethernet: one slot left of wifi, same wired NetworkManager source; the
 # network-wired glyph shows up vs down (unplugged / no device / no bus -> down).
@@ -71,7 +72,7 @@ region = { x = 1766, y = 14, w = 60, h = 60 }
 name = "veiland-ethernet"
 binary = "./python/examples/ethernet.py"
 z_index = 10
-region = { x = 1686, y = 14, w = 60, h = 60 }
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.097, margin_y = 0.013 }
 
 # Bluetooth: leftmost chip, bluez over the SYSTEM bus; the rune shows off /
 # on / connected (adapter powered + any device connected).
@@ -79,7 +80,7 @@ region = { x = 1686, y = 14, w = 60, h = 60 }
 name = "veiland-bluetooth"
 binary = "./python/examples/bluetooth.py"
 z_index = 10
-region = { x = 1606, y = 14, w = 60, h = 60 }
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.139, margin_y = 0.013 }
 
 # Password indicator near the bottom-center, clear of the top-right cluster. `x`
 # unset -> the core centers it horizontally; `y_percent` is the box CENTER as a
