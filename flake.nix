@@ -224,14 +224,25 @@
             cloud-utils
 
             # Python for the plugin track: drawing libs for the examples --
-            # Pillow (the battery examples, PIL upload() convenience) and
-            # pycairo (the cairo battery rewrite + the eventual now-playing
-            # example, drawing zero-copy into buf.map()); plus pytest + mypy
-            # for the Python SDK's codec suite (python/veiland_plugin.py +
+            # Pillow (the battery examples, PIL upload() convenience), pycairo
+            # (the cairo battery rewrite + the eventual now-playing example,
+            # drawing zero-copy into buf.map()), and pygobject3 (the gi
+            # bindings the SVG examples use to render librsvg onto a cairo
+            # context via the optional veiland_svg companion); plus pytest +
+            # mypy for the Python SDK's codec suite (python/veiland_plugin.py +
             # python/tests). All example/dev-only, never in the package and
             # never imported by the SDK (stdlib + ctypes only). Tooling config
             # (ruff + mypy) lives in python/pyproject.toml.
-            (python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ]))
+            (python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ps.pygobject3 ]))
+
+            # librsvg + gobject-introspection back the SVG status-icon examples:
+            # veiland_svg loads an SVG through gi.repository.Rsvg and renders it
+            # straight onto the example's cairo context (no extra copy). These
+            # are C libraries, not python packages, so they live here (and on
+            # GI_TYPELIB_PATH / LD_LIBRARY_PATH below), not inside withPackages.
+            # Example/companion-only; never an SDK dep.
+            librsvg
+            gobject-introspection
 
             # ruff: formatter + import-sort + linter for the Python SDK, in
             # one binary (replaces black + isort + flake8). Standalone, so it
@@ -242,8 +253,21 @@
           # Let the python demo's ctypes dlopen find libgbm: the shell
           # links it for cargo via inputsFrom, but dlopen doesn't search
           # the Nix store. Same libgbm the workspace builds against, so
-          # nothing else in the shell is shadowed.
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libgbm ];
+          # nothing else in the shell is shadowed. librsvg + glib are here
+          # too because the GI loader dlopens librsvg-2.so (and glib's
+          # libgobject/libgio) at typelib-load time -- the typelib on
+          # GI_TYPELIB_PATH is not enough on its own.
+          LD_LIBRARY_PATH =
+            pkgs.lib.makeLibraryPath [ pkgs.libgbm pkgs.librsvg pkgs.glib ];
+
+          # Point gi.repository at the Rsvg typelib (and the base GObject
+          # typelibs). Without this `gi.require_version("Rsvg", "2.0")` in the
+          # SVG examples throws "Namespace Rsvg not available". NixOS does not
+          # populate a default GI search path, so the shell wires it explicitly.
+          GI_TYPELIB_PATH = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
+            pkgs.librsvg
+            pkgs.gobject-introspection
+          ];
 
           # IN_VEILAND_SHELL is a stable marker any shell can key a prompt
           # off (Nix's own IN_NIX_SHELL doesn't survive `nix develop -c
@@ -366,9 +390,24 @@
         python = pkgs.runCommand "veiland-python-check"
           {
             nativeBuildInputs = [
-              (pkgs.python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ]))
+              (pkgs.python3.withPackages
+                (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ps.pygobject3 ]))
               pkgs.ruff
             ];
+
+            # gi/librsvg wiring for import parity with the dev shell (the
+            # same rationale pillow/pycairo are here for). The gate itself --
+            # ruff + mypy + pytest -- never imports gi: veiland_svg.py is not
+            # in mypy's `files`, ruff/mypy don't execute it, and pytest only
+            # runs tests/ (which don't import it). So these are parity /
+            # future-proofing, not a hard requirement; if the typelib ever
+            # misbehaves in the hermetic builder, dropping them keeps CI green.
+            GI_TYPELIB_PATH = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
+              pkgs.librsvg
+              pkgs.gobject-introspection
+            ];
+            LD_LIBRARY_PATH =
+              pkgs.lib.makeLibraryPath [ pkgs.librsvg pkgs.glib ];
           }
           ''
             cp -r ${./.}/python ./python
