@@ -1,0 +1,80 @@
+# Test config for the now-playing example (python/examples/now_playing.py): a
+# glanceable "currently playing" card -- album art, title/artist, filled
+# progress bar -- composited over the wallpaper. READ-ONLY (a display, like the
+# clock): no transport controls, because the core cannot yet forward clicks into
+# a plugin region.
+#
+# Live data comes from MPRIS over D-Bus (jeepney): the card shows whatever your
+# media player is playing -- title/artist, cover art, a progress bar that
+# advances. Start a media player to see a real track; with none running the card
+# shows the quiet "Nothing playing" state.
+#
+# Needs the Pango/PangoCairo GI stack (text shaping) and jeepney (MPRIS): run
+# veiland from inside `nix develop` so the flake wires pango + harfbuzz onto
+# GI_TYPELIB_PATH / LD_LIBRARY_PATH. The binary path is relative, so run veiland
+# from the repo root; the script must be chmod +x (already is in-tree) or the
+# host spawn fails with os error 13.
+#
+# [plugin.region] anchors a small box bottom-left, hyprlock-style: halign/valign
+# pin the corner and width/height/margin are FRACTIONS of the surface, resolved
+# host-side per output, so the card is the same relative size on 1080p/1440p/4K.
+# The host sizes the plugin's buffer to that box and composites it 1:1 (no
+# stretch); the plugin lays its content out inside its own buffer. See
+# docs/config.md and battery_svg.toml (the other anchored example).
+#
+# [plugin.config] is the plugin's own config table, handed to the script as
+# VEILAND_PLUGIN_CONFIG (JSON). `layout` picks the composition: "compact" (this
+# file, the small bottom-left chip) or "star" (the large centered portrait card
+# -- see now_playing_star.toml). Unknown names fall back to compact.
+# A gradient wallpaper BEHIND the card (z_index -100). This is not just decor:
+# the host clears the whole lock surface to opaque black on every repaint and
+# re-composites plugins on top, so a translucent widget on a BARE surface shows
+# black through the transparent areas -- and a keystroke (which forces a host
+# repaint) makes that flash visibly = flicker. A full-surface opaque wallpaper
+# underneath covers the black clear, so there is nothing to flash. Any opaque
+# full-surface plugin (gradient, wallpaper, particles) does the job; gradient is
+# self-contained (no image file). A real scene always has one.
+[[plugin]]
+name = "gradient"
+binary = "veiland-gradient"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.10, 0.16, 0.42],
+    [0.38, 0.12, 0.48],
+    [0.05, 0.36, 0.44],
+]
+angle_deg = 45.0
+speed = 0.6
+
+[[plugin]]
+name = "veiland-now-playing"
+binary = "./python/examples/now_playing.py"
+z_index = 10
+region = { halign = "left", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
+# layout: "compact" | "star". fetch_remote_art: allow the plugin to fetch
+# http(s):// cover art (e.g. Spotify) over the network -- OFF by default, so a
+# locked screen makes no network request unless you opt in. file:// covers
+# (local players) are always decoded; with no cover you get a music-note
+# fallback and a per-track colour tint instead of the sampled-from-art accent.
+config = { layout = "compact", fetch_remote_art = true }
+
+# --- The "star" variant -------------------------------------------------------
+# The card becomes the centerpiece: a large PORTRAIT card centered on screen,
+# on a full-surface blurred copy of the cover. Because its backdrop fills the
+# whole screen, the star's region is the FULL SURFACE -- so DROP the region line
+# (the plugin then gets the whole lock surface, like the label/clock plugins)
+# and switch the layout. To try it, replace the two lines above (region +
+# config) with just:
+#
+#   config = { layout = "star" }
+#
+# (No [plugin.region]; the star centers the card within the full surface. Keep
+# it as the only plugin, or put a wallpaper at a lower z_index -- the star's own
+# blurred backdrop already covers the screen.)
+
+# Password indicator near the bottom-center. `x` unset -> the core centers it
+# horizontally; `y_percent` is the box CENTER as a percent of surface height
+# (92 -> just above the bottom edge). Raise/lower to taste.
+[password]
+y_percent = 92

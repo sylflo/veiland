@@ -1,0 +1,44 @@
+# The now-playing example in its "STAR" layout: the card as the centerpiece of
+# the locked screen -- a large PORTRAIT card (big art on top, title/artist +
+# progress below), centered on screen. Sibling of now_playing.toml (the small
+# bottom-left compact chip).
+#
+# Prerequisites: run veiland from the repo root inside `nix develop` (pango +
+# harfbuzz for PangoCairo, jeepney for MPRIS). Start a media player to see a
+# real track; with none running the card shows the quiet "Nothing playing"
+# state.
+#
+# The star card draws on a TRANSPARENT full surface (no [plugin.region]: it
+# takes the whole lock surface, like label/clock, and centers the card within
+# it). So it needs something behind it -- here a gradient wallpaper at a lower
+# z_index. Swap that for any wallpaper/ambient plugin, or drop it for the core's
+# plain background.
+[[plugin]]
+name = "gradient"
+binary = "veiland-gradient"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.10, 0.16, 0.42],
+    [0.38, 0.12, 0.48],
+    [0.05, 0.36, 0.44],
+]
+angle_deg = 45.0
+speed = 0.6
+
+[[plugin]]
+name = "veiland-now-playing"
+binary = "./python/examples/now_playing.py"
+z_index = 10
+# fetch_remote_art fetches http(s):// covers (e.g. Spotify) so the big card art
+# is the real cover and the accent is sampled from it -- OFF by default (no
+# locked-screen network unless you opt in). Without a cover: a music-note
+# fallback + a per-track colour tint. See now_playing.toml for full option notes.
+config = { layout = "star", fetch_remote_art = true }
+
+# Password indicator near the bottom-center, clear of the centered card. `x` is
+# left unset so the core centers it horizontally; `y_percent` is the box CENTER
+# as a percent of surface height (92 -> just above the bottom edge). Raise/lower
+# it to taste.
+[password]
+y_percent = 92

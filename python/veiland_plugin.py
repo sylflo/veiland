@@ -895,7 +895,6 @@ class BufferChain:
     the content updates."""
 
     def __init__(self, dev: GbmDevice, width: int, height: int):
-        self._dev = dev
         self._bufs = [
             LinearBuffer(dev, width, height),
             LinearBuffer(dev, width, height),

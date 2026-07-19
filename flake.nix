@@ -225,15 +225,20 @@
 
             # Python for the plugin track: drawing libs for the examples --
             # Pillow (the battery examples, PIL upload() convenience), pycairo
-            # (the cairo battery rewrite + the eventual now-playing example,
-            # drawing zero-copy into buf.map()), and pygobject3 (the gi
-            # bindings the SVG examples use to render librsvg onto a cairo
-            # context via the optional veiland_svg companion); plus pytest +
-            # mypy for the Python SDK's codec suite (python/veiland_plugin.py +
-            # python/tests). All example/dev-only, never in the package and
-            # never imported by the SDK (stdlib + ctypes only). Tooling config
-            # (ruff + mypy) lives in python/pyproject.toml.
-            (python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ps.pygobject3 ]))
+            # (the cairo battery rewrite + the now-playing example, drawing
+            # zero-copy into buf.map()), pygobject3 (the gi bindings the SVG
+            # examples use to render librsvg onto a cairo context via the
+            # optional veiland_svg companion, and PangoCairo for now-playing's
+            # text), and jeepney (the pure-Python D-Bus client the now-playing
+            # example uses to read MPRIS -- its blocking socket fd goes on the
+            # pacer's extra_fds, no thread/asyncio); plus pytest + mypy for the
+            # Python SDK's codec suite (python/veiland_plugin.py + python/tests).
+            # All example/dev-only, never in the package and never imported by
+            # the SDK (stdlib + ctypes only). Tooling config (ruff + mypy) lives
+            # in python/pyproject.toml.
+            (python3.withPackages (
+              ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ps.pygobject3 ps.jeepney ]
+            ))
 
             # librsvg + gobject-introspection back the SVG status-icon examples:
             # veiland_svg loads an SVG through gi.repository.Rsvg and renders it
@@ -243,6 +248,15 @@
             # Example/companion-only; never an SDK dep.
             librsvg
             gobject-introspection
+
+            # pango + harfbuzz back the now-playing example's text: PangoCairo
+            # shapes + end-ellipsizes real titles (long + CJK) onto the cairo
+            # context, where cairo's toy show_text cannot. Same C-library story
+            # as librsvg above (here + on GI_TYPELIB_PATH / LD_LIBRARY_PATH, not
+            # withPackages). Pango's typelib requires HarfBuzz's, so both are
+            # needed. Example-only; never an SDK dep.
+            pango
+            harfbuzz
 
             # ruff: formatter + import-sort + linter for the Python SDK, in
             # one binary (replaces black + isort + flake8). Standalone, so it
@@ -258,15 +272,24 @@
           # libgobject/libgio) at typelib-load time -- the typelib on
           # GI_TYPELIB_PATH is not enough on its own.
           LD_LIBRARY_PATH =
-            pkgs.lib.makeLibraryPath [ pkgs.libgbm pkgs.librsvg pkgs.glib ];
+            pkgs.lib.makeLibraryPath [
+              pkgs.libgbm
+              pkgs.librsvg
+              pkgs.glib
+              pkgs.pango
+              pkgs.harfbuzz
+            ];
 
           # Point gi.repository at the Rsvg typelib (and the base GObject
-          # typelibs). Without this `gi.require_version("Rsvg", "2.0")` in the
-          # SVG examples throws "Namespace Rsvg not available". NixOS does not
+          # typelibs), plus Pango/PangoCairo/HarfBuzz for the now-playing text.
+          # Without this `gi.require_version("Rsvg", "2.0")` (or "Pango") in the
+          # examples throws "Namespace ... not available". NixOS does not
           # populate a default GI search path, so the shell wires it explicitly.
           GI_TYPELIB_PATH = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
             pkgs.librsvg
             pkgs.gobject-introspection
+            pkgs.pango
+            pkgs.harfbuzz
           ];
 
           # IN_VEILAND_SHELL is a stable marker any shell can key a prompt
@@ -391,7 +414,7 @@
           {
             nativeBuildInputs = [
               (pkgs.python3.withPackages
-                (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ps.pygobject3 ]))
+                (ps: [ ps.pillow ps.pycairo ps.pytest ps.mypy ps.pygobject3 ps.jeepney ]))
               pkgs.ruff
             ];
 
@@ -405,9 +428,16 @@
             GI_TYPELIB_PATH = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
               pkgs.librsvg
               pkgs.gobject-introspection
+              pkgs.pango
+              pkgs.harfbuzz
             ];
             LD_LIBRARY_PATH =
-              pkgs.lib.makeLibraryPath [ pkgs.librsvg pkgs.glib ];
+              pkgs.lib.makeLibraryPath [
+                pkgs.librsvg
+                pkgs.glib
+                pkgs.pango
+                pkgs.harfbuzz
+              ];
           }
           ''
             cp -r ${./.}/python ./python
