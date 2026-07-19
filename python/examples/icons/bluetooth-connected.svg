@@ -1,0 +1,7 @@
+<!-- bluetooth-connected icon (a device is connected): the rune plus two link dots flanking it. CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <path d="M9 9 L15.5 15.5 L12 19 V5 L15.5 8.5 L9 15"
+        fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="4.5" cy="12" r="1.5" fill="#ffffff"/>
+  <circle cx="19.5" cy="12" r="1.5" fill="#ffffff"/>
+</svg>

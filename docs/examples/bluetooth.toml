@@ -1,0 +1,29 @@
+# Test config for the bluetooth example (python/examples/bluetooth.py): a
+# monochrome-white bluetooth glyph in a small circular translucent pill, inset
+# from the top-right corner (matching the reference lockscreen's status chip).
+# Three states: bluetooth-off.svg (adapter powered down / absent),
+# bluetooth-on.svg (powered, nothing connected), bluetooth-connected.svg (at
+# least one device connected). It is the battery_svg.py template with a bluez
+# reading; READ-ONLY (shows state, never pairs or connects).
+#
+# Data: bluez (org.bluez) over the SYSTEM bus, via the veiland_dbus companion.
+# One GetManagedObjects call reads the adapter's Powered and counts connected
+# devices; a power toggle or a device connect/disconnect wakes the pill
+# immediately (its D-Bus socket is on the pacer's extra_fds). With no bluez / no
+# adapter / no bus it draws the off glyph rather than failing.
+#
+# Needs the SVG stack (pygobject3 + librsvg + the Rsvg typelib on
+# GI_TYPELIB_PATH) AND jeepney; the flake's dev shell wires both, so run veiland
+# from inside `nix develop`. The binary path is relative, so run veiland from the
+# repo root; the script must be chmod +x or the host spawn fails with os error 13.
+#
+# [plugin.region] uses the ANCHORED form: halign/valign pin the box to the
+# top-right corner and width/height/margin are FRACTIONS of the surface, resolved
+# host-side per output, so the chip is the same relative size on 1080p/1440p/4K.
+# See battery_svg.toml / wifi.toml / ethernet.toml (its siblings) and
+# status_cluster.toml (all four pills in a row).
+[[plugin]]
+name = "veiland-bluetooth"
+binary = "./python/examples/bluetooth.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }

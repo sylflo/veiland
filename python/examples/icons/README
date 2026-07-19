@@ -22,3 +22,7 @@ ethernet-up/down.svg use the "wired network" motif (a top node feeding two lower
 nodes over a bus, as in GNOME's network-wired). ethernet-up is the solid glyph;
 ethernet-down dims it and adds a slash, the same disabled-state convention as
 wifi-off.
+
+bluetooth-on/off/connected.svg share the bluetooth rune. bluetooth-on is the
+plain rune; bluetooth-connected adds two link dots flanking it; bluetooth-off
+dims the rune and adds a slash, matching wifi-off / ethernet-down.

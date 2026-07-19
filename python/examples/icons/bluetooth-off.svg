@@ -1,0 +1,6 @@
+<!-- bluetooth-off icon (adapter powered down / absent): dim rune + a slash, mirroring wifi-off. CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <path d="M8 8 L16 16 L12 20 V4 L16 8 L8 16"
+        fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" opacity="0.35"/>
+  <line x1="5" y1="5" x2="19" y2="19" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</svg>
