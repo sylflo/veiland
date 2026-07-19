@@ -6,11 +6,12 @@
 # wallpaper. It is READ-ONLY (a display, like the clock): the core cannot yet
 # forward clicks into a plugin region, so there are no transport controls.
 #
-# Data: MPRIS over D-Bus (jeepney, a pure-Python client). We find the active
-# org.mpris.MediaPlayer2.* player, read Metadata/PlaybackStatus/Position, and
-# subscribe to PropertiesChanged. The D-Bus socket goes on the pacer's
-# extra_fds, so a track change wakes us immediately; a 1s tick advances the
-# progress bar between changes. No player -> the quiet "Nothing playing" state.
+# Data: MPRIS over D-Bus, via the shared veiland_dbus companion (a thin wrapper
+# over jeepney, the same one wifi/ethernet/bluetooth use on the SYSTEM bus). We
+# find the active org.mpris.MediaPlayer2.* player, read Metadata/PlaybackStatus/
+# Position, and subscribe to PropertiesChanged. The D-Bus socket goes on the
+# pacer's extra_fds, so a track change wakes us immediately; a 1s tick advances
+# the progress bar between changes. No player -> the quiet "Nothing playing".
 #
 # Album art: mpris:artUrl. file:// covers are decoded locally (PIL). http(s)://
 # covers (e.g. Spotify) are fetched + cached to disk ONLY if the config sets
@@ -28,8 +29,8 @@
 # cannot do. This needs the Pango/PangoCairo GI typelibs (the flake's dev shell
 # wires pango + harfbuzz onto GI_TYPELIB_PATH / LD_LIBRARY_PATH).
 #
-# A real plugin vendors veiland_plugin.py next to itself. This example adds the
-# repo's python/ dir to sys.path so it runs straight from the tree.
+# A real plugin vendors veiland_plugin.py (and veiland_dbus.py) next to itself.
+# This example adds the repo's python/ dir to sys.path so it runs from the tree.
 
 import colorsys
 import hashlib
@@ -52,16 +53,9 @@ gi.require_version("PangoCairo", "1.0")  # noqa: E402
 
 import cairo  # noqa: E402
 from gi.repository import Pango, PangoCairo  # noqa: E402
-from jeepney import (  # noqa: E402
-    DBusAddress,
-    MatchRule,
-    Properties,
-    message_bus,
-    new_method_call,
-)
-from jeepney.io.blocking import open_dbus_connection  # noqa: E402
 from PIL import Image  # noqa: E402
 
+import veiland_dbus as vd  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 
 # ------------------------------------------------------------- MPRIS over D-Bus
@@ -87,68 +81,58 @@ def log(msg):
 
 
 class MprisClient:
+    # A thin MPRIS layer over the shared veiland_dbus companion: the SESSION-bus
+    # connection, the PropertiesChanged subscription, and its fileno()/drain/
+    # close now live in vd.DBusConnection (the same wrapper wifi/ethernet/
+    # bluetooth use on the SYSTEM bus). This class keeps only the MPRIS-specific
+    # shaping: which players exist and how to read one into a track dict.
     def __init__(self):
         # One blocking session-bus connection. Its socket fd (fileno()) goes on
         # the pacer's extra_fds so PropertiesChanged wakes us with no polling.
-        self.conn = open_dbus_connection(bus="SESSION")
+        self.bus = vd.DBusConnection.connect("SESSION", tag="now-playing")
         # Subscribe to Player PropertiesChanged from any sender: the broadcast
         # signal MPRIS players emit on track/status/position change. jeepney
         # queues matching signals; we drain them (drain_signals) to reset the
         # tick without caring about their contents -- we just re-read on wake.
-        rule = MatchRule(
-            type="signal",
+        self.bus.subscribe(
             interface="org.freedesktop.DBus.Properties",
             member="PropertiesChanged",
             path=MPRIS_PATH,
         )
-        self.conn.send_and_get_reply(message_bus.AddMatch(rule))
 
     def fileno(self):
-        # The bus socket fd, for the pacer's extra_fds. jeepney's blocking
-        # connection wraps a real socket at .sock.
-        return self.conn.sock.fileno()
+        # The bus socket fd, for the pacer's extra_fds.
+        return self.bus.fileno()
 
     def drain_signals(self):
-        # The pacer selected the bus fd readable, so there is at least one
-        # message waiting; consume all currently-queued ones without blocking.
-        # We don't parse them -- their arrival is the whole message ("something
-        # changed, re-read"). receive(timeout=0) raises when nothing is left, so
-        # that (and any transient error) is the loop's clean exit.
-        while True:
-            try:
-                self.conn.receive(timeout=0)
-            except Exception:
-                break
+        # Consume all queued PropertiesChanged without parsing -- their arrival
+        # is the whole message ("something changed, re-read").
+        self.bus.drain_signals()
 
     def _list_players(self):
-        dbus = DBusAddress(
+        body = self.bus.call(
             "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "ListNames",
             bus_name="org.freedesktop.DBus",
-            interface="org.freedesktop.DBus",
         )
-        reply = self.conn.send_and_get_reply(new_method_call(dbus, "ListNames"))
-        return [n for n in reply.body[0] if n.startswith(MPRIS_PREFIX)]
+        if body is None:
+            return None
+        return [n for n in body[0] if n.startswith(MPRIS_PREFIX)]
 
     def read(self):
         # Return the active player's state dict, or None if nothing is playing.
         # "Active" = the first player that is Playing; else the first that
-        # exists (so a paused player still shows).
-        try:
-            players = self._list_players()
-        except Exception as e:
-            # Deliberate broad catch: D-Bus is untrusted, flaky external I/O and
-            # this is a locker plugin -- it must degrade to "nothing playing",
-            # never crash the widget (see the no-panic-on-plugin-input rule). We
-            # log so a persistent bus failure is diagnosable, not silent.
-            log(f"mpris ListNames failed: {e}")
-            return None
+        # exists (so a paused player still shows). A D-Bus error surfaces as
+        # None from the companion, which we bucket into "nothing playing".
+        players = self._list_players()
         if not players:
             return None
 
         best = None
         for bus_name in players:
             props = self._get_props(bus_name)
-            if props is None:
+            if not props:
                 continue
             if props.get("PlaybackStatus") == "Playing":
                 return self._to_track(props)  # a playing one wins outright
@@ -157,16 +141,9 @@ class MprisClient:
         return self._to_track(best) if best else None
 
     def _get_props(self, bus_name):
-        try:
-            addr = DBusAddress(MPRIS_PATH, bus_name=bus_name, interface=PLAYER_IFACE)
-            reply = self.conn.send_and_get_reply(Properties(addr).get_all())
-            # a{sv}: {name: (signature, value)} -> unwrap the variant tuples.
-            return {k: v[1] for k, v in reply.body[0].items()}
-        except Exception as e:
-            # Same boundary as read(): a player that vanished mid-read or returns
-            # junk must not take down the widget. Log and skip this player.
-            log(f"mpris GetAll({bus_name}) failed: {e}")
-            return None
+        # {} on error (companion logs) -- a player that vanished mid-read or
+        # returns junk skips cleanly rather than taking down the widget.
+        return self.bus.get_all_props(MPRIS_PATH, PLAYER_IFACE, bus_name=bus_name)
 
     @staticmethod
     def _to_track(props):
@@ -184,10 +161,7 @@ class MprisClient:
         }
 
     def close(self):
-        try:
-            self.conn.close()
-        except Exception:
-            pass
+        self.bus.close()
 
 
 # --------------------------------------------------------------- album art
