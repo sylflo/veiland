@@ -112,7 +112,7 @@ def load_icons():
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
 
-def draw_into(buf, cfg, handle):
+def draw_into(buf, handle):
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
     # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
     # buf.stride -- map() hands back the one it wants.
@@ -121,20 +121,20 @@ def draw_into(buf, cfg, handle):
             mem, cairo.FORMAT_ARGB32, buf.width, buf.height, map_stride
         )
         cr = cairo.Context(surface)
-        # Transparent full-surface canvas; the pill sits at a fixed top-right
-        # inset (same full-surface model as battery_cairo.py / label / clock).
+        # Transparent canvas; the pill fills this buffer, which the host has
+        # sized to our [plugin.region]. WHERE on screen the region sits is the
+        # host's job (config anchor / pixels); we only fill our own box.
         cr.set_operator(cairo.OPERATOR_CLEAR)
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
-        s = cfg.scale
 
-        # Pill center: inset from the top-right corner, leaving badge_gap room
-        # on the right for the keyboard badge that sits beside it on the
-        # reference lockscreen.
-        radius = 22.0 * s
-        badge_gap = 56.0 * s
-        cx = buf.width - badge_gap - radius
-        cy = 24.0 * s + radius
+        # Layer 2 -- content inside the region: just center the pill in our own
+        # buffer. No screen-relative math (no buf.width - inset): the buffer IS
+        # the region now, so placement is a two-line centering. A small margin
+        # keeps the chip off the region's edge.
+        cx = buf.width / 2
+        cy = buf.height / 2
+        radius = min(buf.width, buf.height) / 2 - 4
 
         # Two calls do the whole widget: the translucent chip, then the glyph
         # centered on it at 80% of the pill so it breathes. draw_svg_centered is
@@ -161,7 +161,7 @@ def main():
     for ev in pacer.events(conn, timeout=30.0):
         if ev.kind is vp.Event.RENDER:
             pct, charging = read_battery_state()
-            draw_into(buf, cfg, icons.get(pick_icon(pct, charging)))
+            draw_into(buf, icons.get(pick_icon(pct, charging)))
             conn.send_buffer(
                 buf.fd,
                 0,

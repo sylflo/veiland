@@ -153,12 +153,21 @@ off-screen pixels are wasted GPU work. Coordinates with absolute
 value greater than 8192 trigger a "this looks like a typo" warning
 at config load; it's a soft check, not a rejection.
 
-The plugin's own buffer size and the region size are independent.
-A plugin can render into a 64×64 dmabuf and have the host scale
-it across a 400×80 region (or vice versa). What the plugin
-*knows* about its region — via the `Configure` message — is
-currently the full lock surface; that mismatch is tracked work for
-a future milestone.
+What the plugin *knows* about its region — via the `Configure`
+message — is the region's own position and size (`region_x`,
+`region_y`, `region_w`, `region_h`). A plugin that declares a
+`400×80` region is told `400×80` and allocates a matching buffer,
+which the host composites into the region 1:1 (no stretch). This
+lets the plugin place its content relative to its own buffer
+(centre a glyph, pad an edge) without knowing where the region
+sits on screen.
+
+The plugin's buffer size and the region size need not match: a
+plugin may deliberately render into a smaller `64×64` dmabuf and
+let the host scale it up across the `400×80` region (the raymarcher
+does this for cheap upscaling). But it is scaling *relative to what
+`Configure` reported*, so a region plugin that allocates the size
+it was told gets an undistorted 1:1 composite.
 
 ### `monitors` (array of strings, optional)
 

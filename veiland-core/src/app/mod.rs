@@ -391,10 +391,18 @@ impl AppData {
     ///
     /// Mirrors `process_periodic_tick`'s clone-override-send-store
     /// shape, but scoped to one output (a resize is per-output, unlike
-    /// the time tick which advances everywhere) and overriding region
-    /// instead of time. `region_x/y` stay 0 — full-surface placement is
-    /// unchanged; only the size moves. The next periodic tick refreshes
+    /// the time tick which advances everywhere) and overriding the
+    /// region dims instead of time. The next periodic tick refreshes
     /// the time field as usual.
+    ///
+    /// `surface_w/h` are the *new surface* size. What each plugin is told
+    /// is decided per-slot by `region::configure_dims`: a full-surface
+    /// plugin (`region = None`) gets the new surface dims at origin (0, 0)
+    /// — full-surface placement unchanged, only the size moves; a region
+    /// plugin gets its region's own absolute (x, y, w, h), which does not
+    /// depend on the surface and so is re-sent unchanged. Without the
+    /// per-slot decision a mode change would silently revert a region
+    /// plugin to full-surface (the pre-fix bug on the resend path).
     ///
     /// Plugin-input rule applies: a send failure logs and kills that
     /// slot, it never panics. See `process_periodic_tick` for why the
@@ -402,8 +410,8 @@ impl AppData {
     pub(crate) fn resend_configure_region_for_output(
         &mut self,
         output_idx: usize,
-        region_w: u32,
-        region_h: u32,
+        surface_w: u32,
+        surface_h: u32,
     ) {
         let Some(per_output) = self.plugins.get_mut(output_idx) else {
             return;
@@ -415,9 +423,11 @@ impl AppData {
             let Some(prev) = slot.last_configure.clone() else {
                 continue;
             };
+            let (region_x, region_y, region_w, region_h) =
+                region::configure_dims(slot.region.as_ref(), surface_w, surface_h);
             let next = Configure {
-                region_x: 0,
-                region_y: 0,
+                region_x,
+                region_y,
                 region_w,
                 region_h,
                 ..prev

@@ -16,11 +16,18 @@
 # path is deferred, see docs/plans/python-sdk.md. The script must be chmod +x
 # or the host spawn fails with "Permission denied (os error 13)".
 #
-# No [plugin.region]: the host composites by stretching the buffer into the
-# region quad (Configure carries the full surface size), so the widget draws
-# into a full-surface transparent canvas -- same model as the label/clock
-# plugins and the other battery examples.
+# [plugin.region] places the widget in a small box near the top-right. The host
+# sizes the plugin's buffer to the region and composites it there 1:1 (no
+# stretch), so battery_svg.py just centers the pill in its own buffer -- no
+# screen-relative math. This is the status-chip model: the host owns WHERE the
+# box is (these pixels), the plugin owns WHAT fills it (a centered pill).
+#
+# The coords are absolute pixels tuned for a 1920-wide output; on a wider screen
+# (1440p/4K) the box drifts in from the corner. Anchor keywords
+# (anchor = "top-right") that resolve against the live surface size are the
+# resolution-independent way to say "top-right" -- see docs/config.md.
 [[plugin]]
 name = "veiland-battery-svg"
 binary = "./python/examples/battery_svg.py"
 z_index = 10
+region = { x = 1836, y = 24, w = 60, h = 60 }

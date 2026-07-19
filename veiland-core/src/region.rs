@@ -45,6 +45,40 @@ pub fn region_to_clip_rect(region: Option<&Region>, surface_w: i32, surface_h: i
     [left, bottom, right - left, top - bottom]
 }
 
+/// The dimensions a plugin's `Configure` should carry: `(x, y, w, h)`.
+///
+/// This is the other half of the region contract from `region_to_clip_rect`.
+/// `region_to_clip_rect` decides *where on screen* a plugin's buffer is
+/// composited; this decides *how big a buffer* the plugin allocates by telling
+/// it its render size in `Configure`. The two must agree: when a region is
+/// declared, the plugin renders a region-sized buffer and the composite is the
+/// identity transform (no stretch). When the host lied here (always sending
+/// full-surface dims), a region plugin rendered a full-surface texture that the
+/// compositor then squashed into the smaller region quad.
+///
+/// - `None` region → `(0, 0, surface_w, surface_h)`: fill the whole surface.
+///   This is byte-identical to what every non-region plugin was sent before
+///   this contract existed, so their `Configure` is unchanged.
+/// - `Some(region)` → `(region.x, region.y, region.w, region.h)`: render at the
+///   region's real position and size. Coords are absolute pixels (see
+///   `docs/config.md`), passed through unchanged — they are *not* rescaled on a
+///   mode change, which is the resolution-hostility that anchor keywords
+///   address separately.
+///
+/// Both `Configure`-construction sites (the initial spawn in
+/// `plugin::host_spawn` and the resize resend in
+/// `app::resend_configure_region_for_output`) call this so they cannot drift.
+pub fn configure_dims(
+    region: Option<&Region>,
+    surface_w: u32,
+    surface_h: u32,
+) -> (i32, i32, u32, u32) {
+    match region {
+        None => (0, 0, surface_w, surface_h),
+        Some(r) => (r.x, r.y, r.w, r.h),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +211,50 @@ mod tests {
         for v in got.iter() {
             assert!(v.is_finite(), "got non-finite value: {:?}", got);
         }
+    }
+
+    #[test]
+    fn configure_dims_none_is_full_surface() {
+        // The backward-compat guarantee: a plugin that omitted `region`
+        // gets exactly the dims every non-region plugin was sent before
+        // this contract existed — full surface, origin (0, 0). If this
+        // ever changes, every shipped reference plugin's Configure changes.
+        assert_eq!(configure_dims(None, 1920, 1080), (0, 0, 1920, 1080));
+        assert_eq!(configure_dims(None, 3840, 2160), (0, 0, 3840, 2160));
+    }
+
+    #[test]
+    fn configure_dims_some_reports_region() {
+        // A declared region reports its own position and size, NOT the
+        // surface — this is the whole fix. The plugin allocates a
+        // region-sized buffer and the composite becomes identity (no
+        // stretch). Coords pass through as absolute pixels.
+        let r = Region {
+            x: 760,
+            y: 440,
+            w: 400,
+            h: 200,
+        };
+        assert_eq!(configure_dims(Some(&r), 1920, 1080), (760, 440, 400, 200));
+    }
+
+    #[test]
+    fn configure_dims_some_ignores_surface_size() {
+        // The region dims are independent of the surface: the same region
+        // on a 1080p and a 4K surface reports the same (x, y, w, h). (That
+        // absolute-pixel behaviour is exactly what makes explicit regions
+        // resolution-hostile and motivates anchor keywords; the contract
+        // itself is correct — no stretch on either surface.)
+        let r = Region {
+            x: 100,
+            y: 100,
+            w: 300,
+            h: 80,
+        };
+        assert_eq!(
+            configure_dims(Some(&r), 1920, 1080),
+            configure_dims(Some(&r), 3840, 2160),
+            "region dims must not depend on surface size"
+        );
     }
 }
