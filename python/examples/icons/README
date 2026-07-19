@@ -1,0 +1,11 @@
+Battery status glyphs for the SVG battery example (../battery_svg.py).
+
+Self-drawn for veiland and released under CC0-1.0 (Creative Commons public
+domain dedication, https://creativecommons.org/publicdomain/zero/1.0/). No
+third-party assets are included, so redistribution inside this GPL-3.0-or-later
+repository is unencumbered -- copy, modify, and ship them freely.
+
+Each file is a square (viewBox="0 0 24 24") monochrome-white glyph with no text,
+fonts, or external references, so librsvg renders it with nothing beyond the
+library itself. battery-25/50/75/100.svg share one battery shell and differ only
+in the inner fill-bar width; battery-charging.svg swaps the fill bar for a bolt.

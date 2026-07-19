@@ -1,0 +1,26 @@
+# Test config for the SVG battery example (python/examples/battery_svg.py): a
+# monochrome-white battery glyph, rendered from an SVG via librsvg through the
+# optional veiland_svg companion, inside a small circular translucent pill inset
+# from the top-right corner (matching the reference lockscreen's status chip).
+# An if/else picks a bucketed icon (battery-25/50/75/100.svg, battery-charging
+# .svg) and draw_svg blits it onto the same cairo context that writes into
+# buf.map() -- the copy-me template for status-icon widgets. Just the battery,
+# no label, so the SVG pill is what you are evaluating.
+#
+# Unlike the cairo/PIL battery examples this needs the SVG stack: pygobject3 +
+# librsvg + the Rsvg typelib on GI_TYPELIB_PATH. The flake's dev shell wires it,
+# so run veiland from inside `nix develop`.
+#
+# The binary path is relative, so run veiland from the repo root (the host
+# resolves it against its own working directory); a name-based plugin search
+# path is deferred, see docs/plans/python-sdk.md. The script must be chmod +x
+# or the host spawn fails with "Permission denied (os error 13)".
+#
+# No [plugin.region]: the host composites by stretching the buffer into the
+# region quad (Configure carries the full surface size), so the widget draws
+# into a full-surface transparent canvas -- same model as the label/clock
+# plugins and the other battery examples.
+[[plugin]]
+name = "veiland-battery-svg"
+binary = "./python/examples/battery_svg.py"
+z_index = 10
