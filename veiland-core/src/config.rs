@@ -113,8 +113,10 @@ pub enum VAlign {
 /// surface size is known. This is the resolution-independent form —
 /// `width = 0.06` is 6% of surface width on any monitor, so an anchored
 /// widget looks the same on 1080p and 4K (the fraction-of-surface model
-/// veiland's `label`/`clock` plugins already use for text). `margin`
-/// insets from the aligned edge(s); a centred axis ignores it.
+/// veiland's `label`/`clock` plugins already use for text). The margins
+/// inset from the aligned edge on their axis; a centred axis ignores
+/// its margin. In TOML, `margin` is a shorthand that sets both axes;
+/// `margin_x`/`margin_y` override it per axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnchorSpec {
     pub halign: HAlign,
@@ -123,8 +125,12 @@ pub struct AnchorSpec {
     pub width: f32,
     /// Fraction of surface height, `0.0 < height <= 1.0` (clamped).
     pub height: f32,
-    /// Fraction inset from the aligned edge(s), `0.0..=1.0` (clamped).
-    pub margin: f32,
+    /// Horizontal inset from the aligned edge as a fraction of surface
+    /// width, `0.0..=1.0` (clamped).
+    pub margin_x: f32,
+    /// Vertical inset from the aligned edge as a fraction of surface
+    /// height, `0.0..=1.0` (clamped).
+    pub margin_y: f32,
 }
 
 /// A plugin's `[plugin.region]`, in one of two mutually-exclusive forms.
@@ -136,7 +142,7 @@ pub enum RegionSpec {
     /// Explicit absolute pixels — the escape hatch, `{ x, y, w, h }`.
     Pixels(Region),
     /// Anchored fraction-of-surface box — `{ halign, valign, width,
-    /// height, margin }`.
+    /// height, margin / margin_x / margin_y }`.
     Anchored(AnchorSpec),
 }
 
@@ -172,8 +178,8 @@ impl AnchorSpec {
         let h = ((self.height * sh).round() as i64).clamp(1, surface_h.max(1) as i64) as u32;
 
         // Margin inset in pixels, per axis (fraction of that axis).
-        let mx = (self.margin * sw).round() as i64;
-        let my = (self.margin * sh).round() as i64;
+        let mx = (self.margin_x * sw).round() as i64;
+        let my = (self.margin_y * sh).round() as i64;
 
         // Free space along each axis after placing the box.
         let free_x = surface_w as i64 - w as i64;
@@ -218,6 +224,8 @@ struct RawRegion {
     width: Option<f32>,
     height: Option<f32>,
     margin: Option<f32>,
+    margin_x: Option<f32>,
+    margin_y: Option<f32>,
 }
 
 impl<'de> serde::Deserialize<'de> for RegionSpec {
@@ -232,14 +240,17 @@ impl<'de> serde::Deserialize<'de> for RegionSpec {
             || raw.valign.is_some()
             || raw.width.is_some()
             || raw.height.is_some()
-            || raw.margin.is_some();
+            || raw.margin.is_some()
+            || raw.margin_x.is_some()
+            || raw.margin_y.is_some();
 
         // Mutually exclusive: mixing the two forms is a mistake, not a
         // precedence question. Reject loudly rather than silently pick.
         if has_pixels && has_anchor {
             return Err(serde::de::Error::custom(
                 "region mixes the pixel form (x/y/w/h) with the anchored form \
-                 (halign/valign/width/height/margin); use one or the other",
+                 (halign/valign/width/height/margin/margin_x/margin_y); \
+                 use one or the other",
             ));
         }
 
@@ -256,12 +267,17 @@ impl<'de> serde::Deserialize<'de> for RegionSpec {
                     "anchored region needs `height` (a fraction of the surface)",
                 )
             })?;
+            // `margin` sets both axes; `margin_x`/`margin_y` override
+            // their axis (so `margin = 0.03, margin_y = 0` reads as
+            // "3% inset, but flush on the vertical axis").
+            let margin = raw.margin.unwrap_or(0.0);
             Ok(RegionSpec::Anchored(AnchorSpec {
                 halign: raw.halign.unwrap_or(HAlign::Center),
                 valign: raw.valign.unwrap_or(VAlign::Center),
                 width,
                 height,
-                margin: raw.margin.unwrap_or(0.0),
+                margin_x: raw.margin_x.unwrap_or(margin),
+                margin_y: raw.margin_y.unwrap_or(margin),
             }))
         } else {
             // Pixel form: all four required (matches the pre-anchor
@@ -740,7 +756,8 @@ fn validate(config: &mut Config) -> Result<(), ConfigError> {
             Some(RegionSpec::Anchored(a)) => {
                 clamp_anchor_fraction(&p.name, "width", &mut a.width, 1e-4, 1.0);
                 clamp_anchor_fraction(&p.name, "height", &mut a.height, 1e-4, 1.0);
-                clamp_anchor_fraction(&p.name, "margin", &mut a.margin, 0.0, 1.0);
+                clamp_anchor_fraction(&p.name, "margin_x", &mut a.margin_x, 0.0, 1.0);
+                clamp_anchor_fraction(&p.name, "margin_y", &mut a.margin_y, 0.0, 1.0);
             }
             None => {}
         }
@@ -1543,7 +1560,8 @@ mod tests {
                 valign: VAlign::Center,
                 width: 0.06,
                 height: 0.1,
-                margin: 0.0,
+                margin_x: 0.0,
+                margin_y: 0.0,
             })
         );
     }
@@ -1562,7 +1580,48 @@ mod tests {
                 valign: VAlign::Top,
                 width: 0.06,
                 height: 0.1,
-                margin: 0.02,
+                margin_x: 0.02,
+                margin_y: 0.02,
+            })
+        );
+    }
+
+    #[test]
+    fn margin_shorthand_with_per_axis_override() {
+        // `margin` fills both axes; a per-axis key overrides its axis
+        // only. Here: 3% horizontal inset, flush vertically.
+        let spec = only_region(
+            "region = { halign = \"left\", valign = \"bottom\", \
+             width = 0.26, height = 0.12, margin = 0.03, margin_y = 0.0 }",
+        )
+        .expect("shorthand + override parses");
+        assert_eq!(
+            spec,
+            RegionSpec::Anchored(AnchorSpec {
+                halign: HAlign::Left,
+                valign: VAlign::Bottom,
+                width: 0.26,
+                height: 0.12,
+                margin_x: 0.03,
+                margin_y: 0.0,
+            })
+        );
+    }
+
+    #[test]
+    fn per_axis_margins_without_shorthand() {
+        // margin_x alone, no `margin`: the unset axis defaults to 0.
+        let spec = only_region("region = { width = 0.1, height = 0.1, margin_x = 0.05 }")
+            .expect("per-axis margin parses");
+        assert_eq!(
+            spec,
+            RegionSpec::Anchored(AnchorSpec {
+                halign: HAlign::Center,
+                valign: VAlign::Center,
+                width: 0.1,
+                height: 0.1,
+                margin_x: 0.05,
+                margin_y: 0.0,
             })
         );
     }
@@ -1588,6 +1647,20 @@ mod tests {
             }
             other => panic!("expected Parse error for mixed region, got {:?}", other),
         }
+
+        // A per-axis margin key alone also marks the anchored form, so
+        // it can't ride along with pixel coordinates either.
+        let text = r#"
+            [[plugin]]
+            name = "x"
+            binary = "/x"
+            z_index = 0
+            region = { x = 10, y = 20, w = 100, h = 50, margin_y = 0.1 }
+        "#;
+        assert!(
+            matches!(parse(text), Err(ConfigError::Parse(_))),
+            "margin_y with pixel coordinates should be a mix error"
+        );
     }
 
     #[test]
@@ -1645,13 +1718,15 @@ mod tests {
 
     #[test]
     fn anchored_fractions_clamped_not_rejected() {
-        // width > 1 and margin < 0 are typos we clamp, not reject.
+        // width > 1 and margin < 0 are typos we clamp, not reject. The
+        // negative shorthand lands in both per-axis margins; both clamp.
         let spec = only_region("region = { width = 1.5, height = 0.1, margin = -0.2 }")
             .expect("out-of-range fractions clamp, not reject");
         match spec {
             RegionSpec::Anchored(a) => {
                 assert_eq!(a.width, 1.0, "width clamped to 1.0");
-                assert_eq!(a.margin, 0.0, "negative margin clamped to 0");
+                assert_eq!(a.margin_x, 0.0, "negative margin_x clamped to 0");
+                assert_eq!(a.margin_y, 0.0, "negative margin_y clamped to 0");
             }
             other => panic!("expected anchored, got {:?}", other),
         }
@@ -1697,7 +1772,8 @@ mod tests {
             valign: VAlign::Top,
             width: 0.06,
             height: 0.10,
-            margin: 0.02,
+            margin_x: 0.02,
+            margin_y: 0.02,
         };
         assert_eq!(
             a.resolve(1920, 1080),
@@ -1721,7 +1797,8 @@ mod tests {
             valign: VAlign::Top,
             width: 0.06,
             height: 0.10,
-            margin: 0.02,
+            margin_x: 0.02,
+            margin_y: 0.02,
         };
         let r1 = a.resolve(1920, 1080);
         let r2 = a.resolve(3840, 2160);
@@ -1758,7 +1835,8 @@ mod tests {
             valign: VAlign::Top,
             width: 0.06,
             height: 0.10,
-            margin: 0.02,
+            margin_x: 0.02,
+            margin_y: 0.02,
         };
         assert_eq!(
             a.resolve(2560, 1440),
@@ -1779,7 +1857,8 @@ mod tests {
             valign: VAlign::Center,
             width: 0.5,
             height: 0.5,
-            margin: 0.3, // deliberately large; must be ignored
+            margin_x: 0.3, // deliberately large; must be ignored
+            margin_y: 0.3,
         };
         let r = a.resolve(1000, 1000);
         // w = h = 500, centred → x = y = (1000-500)/2 = 250.
@@ -1801,7 +1880,8 @@ mod tests {
             valign: VAlign::Bottom,
             width: 0.1,
             height: 0.1,
-            margin: 0.05,
+            margin_x: 0.05,
+            margin_y: 0.05,
         };
         // On 1000x1000: w=h=100, mx=my=50.
         // x = 50 (left + margin) ; y = (1000-100) - 50 = 850.
@@ -1810,6 +1890,32 @@ mod tests {
             Region {
                 x: 50,
                 y: 850,
+                w: 100,
+                h: 100
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_per_axis_margins_are_independent() {
+        // margin_x insets from the left, margin_y = 0 leaves the box
+        // flush with the bottom — the chip-row case a single scalar
+        // couldn't express.
+        let a = AnchorSpec {
+            halign: HAlign::Left,
+            valign: VAlign::Bottom,
+            width: 0.1,
+            height: 0.1,
+            margin_x: 0.05,
+            margin_y: 0.0,
+        };
+        // On 1000x1000: w=h=100, mx=50, my=0.
+        // x = 50 ; y = (1000-100) - 0 = 900.
+        assert_eq!(
+            a.resolve(1000, 1000),
+            Region {
+                x: 50,
+                y: 900,
                 w: 100,
                 h: 100
             }
@@ -1826,7 +1932,8 @@ mod tests {
             valign: VAlign::Top,
             width: 1.0,
             height: 0.1,
-            margin: 0.2,
+            margin_x: 0.2,
+            margin_y: 0.2,
         };
         let r = a.resolve(1000, 1000);
         assert_eq!(r.x, 0, "full-width box clamps x to 0 despite the margin");

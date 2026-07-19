@@ -152,9 +152,17 @@ region = { halign = "right", valign = "top", width = 0.06, height = 0.10, margin
   surface width — the same fraction-of-surface model `label`/`clock`
   use for text, so a widget looks the same relative size on any monitor.
 - `margin` (float in `0.0..=1.0`, optional, default `0`): inset from
-  the aligned edge(s), as a fraction of the surface. A `center` axis
-  ignores it. Out-of-range fractions are clamped with a warning, not
-  rejected.
+  the aligned edge(s), as a fraction of the surface. Shorthand that
+  sets both axes. A `center` axis ignores it. Out-of-range fractions
+  are clamped with a warning, not rejected.
+- `margin_x`, `margin_y` (floats in `0.0..=1.0`, optional): per-axis
+  margins. Each overrides `margin` on its axis only, so
+  `margin = 0.03, margin_y = 0` means "3% in from the side, flush with
+  the top/bottom edge". Like `width`/`height`, each is a fraction of
+  its own axis (`margin_x` of surface width, `margin_y` of surface
+  height) — note that on a 16:9 screen the same fraction is therefore
+  more pixels horizontally than vertically; use per-axis values if you
+  want visually equal gaps.
 
 Alignment is relative to the output: `halign = "right"` means the
 surface's right edge, not a container or another plugin. `margin` then
