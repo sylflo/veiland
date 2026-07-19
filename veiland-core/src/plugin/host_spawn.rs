@@ -270,11 +270,17 @@ fn connect_spawned(
     // when no region is declared (byte-identical to before this change),
     // the region's own (x, y, w, h) when one is — so a region plugin
     // allocates a region-sized buffer and the composite is the identity
-    // transform instead of a stretch. The region dims are absolute and do
-    // not depend on the surface fallback.
+    // transform instead of a stretch. An anchored region resolves to
+    // pixels against the surface first; a pixel region passes through.
+    // Either way the resolved region is stored on the slot for the
+    // composite path and for re-resolution on resize.
     let (surface_w, surface_h) = surface_size.unwrap_or((1920, 1080));
+    let resolved_region = entry
+        .region
+        .as_ref()
+        .map(|spec| spec.resolve(surface_w, surface_h));
     let (region_x, region_y, region_w, region_h) =
-        crate::region::configure_dims(entry.region.as_ref(), surface_w, surface_h);
+        crate::region::configure_dims(resolved_region.as_ref(), surface_w, surface_h);
     let (time_unix_seconds, time_tz_offset_seconds) = current_time_for_configure();
     let initial_configure = Configure {
         region_x,
@@ -295,7 +301,8 @@ fn connect_spawned(
         name: entry.name.clone(),
         binary: entry.binary.clone(),
         z_index: entry.z_index,
-        region: entry.region.clone(),
+        region_spec: entry.region,
+        resolved_region,
         output_name: output_name.to_string(),
         last_configure: Some(initial_configure),
         source_serial: None,

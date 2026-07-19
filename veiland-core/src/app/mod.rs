@@ -423,8 +423,16 @@ impl AppData {
             let Some(prev) = slot.last_configure.clone() else {
                 continue;
             };
+            // Re-resolve the region against the new surface size: an
+            // anchored region must re-anchor to the resized surface (a
+            // mode change moves the corner), a pixel region resolves to
+            // itself. Cache the result for the composite path.
+            slot.resolved_region = slot
+                .region_spec
+                .as_ref()
+                .map(|spec| spec.resolve(surface_w, surface_h));
             let (region_x, region_y, region_w, region_h) =
-                region::configure_dims(slot.region.as_ref(), surface_w, surface_h);
+                region::configure_dims(slot.resolved_region.as_ref(), surface_w, surface_h);
             let next = Configure {
                 region_x,
                 region_y,
@@ -553,7 +561,7 @@ impl AppData {
         crate::gl_debug::check_gl("repaint: viewport/clear/blend setup");
 
         for slot in self.plugins[output_idx].iter().flatten() {
-            let rect = region::region_to_clip_rect(slot.region.as_ref(), w, h);
+            let rect = region::region_to_clip_rect(slot.resolved_region.as_ref(), w, h);
             // Pick the compositor variant matching how this plugin's dmabuf
             // bound at import: the plain sampler2D program for TEXTURE_2D, the
             // samplerExternalOES program for external-only dmabufs (NVIDIA's

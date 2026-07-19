@@ -10,10 +10,10 @@
 # path is deferred, see docs/plans/python-sdk.md. The script must be chmod +x
 # or the host spawn fails with "Permission denied (os error 13)".
 #
-# No [plugin.region]: the host composites by stretching the buffer into the
-# region quad (Configure carries the full surface size), so the widget draws
-# into a full-surface transparent canvas -- same model as the label/clock
-# plugins and battery_python.toml.
+# No [plugin.region]: the plugin fills the whole lock surface and positions
+# itself inside that full-surface transparent canvas -- same model as the
+# label/clock plugins and battery_python.toml. (For a small placed chip, add a
+# [plugin.region]; see battery_svg.toml for the anchored form.)
 [[plugin]]
 name = "veiland-battery-cairo"
 binary = "./python/examples/battery_cairo.py"

@@ -1,7 +1,7 @@
-# No [plugin.region]: the shipped host composites a plugin's buffer by
-# stretching it into the region quad (Configure always carries the full
-# surface size), so a widget positions itself inside a full-surface
-# transparent canvas instead — same model as the label/clock plugins.
+# No [plugin.region]: the plugin fills the whole lock surface and positions
+# itself inside that full-surface transparent canvas — the same model as the
+# label/clock plugins. (For a small placed chip instead, add a [plugin.region];
+# see battery_svg.toml for the anchored form.)
 [[plugin]]
 name = "veiland-battery"
 binary = "./python/examples/battery.py"

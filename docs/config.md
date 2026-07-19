@@ -132,8 +132,38 @@ plugin gets a tiny positive z_index.
 
 ### `region` (table, optional)
 
-The screen rectangle this plugin draws into. Pixel coordinates,
-relative to the lock surface's top-left.
+The screen rectangle this plugin draws into. If `region` is omitted,
+the plugin draws to the entire lock surface. It comes in **two
+mutually-exclusive forms** — pick one:
+
+**Anchored (recommended, resolution-independent):** pin a box to a
+screen edge or corner and size it as a fraction of the surface. The
+host resolves it to pixels against each output's live size, so the
+same config lands correctly on 1080p, 1440p, and 4K.
+
+```toml
+region = { halign = "right", valign = "top", width = 0.06, height = 0.10, margin = 0.02 }
+```
+
+- `halign` (string): `left` | `center` | `right`. Default `center`.
+- `valign` (string): `top` | `center` | `bottom`. Default `center`.
+- `width`, `height` (floats in `0.0..=1.0`): box size as a fraction of
+  the surface width/height. Required. `width = 0.06` is 6% of the
+  surface width — the same fraction-of-surface model `label`/`clock`
+  use for text, so a widget looks the same relative size on any monitor.
+- `margin` (float in `0.0..=1.0`, optional, default `0`): inset from
+  the aligned edge(s), as a fraction of the surface. A `center` axis
+  ignores it. Out-of-range fractions are clamped with a warning, not
+  rejected.
+
+Alignment is relative to the output: `halign = "right"` means the
+surface's right edge, not a container or another plugin. `margin` then
+insets the box *inward* from that edge, so you never need a negative
+number to pull a corner chip off the edge.
+
+**Explicit pixels (escape hatch):** absolute coordinates, top-left
+origin. Only lands correctly on the resolution it was written for — use
+the anchored form unless you need exact pixels on a known display.
 
 ```toml
 region = { x = 100, y = 200, w = 400, h = 80 }
@@ -143,15 +173,13 @@ region = { x = 100, y = 200, w = 400, h = 80 }
   surface's top-left.
 - `w`, `h` (positive integers): width and height in pixels.
 
-If `region` is omitted, the plugin draws to the entire lock
-surface.
-
-Regions are *not* validated against the surface size at load time
-(the surface size isn't known yet). Off-screen or oversized regions
-are clipped by GL at render time — they don't crash, but their
-off-screen pixels are wasted GPU work. Coordinates with absolute
-value greater than 8192 trigger a "this looks like a typo" warning
-at config load; it's a soft check, not a rejection.
+Declaring both forms in one `region` is a config error (pick one).
+Explicit pixel regions are *not* validated against the surface size at
+load time (the surface size isn't known yet). Off-screen or oversized
+regions are clipped by GL at render time — they don't crash, but their
+off-screen pixels are wasted GPU work. Coordinates with absolute value
+greater than 8192 trigger a "this looks like a typo" warning at config
+load; it's a soft check, not a rejection.
 
 What the plugin *knows* about its region — via the `Configure`
 message — is the region's own position and size (`region_x`,
@@ -466,19 +494,21 @@ The plugin learns which output it's serving via the `output_name`
 field on `Configure` (see `docs/protocol.md` §7.1). Plugins that
 need to vary their rendering per monitor key off that string.
 
-### Regions are per-output, in surface pixel coordinates
+### Regions are per-output
 
-A region of `(100, 100, 300, 80)` lands at the same absolute pixel
-position — top-left at `(100, 100)` — on each output the plugin runs
-on. On a 4K monitor that looks small; on a 1080p monitor it looks
-normal. The host does not currently translate regions to
-output-aware coordinates ("anchor top-right, 20% of output width");
-that's a planned extension.
+An **explicit-pixel** region of `(100, 100, 300, 80)` lands at the same
+absolute pixel position — top-left at `(100, 100)` — on each output the
+plugin runs on. On a 4K monitor that looks small; on a 1080p monitor it
+looks normal. That resolution-dependence is why the **anchored** form
+exists: `halign`/`valign` + fractional `width`/`height`/`margin` are
+resolved per-output against each surface's live size, so an anchored
+widget hugs the same corner at the same relative size on every monitor
+(see the `region` field above).
 
-If you want a clock in the top-left of each monitor at sizes that
-make sense for each monitor's resolution, write one `[[plugin]]`
-entry per monitor with the appropriate region and a `monitors`
-selector naming that one output.
+If you want a widget at a size that makes sense for each monitor's
+resolution, prefer the anchored form. For fully per-monitor control
+(e.g. a different explicit region per screen), write one `[[plugin]]`
+entry per monitor with a `monitors` selector naming that one output.
 
 ### Process count
 

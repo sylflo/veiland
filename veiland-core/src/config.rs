@@ -48,9 +48,11 @@ pub struct PluginEntry {
 
     /// Optional. `None` means "fill the whole lock surface" — the
     /// default is resolved at Configure time, not here, because we
-    /// don't know the surface size at config-load time.
+    /// don't know the surface size at config-load time. When present it
+    /// is one of two mutually-exclusive forms (explicit pixels, or an
+    /// anchored fraction-of-surface box); see `RegionSpec`.
     #[serde(default)]
-    pub region: Option<Region>,
+    pub region: Option<RegionSpec>,
 
     /// Output names (xdg_output.name strings, e.g. "DP-1") this
     /// plugin runs on. `None` (field absent) means "every connected
@@ -72,12 +74,209 @@ pub struct PluginEntry {
     pub config: Option<toml::Value>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// A resolved region in absolute surface pixels — the form the
+/// compositor consumes. Both `RegionSpec` variants resolve into this
+/// (the pixel form trivially, the anchored form against the live
+/// surface size). `region.rs::region_to_clip_rect` and `configure_dims`
+/// operate on it.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Region {
     pub x: i32,
     pub y: i32,
     pub w: u32,
     pub h: u32,
+}
+
+/// Horizontal alignment of an anchored region against the surface —
+/// hyprlock's `halign` vocabulary (screen-relative, no container).
+/// `Center` ignores the horizontal margin.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// Vertical alignment of an anchored region against the surface —
+/// hyprlock's `valign` vocabulary. `Center` ignores the vertical margin.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VAlign {
+    Top,
+    Center,
+    Bottom,
+}
+
+/// An anchored region: a box sized as a fraction of the surface and
+/// aligned to an edge/corner, resolved to pixels host-side once the
+/// surface size is known. This is the resolution-independent form —
+/// `width = 0.06` is 6% of surface width on any monitor, so an anchored
+/// widget looks the same on 1080p and 4K (the fraction-of-surface model
+/// veiland's `label`/`clock` plugins already use for text). `margin`
+/// insets from the aligned edge(s); a centred axis ignores it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnchorSpec {
+    pub halign: HAlign,
+    pub valign: VAlign,
+    /// Fraction of surface width, `0.0 < width <= 1.0` (clamped).
+    pub width: f32,
+    /// Fraction of surface height, `0.0 < height <= 1.0` (clamped).
+    pub height: f32,
+    /// Fraction inset from the aligned edge(s), `0.0..=1.0` (clamped).
+    pub margin: f32,
+}
+
+/// A plugin's `[plugin.region]`, in one of two mutually-exclusive forms.
+/// Kept unresolved through config load because the anchored form needs
+/// the surface size (unknown at load); `resolve` turns either form into
+/// a pixel `Region` at Configure time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RegionSpec {
+    /// Explicit absolute pixels — the escape hatch, `{ x, y, w, h }`.
+    Pixels(Region),
+    /// Anchored fraction-of-surface box — `{ halign, valign, width,
+    /// height, margin }`.
+    Anchored(AnchorSpec),
+}
+
+impl RegionSpec {
+    /// Resolve to a pixel `Region` against a concrete surface size.
+    /// `Pixels` passes through; `Anchored` computes `x, y, w, h` from
+    /// the fractions, size, margin, and alignment. Never panics: all
+    /// arithmetic is on clamped fractions and saturates at the surface
+    /// bounds. Called at Configure time (spawn + resize resend), once
+    /// per output, so a mode change re-anchors correctly.
+    pub fn resolve(&self, surface_w: u32, surface_h: u32) -> Region {
+        match self {
+            RegionSpec::Pixels(r) => *r,
+            RegionSpec::Anchored(a) => a.resolve(surface_w, surface_h),
+        }
+    }
+}
+
+impl AnchorSpec {
+    /// Fractions → pixels against the surface. `w`/`h` are rounded and
+    /// clamped to at least 1px and at most the surface extent; the
+    /// margin inset is applied from the aligned edge and the position
+    /// is clamped so the box stays on-screen (overflow can't push it
+    /// negative). Pure integer/float math, no panics.
+    fn resolve(&self, surface_w: u32, surface_h: u32) -> Region {
+        let sw = surface_w as f32;
+        let sh = surface_h as f32;
+
+        // Box size, clamped to [1, surface]. The fractions are already
+        // clamped to (0, 1] at validate time, but clamp again here so a
+        // direct call (tests) can't produce a degenerate size.
+        let w = ((self.width * sw).round() as i64).clamp(1, surface_w.max(1) as i64) as u32;
+        let h = ((self.height * sh).round() as i64).clamp(1, surface_h.max(1) as i64) as u32;
+
+        // Margin inset in pixels, per axis (fraction of that axis).
+        let mx = (self.margin * sw).round() as i64;
+        let my = (self.margin * sh).round() as i64;
+
+        // Free space along each axis after placing the box.
+        let free_x = surface_w as i64 - w as i64;
+        let free_y = surface_h as i64 - h as i64;
+
+        // x from halign: left = margin; right = free - margin; center =
+        // free/2 (margin ignored). Clamp to [0, free] so a margin larger
+        // than the free space can't push the box off-screen.
+        let x = match self.halign {
+            HAlign::Left => mx.clamp(0, free_x.max(0)),
+            HAlign::Right => (free_x - mx).clamp(0, free_x.max(0)),
+            HAlign::Center => (free_x / 2).max(0),
+        };
+        let y = match self.valign {
+            VAlign::Top => my.clamp(0, free_y.max(0)),
+            VAlign::Bottom => (free_y - my).clamp(0, free_y.max(0)),
+            VAlign::Center => (free_y / 2).max(0),
+        };
+
+        Region {
+            x: x as i32,
+            y: y as i32,
+            w,
+            h,
+        }
+    }
+}
+
+/// Intermediate all-optional shape `[plugin.region]` deserialises into,
+/// so we can decide which of the two mutually-exclusive forms was
+/// written and produce a clear error on a mix or an incomplete form.
+/// `serde(deny_unknown_fields)` catches typos like `witdh`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRegion {
+    x: Option<i32>,
+    y: Option<i32>,
+    w: Option<u32>,
+    h: Option<u32>,
+    halign: Option<HAlign>,
+    valign: Option<VAlign>,
+    width: Option<f32>,
+    height: Option<f32>,
+    margin: Option<f32>,
+}
+
+impl<'de> serde::Deserialize<'de> for RegionSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawRegion::deserialize(deserializer)?;
+
+        let has_pixels = raw.x.is_some() || raw.y.is_some() || raw.w.is_some() || raw.h.is_some();
+        let has_anchor = raw.halign.is_some()
+            || raw.valign.is_some()
+            || raw.width.is_some()
+            || raw.height.is_some()
+            || raw.margin.is_some();
+
+        // Mutually exclusive: mixing the two forms is a mistake, not a
+        // precedence question. Reject loudly rather than silently pick.
+        if has_pixels && has_anchor {
+            return Err(serde::de::Error::custom(
+                "region mixes the pixel form (x/y/w/h) with the anchored form \
+                 (halign/valign/width/height/margin); use one or the other",
+            ));
+        }
+
+        if has_anchor {
+            // width/height are required for the anchored form; halign/
+            // valign/margin default (centre / centre / 0).
+            let width = raw.width.ok_or_else(|| {
+                serde::de::Error::custom(
+                    "anchored region needs `width` (a fraction of the surface)",
+                )
+            })?;
+            let height = raw.height.ok_or_else(|| {
+                serde::de::Error::custom(
+                    "anchored region needs `height` (a fraction of the surface)",
+                )
+            })?;
+            Ok(RegionSpec::Anchored(AnchorSpec {
+                halign: raw.halign.unwrap_or(HAlign::Center),
+                valign: raw.valign.unwrap_or(VAlign::Center),
+                width,
+                height,
+                margin: raw.margin.unwrap_or(0.0),
+            }))
+        } else {
+            // Pixel form: all four required (matches the pre-anchor
+            // schema, where `Region` had no optional fields).
+            let missing = |f: &str| {
+                serde::de::Error::custom(format!("pixel region needs `{}` (an integer)", f))
+            };
+            Ok(RegionSpec::Pixels(Region {
+                x: raw.x.ok_or_else(|| missing("x"))?,
+                y: raw.y.ok_or_else(|| missing("y"))?,
+                w: raw.w.ok_or_else(|| missing("w"))?,
+                h: raw.h.ok_or_else(|| missing("h"))?,
+            }))
+        }
+    }
 }
 
 /// An RGBA colour, parsed from a CSS-style `rgba(r, g, b, a)` string.
@@ -496,37 +695,54 @@ fn default_scene() -> Result<Config, ConfigError> {
 fn validate(config: &mut Config) -> Result<(), ConfigError> {
     validate_password(&mut config.password);
 
-    let mut seen: Vec<&str> = Vec::with_capacity(config.plugins.len());
-    for (i, p) in config.plugins.iter().enumerate() {
+    // Owned names, not `&str`, so the loop can take `&mut p` to clamp
+    // anchored-region fractions in place without a borrow conflict.
+    // Validation runs once at startup over a handful of plugins, so the
+    // clones are free.
+    let mut seen: Vec<String> = Vec::with_capacity(config.plugins.len());
+    for (i, p) in config.plugins.iter_mut().enumerate() {
         if p.name.is_empty() {
             return Err(ConfigError::Invalid(format!(
                 "[[plugin]] #{} has empty name",
                 i
             )));
         }
-        if seen.contains(&p.name.as_str()) {
+        if seen.contains(&p.name) {
             return Err(ConfigError::Invalid(format!(
                 "duplicate plugin name: {:?}",
                 p.name
             )));
         }
-        seen.push(&p.name);
+        seen.push(p.name.clone());
 
-        if let Some(r) = &p.region {
-            // Soft check: log on implausible coords, don't reject.
-            // Resolves Q2 ("clip, don't reject") at the loader layer.
-            const MAX_PLAUSIBLE: i32 = 8192;
-            let suspicious = r.x.abs() > MAX_PLAUSIBLE
-                || r.y.abs() > MAX_PLAUSIBLE
-                || r.w > MAX_PLAUSIBLE as u32
-                || r.h > MAX_PLAUSIBLE as u32;
-            if suspicious {
-                eprintln!(
-                    "veiland-core: plugin {:?} has implausible region {:?} \
-                    (likely a typo; GL will clip it but you probably didn't mean this)",
-                    p.name, r
-                );
+        match &mut p.region {
+            Some(RegionSpec::Pixels(r)) => {
+                // Soft check: log on implausible coords, don't reject.
+                // Resolves Q2 ("clip, don't reject") at the loader layer.
+                const MAX_PLAUSIBLE: i32 = 8192;
+                let suspicious = r.x.abs() > MAX_PLAUSIBLE
+                    || r.y.abs() > MAX_PLAUSIBLE
+                    || r.w > MAX_PLAUSIBLE as u32
+                    || r.h > MAX_PLAUSIBLE as u32;
+                if suspicious {
+                    eprintln!(
+                        "veiland-core: plugin {:?} has implausible region {:?} \
+                        (likely a typo; GL will clip it but you probably didn't mean this)",
+                        p.name, r
+                    );
+                }
             }
+            // Anchored fractions are clamped, not rejected — same
+            // clip-don't-reject stance as pixel regions. width/height
+            // must be a positive fraction of the surface (0, 1]; margin
+            // is [0, 1]. A value outside the range is a typo we correct
+            // with a warning rather than lock the user out over.
+            Some(RegionSpec::Anchored(a)) => {
+                clamp_anchor_fraction(&p.name, "width", &mut a.width, 1e-4, 1.0);
+                clamp_anchor_fraction(&p.name, "height", &mut a.height, 1e-4, 1.0);
+                clamp_anchor_fraction(&p.name, "margin", &mut a.margin, 0.0, 1.0);
+            }
+            None => {}
         }
 
         if let Some(monitors) = &p.monitors
@@ -541,6 +757,26 @@ fn validate(config: &mut Config) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+/// Clamp one anchored-region fraction into `[lo, hi]`, warning if it
+/// moved. Same clip-don't-reject stance as pixel regions: a bad value
+/// is a typo we correct, never a reason to fail the locker start. NaN
+/// is treated as out-of-range and pulled to `lo` (a NaN fraction would
+/// otherwise produce a NaN pixel size at resolve time).
+fn clamp_anchor_fraction(plugin: &str, field: &str, value: &mut f32, lo: f32, hi: f32) {
+    let clamped = if value.is_nan() {
+        lo
+    } else {
+        value.clamp(lo, hi)
+    };
+    if clamped != *value {
+        eprintln!(
+            "veiland-core: plugin {:?} region {} = {} out of range [{}, {}]; clamped to {}",
+            plugin, field, value, lo, hi, clamped
+        );
+        *value = clamped;
+    }
 }
 
 /// Clamp password-indicator fields to safe ranges, logging a
@@ -706,10 +942,15 @@ mod tests {
             .region
             .as_ref()
             .expect("first plugin has a region");
-        assert_eq!(region.x, 0);
-        assert_eq!(region.y, 0);
-        assert_eq!(region.w, 1920);
-        assert_eq!(region.h, 1080);
+        match region {
+            RegionSpec::Pixels(r) => {
+                assert_eq!(r.x, 0);
+                assert_eq!(r.y, 0);
+                assert_eq!(r.w, 1920);
+                assert_eq!(r.h, 1080);
+            }
+            other => panic!("expected a pixel region, got {:?}", other),
+        }
         assert!(config.plugins[0].config.is_none());
 
         assert_eq!(config.plugins[1].name, "clock");
@@ -1260,5 +1501,335 @@ mod tests {
             }
             other => panic!("expected Invalid, got {:?}", other),
         }
+    }
+
+    // ---- anchored regions (Part B) --------------------------------------
+
+    fn only_region(text: &str) -> Result<RegionSpec, ConfigError> {
+        // Parse a single plugin with a [plugin.region] and return its spec.
+        let full = format!(
+            "[[plugin]]\nname = \"x\"\nbinary = \"/x\"\nz_index = 0\n{}",
+            text
+        );
+        let config = parse(&full)?;
+        Ok(config.plugins[0].region.expect("region should be present"))
+    }
+
+    #[test]
+    fn pixel_region_parses_to_pixels_variant() {
+        let spec = only_region("region = { x = 10, y = 20, w = 300, h = 80 }")
+            .expect("pixel region parses");
+        assert_eq!(
+            spec,
+            RegionSpec::Pixels(Region {
+                x: 10,
+                y: 20,
+                w: 300,
+                h: 80
+            })
+        );
+    }
+
+    #[test]
+    fn anchored_region_parses_with_defaults() {
+        // Only width/height are required; halign/valign default to centre,
+        // margin to 0.
+        let spec =
+            only_region("region = { width = 0.06, height = 0.1 }").expect("anchored region parses");
+        assert_eq!(
+            spec,
+            RegionSpec::Anchored(AnchorSpec {
+                halign: HAlign::Center,
+                valign: VAlign::Center,
+                width: 0.06,
+                height: 0.1,
+                margin: 0.0,
+            })
+        );
+    }
+
+    #[test]
+    fn anchored_region_full_roundtrips() {
+        let spec = only_region(
+            "region = { halign = \"right\", valign = \"top\", \
+             width = 0.06, height = 0.1, margin = 0.02 }",
+        )
+        .expect("full anchored region parses");
+        assert_eq!(
+            spec,
+            RegionSpec::Anchored(AnchorSpec {
+                halign: HAlign::Right,
+                valign: VAlign::Top,
+                width: 0.06,
+                height: 0.1,
+                margin: 0.02,
+            })
+        );
+    }
+
+    #[test]
+    fn mixing_pixel_and_anchor_forms_rejected() {
+        // The two forms are mutually exclusive; a mix is a Parse error
+        // (it fails in the custom Deserialize, before validate runs).
+        let text = r#"
+            [[plugin]]
+            name = "x"
+            binary = "/x"
+            z_index = 0
+            region = { x = 10, y = 20, halign = "right", width = 0.1, height = 0.1 }
+        "#;
+        match parse(text) {
+            Err(ConfigError::Parse(e)) => {
+                assert!(
+                    e.to_string().contains("mixes"),
+                    "error should explain the mix, got {:?}",
+                    e.to_string()
+                );
+            }
+            other => panic!("expected Parse error for mixed region, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn anchored_region_missing_size_rejected() {
+        // halign present but width/height absent → incomplete anchored form.
+        let text = r#"
+            [[plugin]]
+            name = "x"
+            binary = "/x"
+            z_index = 0
+            region = { halign = "right", valign = "top" }
+        "#;
+        match parse(text) {
+            Err(ConfigError::Parse(e)) => {
+                assert!(
+                    e.to_string().contains("width"),
+                    "error should mention the missing width, got {:?}",
+                    e.to_string()
+                );
+            }
+            other => panic!("expected Parse error for sizeless anchor, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn region_unknown_field_rejected() {
+        // deny_unknown_fields catches a typo like `witdh`.
+        let text = r#"
+            [[plugin]]
+            name = "x"
+            binary = "/x"
+            z_index = 0
+            region = { witdh = 0.1, height = 0.1 }
+        "#;
+        assert!(
+            matches!(parse(text), Err(ConfigError::Parse(_))),
+            "a misspelled region field should be a parse error"
+        );
+    }
+
+    #[test]
+    fn bad_halign_keyword_rejected() {
+        let text = r#"
+            [[plugin]]
+            name = "x"
+            binary = "/x"
+            z_index = 0
+            region = { halign = "rihgt", width = 0.1, height = 0.1 }
+        "#;
+        assert!(
+            matches!(parse(text), Err(ConfigError::Parse(_))),
+            "an invalid halign keyword should be a parse error"
+        );
+    }
+
+    #[test]
+    fn anchored_fractions_clamped_not_rejected() {
+        // width > 1 and margin < 0 are typos we clamp, not reject.
+        let spec = only_region("region = { width = 1.5, height = 0.1, margin = -0.2 }")
+            .expect("out-of-range fractions clamp, not reject");
+        match spec {
+            RegionSpec::Anchored(a) => {
+                assert_eq!(a.width, 1.0, "width clamped to 1.0");
+                assert_eq!(a.margin, 0.0, "negative margin clamped to 0");
+            }
+            other => panic!("expected anchored, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_pixels_passes_through() {
+        let spec = RegionSpec::Pixels(Region {
+            x: 10,
+            y: 20,
+            w: 300,
+            h: 80,
+        });
+        // Independent of surface size.
+        assert_eq!(
+            spec.resolve(1920, 1080),
+            Region {
+                x: 10,
+                y: 20,
+                w: 300,
+                h: 80
+            }
+        );
+        assert_eq!(
+            spec.resolve(3840, 2160),
+            Region {
+                x: 10,
+                y: 20,
+                w: 300,
+                h: 80
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_top_right_corner() {
+        // 6% x 10% box, anchored top-right, 2% margin. On 1920x1080:
+        // w = round(0.06*1920) = 115, h = round(0.10*1080) = 108
+        // mx = round(0.02*1920) = 38, my = round(0.02*1080) = 22
+        // x = (1920-115) - 38 = 1767 ; y = 22
+        let a = AnchorSpec {
+            halign: HAlign::Right,
+            valign: VAlign::Top,
+            width: 0.06,
+            height: 0.10,
+            margin: 0.02,
+        };
+        assert_eq!(
+            a.resolve(1920, 1080),
+            Region {
+                x: 1767,
+                y: 22,
+                w: 115,
+                h: 108
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_is_resolution_independent_in_fractions() {
+        // The SAME anchored spec on 1080p and 4K produces a box that is
+        // the same FRACTION of each surface and hugs the same corner —
+        // the whole point of the fractional model. Check the top-right
+        // inset ratio matches on both.
+        let a = AnchorSpec {
+            halign: HAlign::Right,
+            valign: VAlign::Top,
+            width: 0.06,
+            height: 0.10,
+            margin: 0.02,
+        };
+        let r1 = a.resolve(1920, 1080);
+        let r2 = a.resolve(3840, 2160);
+        // 4K is exactly 2x 1080p, so every resolved pixel value doubles —
+        // within 1px, since each axis rounds independently (0.02*1920=38.4
+        // rounds to 38, but 0.02*3840=76.8 rounds to 77, not 76).
+        let near_double = |a: i64, b: i64| (a - b * 2).abs() <= 1;
+        assert!(near_double(r2.w as i64, r1.w as i64), "w should ~double");
+        assert!(near_double(r2.h as i64, r1.h as i64), "h should ~double");
+        // Right-edge inset (surface_w - (x + w)) also ~doubles: the box
+        // hugs the same corner at the same fractional inset on both.
+        let inset1 = 1920 - (r1.x + r1.w as i32);
+        let inset2 = 3840 - (r2.x + r2.w as i32);
+        assert!(
+            near_double(inset2 as i64, inset1 as i64),
+            "right inset should ~double: 1080p={}, 4K={}",
+            inset1,
+            inset2
+        );
+    }
+
+    #[test]
+    fn resolve_top_right_on_1440p() {
+        // 2560x1440 is not a clean multiple of 1080p, so this exercises
+        // the rounding on a real third resolution (the user runs 1080p +
+        // 4K; 1440p is the in-between case). width=0.06, height=0.10,
+        // margin=0.02, top-right:
+        // w = round(0.06*2560) = round(153.6) = 154
+        // h = round(0.10*1440) = 144
+        // mx = round(0.02*2560) = round(51.2) = 51 ; my = round(0.02*1440) = round(28.8) = 29
+        // free_x = 2560-154 = 2406 ; x = 2406-51 = 2355 ; y = 29
+        let a = AnchorSpec {
+            halign: HAlign::Right,
+            valign: VAlign::Top,
+            width: 0.06,
+            height: 0.10,
+            margin: 0.02,
+        };
+        assert_eq!(
+            a.resolve(2560, 1440),
+            Region {
+                x: 2355,
+                y: 29,
+                w: 154,
+                h: 144
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_center_ignores_margin() {
+        // A centred axis centres the box and ignores the margin.
+        let a = AnchorSpec {
+            halign: HAlign::Center,
+            valign: VAlign::Center,
+            width: 0.5,
+            height: 0.5,
+            margin: 0.3, // deliberately large; must be ignored
+        };
+        let r = a.resolve(1000, 1000);
+        // w = h = 500, centred → x = y = (1000-500)/2 = 250.
+        assert_eq!(
+            r,
+            Region {
+                x: 250,
+                y: 250,
+                w: 500,
+                h: 500
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_bottom_left_corner() {
+        let a = AnchorSpec {
+            halign: HAlign::Left,
+            valign: VAlign::Bottom,
+            width: 0.1,
+            height: 0.1,
+            margin: 0.05,
+        };
+        // On 1000x1000: w=h=100, mx=my=50.
+        // x = 50 (left + margin) ; y = (1000-100) - 50 = 850.
+        assert_eq!(
+            a.resolve(1000, 1000),
+            Region {
+                x: 50,
+                y: 850,
+                w: 100,
+                h: 100
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_margin_overflow_clamps_on_screen() {
+        // A margin larger than the free space must not push the box
+        // off-screen (negative x). Box fills the whole width (free_x=0),
+        // any margin clamps x to 0.
+        let a = AnchorSpec {
+            halign: HAlign::Right,
+            valign: VAlign::Top,
+            width: 1.0,
+            height: 0.1,
+            margin: 0.2,
+        };
+        let r = a.resolve(1000, 1000);
+        assert_eq!(r.x, 0, "full-width box clamps x to 0 despite the margin");
+        assert_eq!(r.w, 1000);
     }
 }

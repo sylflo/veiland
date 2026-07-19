@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use nix::unistd::Pid;
 use veiland_protocol::Configure;
 
-use crate::config::Region;
+use crate::config::{Region, RegionSpec};
 
 use super::state::PluginState;
 
@@ -43,10 +43,18 @@ pub struct PluginSlot {
     /// this once at startup; ties keep config-file order (stable
     /// sort). After sort, `plugins[0]` is the bottom layer.
     pub z_index: i32,
-    /// Optional region from `[[plugin]] region = ...`. `None` means
-    /// "fill the whole lock surface." Resolved into clip-space
-    /// vertices at composite time (M6 step 3).
-    pub region: Option<Region>,
+    /// Optional region spec from `[[plugin]] region = ...`, kept
+    /// unresolved (pixel or anchored form). `None` means "fill the whole
+    /// lock surface." The anchored form is resolved against the surface
+    /// size at each Configure; `resolved_region` caches the result.
+    pub region_spec: Option<RegionSpec>,
+    /// The `region_spec` resolved to absolute pixels against the current
+    /// surface size, recomputed at every Configure (spawn + resize).
+    /// `None` mirrors `region_spec = None` (full surface). This is what
+    /// the composite path and `configure_dims` read — they never see the
+    /// unresolved spec, so anchored and pixel regions share one code
+    /// path downstream.
+    pub resolved_region: Option<Region>,
     /// Which output this instance is for. Matches one of the
     /// `LockSurface.name` strings (xdg_output.name). Used in logs
     /// here in step 2; carried to the plugin via `Configure.output_name`
