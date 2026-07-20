@@ -26,3 +26,6 @@ wifi-off.
 bluetooth-on/off/connected.svg share the bluetooth rune. bluetooth-on is the
 plain rune; bluetooth-connected adds two link dots flanking it; bluetooth-off
 dims the rune and adds a slash, matching wifi-off / ethernet-down.
+
+user.svg is the head-and-shoulders outline the avatar widget (../avatar.py)
+draws inside its greeting pill, in the same stroke weight as the status glyphs.

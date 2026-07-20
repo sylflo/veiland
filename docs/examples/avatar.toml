@@ -1,0 +1,54 @@
+# Test config for the avatar + greeting widget (python/examples/avatar.py): a
+# round-cropped user picture over a one-line greeting in the family glass pill,
+# placed on the center column just above the core's password indicator -- the
+# display-manager look. Pure config: no D-Bus, no network; the widget draws
+# once and idles.
+#
+# With an EMPTY [plugin.config] the widget still personalises itself: the name
+# comes from the GECOS full name in /etc/passwd (then $USER), and the picture
+# from ~/.face (the display-manager convention) -- no picture anywhere gives a
+# tinted initials disc, hue hashed stably from the name.
+#
+# This needs the gi stack: pygobject3 + Pango/PangoCairo + librsvg typelibs on
+# GI_TYPELIB_PATH (the flake's dev shell wires them; run from `nix develop`).
+#
+# The binary path is relative, so run veiland from the repo root; the script
+# must be chmod +x or the host spawn fails with "Permission denied (os error
+# 13)". The ANCHORED region form is fractions of the surface, so the column
+# lands identically on 1080p and 4K; the avatar diameter and text sizes all
+# derive from the region height. See docs/config.md.
+[[plugin]]
+name = "veiland-avatar"
+binary = "./python/examples/avatar.py"
+z_index = 10
+region = { halign = "center", valign = "top", width = 0.24, height = 0.14, margin_y = 0.46 }
+
+[plugin.config]
+# Everything below is optional -- this block shows the defaults spelled out.
+#
+# avatar   = "~/Pictures/me.png"   # omit -> ~/.face -> initials disc
+# name     = "Sylflo"             # omit -> GECOS full name -> $USER
+# greeting = "Hi, {name}"          # free-form; "auto" -> Good morning/afternoon/
+#                                  # evening by local time; "" -> avatar only
+# layout   = "stack"               # or "row": avatar inside a wide capsule
+#                                  # beside the text, for corner placement
+#
+# Colors are RGBA floats 0..1 where the fourth value IS the opacity:
+# pill_color = [0.059, 0.071, 0.110, 0.69]   # the greeting capsule (the same
+#                                            # glass as the status pills);
+#                                            # alpha 0 -> bare floating text
+# ring_color = [1.0, 1.0, 1.0, 0.22]         # thin rim on the avatar;
+#                                            # alpha 0 -> no ring
+# text_color = [1.0, 1.0, 1.0, 0.94]
+
+# The corner-chip alternative, aligned with the status cluster's row (same
+# height and top inset as the status pills, hugging the top-LEFT corner):
+#
+# [[plugin]]
+# name = "veiland-avatar"
+# binary = "./python/examples/avatar.py"
+# z_index = 10
+# region = { halign = "left", valign = "top", width = 0.14, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
+#
+# [plugin.config]
+# layout = "row"

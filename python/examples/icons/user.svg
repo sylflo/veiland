@@ -1,0 +1,6 @@
+<!-- user icon (the greeting pill's glyph in avatar.py): a head-and-shoulders outline. CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <circle cx="12" cy="8.5" r="3.5" fill="none" stroke="#ffffff" stroke-width="1.7"/>
+  <path d="M5.5 19.5 C6.5 15.5 9 13.8 12 13.8 C15 13.8 17.5 15.5 18.5 19.5"
+        fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>
+</svg>
