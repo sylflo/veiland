@@ -23,6 +23,7 @@
 # python/ dir to sys.path so it runs straight from the tree. The script must be
 # chmod +x or the host spawn fails with "Permission denied (os error 13)".
 
+import json
 import os
 import sys
 
@@ -131,12 +132,13 @@ def load_icons():
 
 # ------------------------------------------------------------------- drawing
 
-# Translucent dark pill, matching battery_svg.py / wifi.py / ethernet.py so the
-# status chips share one visual language when they sit in a row.
+# Default pill background: the translucent dark navy all the status chips share
+# (battery_svg.py / wifi.py / ethernet.py), so they read as one row. Overridable
+# per config via pill_color (see main).
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
 
-def draw_into(buf, handle):
+def draw_into(buf, handle, pill_color, icon_color):
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
     # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
     # buf.stride. Identical structure to battery_svg.py / wifi.py / ethernet.py.
@@ -153,9 +155,9 @@ def draw_into(buf, handle):
         cy = buf.height / 2
         radius = min(buf.width, buf.height) / 2 - 4
 
-        vs.draw_pill(cr, cx, cy, radius, PILL_BG)
+        vs.draw_pill(cr, cx, cy, radius, pill_color)
         if handle is not None:
-            vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6)
+            vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6, tint=icon_color)
 
         surface.flush()
         surface.finish()
@@ -167,6 +169,15 @@ def draw_into(buf, handle):
 def main():
     conn = vp.Connection.connect("bluetooth", "0.1.0")
     cfg = conn.wait_for_configure()
+
+    # Optional theming from [plugin.config], both RGBA 0..1 floats where the
+    # fourth channel IS the opacity: pill_color = the chip ([0,0,0,0] = none),
+    # icon_color = tints the glyph (default: as authored -- white). Same pair
+    # on every status pill; see battery_svg.py, the template.
+    plugin_cfg = json.loads(os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}")
+    pill_color = vs.parse_color(plugin_cfg, "pill_color", PILL_BG, tag="bluetooth")
+    icon_color = vs.parse_color(plugin_cfg, "icon_color", None, tag="bluetooth")
+
     icons = load_icons()
 
     # Best-effort D-Bus: if the SYSTEM bus is unreachable, run in a permanent
@@ -199,7 +210,7 @@ def main():
     extra = [source.fileno()] if source is not None else []
     for ev in pacer.events(conn, timeout=30.0, extra_fds=extra):
         if ev.kind is vp.Event.RENDER:
-            draw_into(chain.acquire(), current_icon())
+            draw_into(chain.acquire(), current_icon(), pill_color, icon_color)
             chain.send(conn)
             pacer.submitted()
         elif ev.kind is vp.Event.RECONFIGURE:

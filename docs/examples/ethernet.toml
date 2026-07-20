@@ -28,3 +28,11 @@ name = "veiland-ethernet"
 binary = "./python/examples/ethernet.py"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
+
+# Optional theming (RGBA floats 0..1; the fourth value IS the opacity). Only
+# pill_color is set here -- a translucent teal accent -- with icon_color left
+# unset: the authored white glyph already reads fine on a dark-enough tint.
+# (battery_svg.toml stays on the defaults; wifi.toml shows the light-pill case
+# where re-tinting the icon IS required; bluetooth.toml tints both.)
+[plugin.config]
+pill_color = [0.05, 0.36, 0.44, 0.75]

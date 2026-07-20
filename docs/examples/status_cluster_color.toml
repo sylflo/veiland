@@ -1,0 +1,86 @@
+# The LOUD sibling of status_cluster.toml: the same battery + wifi + ethernet +
+# bluetooth chip row, same anchored resolution-independent layout (see that file
+# for the margin_x math), but every chip re-themed via [plugin.config] to show
+# that pill_color / icon_color are PER PLUGIN -- a synthwave spread of pink,
+# violet and red instead of the uniform translucent navy. status_cluster.toml is
+# the daily-driver look (and its advice stands: for a tasteful row, set the SAME
+# pair on every chip); this scene breaks that on purpose, one pair per chip:
+#
+#   battery   hot-pink chip,    pink-white glyph
+#   wifi      violet chip,      lavender glyph
+#   ethernet  red chip,         warm-white glyph
+#   bluetooth LIGHT pink chip,  deep-violet glyph  (the inverted case: a light
+#             pill needs a dark icon_color or the white glyph vanishes)
+#
+# Colors are RGBA floats 0..1; the fourth value IS the opacity (no separate
+# knob). The [password] section at the bottom is re-themed too -- note it is
+# CORE config and takes CSS-style "rgba(...)" strings, not float arrays.
+#
+# Prerequisites are status_cluster.toml's: the SVG stack + jeepney (the flake's
+# dev shell), run from the repo root inside `nix develop`, scripts chmod +x.
+
+# Full-surface synthwave gradient behind the chips (same rationale as
+# status_cluster.toml: an opaque backdrop keeps the host's black clear from
+# flashing through the translucent chips). Kept dark so the neon pills pop.
+[[plugin]]
+name = "gradient"
+binary = "veiland-gradient"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.16, 0.03, 0.28],
+    [0.55, 0.08, 0.35],
+    [0.30, 0.04, 0.10],
+]
+angle_deg = 45.0
+speed = 0.6
+
+# Battery: rightmost chip -- hot pink.
+[[plugin]]
+name = "veiland-battery-svg"
+binary = "./python/examples/battery_svg.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
+[plugin.config]
+pill_color = [0.85, 0.10, 0.45, 0.80]
+icon_color = [1.0, 0.92, 0.96, 1.0]
+
+# Wifi: violet.
+[[plugin]]
+name = "veiland-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.055, margin_y = 0.013 }
+[plugin.config]
+pill_color = [0.45, 0.15, 0.75, 0.80]
+icon_color = [0.95, 0.90, 1.0, 1.0]
+
+# Ethernet: red.
+[[plugin]]
+name = "veiland-ethernet"
+binary = "./python/examples/ethernet.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.097, margin_y = 0.013 }
+[plugin.config]
+pill_color = [0.75, 0.10, 0.12, 0.80]
+icon_color = [1.0, 0.95, 0.90, 1.0]
+
+# Bluetooth: leftmost chip, INVERTED -- a light pink pill with a deep violet
+# glyph, the combination that only works because icon_color exists.
+[[plugin]]
+name = "veiland-bluetooth"
+binary = "./python/examples/bluetooth.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.139, margin_y = 0.013 }
+[plugin.config]
+pill_color = [0.97, 0.80, 0.90, 0.85]
+icon_color = [0.30, 0.05, 0.45, 1.0]
+
+# Password pill re-themed to match. This is CORE config (the password box is
+# painted by veiland-core, never a plugin) and uses CSS-style rgba() strings --
+# 0-255 channels + 0-1 alpha -- unlike the plugins' float arrays above.
+[password]
+y_percent = 92
+inner_color = "rgba(60, 10, 45, 0.50)"
+outer_color = "rgba(255, 120, 190, 0.55)"
+dot_color = "rgba(255, 235, 245, 1.0)"

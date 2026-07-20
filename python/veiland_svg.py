@@ -13,12 +13,16 @@
 #
 # Status icons are static images swapped by state: an if/else picks a file,
 # draw_svg blits it. See python/examples/battery_svg.py for the worked pattern.
+# parse_color turns a [plugin.config] RGBA list into a drawable color, so the
+# pill/tint colors are one config line for the user and one call for the author.
 
 from __future__ import annotations
 
 import math
 import os
+import sys
 
+import cairo
 import gi
 
 gi.require_version("Rsvg", "2.0")
@@ -31,6 +35,7 @@ __all__ = [
     "draw_svg",
     "draw_svg_centered",
     "draw_pill",
+    "parse_color",
 ]
 
 
@@ -72,30 +77,57 @@ def load_svg(path: str) -> Rsvg.Handle:
     return handle
 
 
-def draw_svg(cr, handle, x, y, w, h):
+def draw_svg(cr, handle, x, y, w, h, tint=None):
     """Render handle scaled to fit the (x, y, w, h) box on cairo context cr.
 
     Uses render_document (librsvg >= 2.46): librsvg fits the document's own
     viewBox into the viewport rectangle preserving aspect ratio (the SVG's
     default preserveAspectRatio="xMidYMid meet"), so a square-viewBox icon in a
     square box fills it centered, and a non-square box letterboxes rather than
-    distorts. Saves/restores cr so nothing leaks into later drawing."""
-    cr.save()
+    distorts. Saves/restores cr so nothing leaks into later drawing.
+
+    tint, if given, is an (r, g, b, a) tuple of 0..1 floats: the glyph is
+    painted in that one color through its own coverage, discarding the SVG's
+    baked-in fill/stroke colors. Per-path opacity (a dimmed "off" state)
+    survives, multiplied with the tint's alpha. Meant for monochrome status
+    glyphs; a multi-color SVG flattens to the tint."""
+    if tint is None:
+        cr.save()
+        viewport = Rsvg.Rectangle()
+        viewport.x = x
+        viewport.y = y
+        viewport.width = w
+        viewport.height = h
+        handle.render_document(cr, viewport)
+        cr.restore()
+        return
+    # Recolor: render the glyph to a scratch surface, then paint the tint
+    # through the scratch's alpha channel (cairo mask). One small allocation
+    # per call; status pills redraw on state changes, not per frame.
+    scratch = cairo.ImageSurface(
+        cairo.FORMAT_ARGB32, max(1, math.ceil(w)), max(1, math.ceil(h))
+    )
+    scr = cairo.Context(scratch)
     viewport = Rsvg.Rectangle()
-    viewport.x = x
-    viewport.y = y
+    viewport.x = 0
+    viewport.y = 0
     viewport.width = w
     viewport.height = h
-    handle.render_document(cr, viewport)
+    handle.render_document(scr, viewport)
+    scratch.flush()
+    r, g, b, a = tint
+    cr.save()
+    cr.set_source_rgba(r, g, b, a)
+    cr.mask_surface(scratch, x, y)
     cr.restore()
 
 
-def draw_svg_centered(cr, handle, cx, cy, size):
+def draw_svg_centered(cr, handle, cx, cy, size, tint=None):
     """Draw handle as a size x size square centered on (cx, cy). The common
     case for a status glyph: you have a center and a target size, not a
-    top-left box. Thin wrapper over draw_svg."""
+    top-left box. Thin wrapper over draw_svg; tint passes through."""
     half = size / 2.0
-    draw_svg(cr, handle, cx - half, cy - half, size, size)
+    draw_svg(cr, handle, cx - half, cy - half, size, size, tint=tint)
 
 
 def draw_pill(cr, cx, cy, radius, rgba):
@@ -110,3 +142,25 @@ def draw_pill(cr, cx, cy, radius, rgba):
     cr.set_source_rgba(r, g, b, a)
     cr.fill()
     cr.restore()
+
+
+def parse_color(cfg, key, default, tag="veiland-svg"):
+    """Read an RGBA color from a plugin-config dict: [r, g, b, a] numbers in
+    0..1 (the same form the Rust plugins' color fields take -- alpha IS the
+    opacity, there is no separate knob), clamped per channel. Key absent ->
+    default, returned untouched (so a None default can mean "feature off").
+    Malformed -> default plus one stderr line tagged with the plugin name: a
+    bad config line mis-themes the widget, it never crashes it."""
+    raw = cfg.get(key)
+    if raw is None:
+        return default
+    try:
+        r, g, b, a = (min(1.0, max(0.0, float(v))) for v in raw)
+    except (TypeError, ValueError):
+        print(
+            f"{tag}: {key}: expected [r, g, b, a] numbers in 0..1, "
+            f"got {raw!r}; using default",
+            file=sys.stderr,
+        )
+        return default
+    return (r, g, b, a)

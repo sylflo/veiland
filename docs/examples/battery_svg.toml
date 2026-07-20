@@ -34,3 +34,14 @@ name = "veiland-battery-svg"
 binary = "./python/examples/battery_svg.py"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
+
+# Optional theming, both RGBA floats 0..1 where the fourth value IS the opacity
+# (no separate knob). pill_color is the chip -- [0, 0, 0, 0] draws no chip at
+# all, a bare floating glyph. icon_color tints the white glyph (unset = white as
+# authored; pick a dark tint if you pick a light pill). THIS scene deliberately
+# stays on the defaults, as the reference look -- the siblings theme themselves
+# (wifi.toml light chip + dark glyph, ethernet.toml pill only, bluetooth.toml
+# both). Uncommenting these values reproduces the default look:
+# [plugin.config]
+# pill_color = [0.059, 0.071, 0.110, 0.686]
+# icon_color = [1.0, 1.0, 1.0, 1.0]

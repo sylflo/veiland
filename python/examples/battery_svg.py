@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # pycairo<->GObject foreign bridge in-process, which is what lets librsvg render
 # onto a cairo context inside veiland_svg.draw_svg.
 import glob  # noqa: E402
+import json  # noqa: E402
 
 import cairo  # noqa: E402
 
@@ -107,12 +108,13 @@ def load_icons():
 # ------------------------------------------------------------------- drawing
 
 
-# Translucent dark pill background, matching battery_cairo.py's card colour so
-# the examples share a visual language. (r, g, b, a) floats in 0..1 for cairo.
+# Default pill background: the translucent dark navy all the status chips share,
+# matching battery_cairo.py's card colour. (r, g, b, a) floats in 0..1 for cairo;
+# overridable per config via pill_color (see main).
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
 
-def draw_into(buf, handle):
+def draw_into(buf, handle, pill_color, icon_color):
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
     # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
     # buf.stride -- map() hands back the one it wants.
@@ -138,10 +140,11 @@ def draw_into(buf, handle):
 
         # Two calls do the whole widget: the translucent chip, then the glyph
         # centered on it at 80% of the pill so it breathes. draw_svg_centered is
-        # skipped when the icon failed to load, leaving just the pill.
-        vs.draw_pill(cr, cx, cy, radius, PILL_BG)
+        # skipped when the icon failed to load, leaving just the pill. A None
+        # icon_color means "as authored" (the shipped icons are white).
+        vs.draw_pill(cr, cx, cy, radius, pill_color)
         if handle is not None:
-            vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6)
+            vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6, tint=icon_color)
 
         surface.flush()  # commit cairo's writes before we unmap
         surface.finish()
@@ -153,6 +156,16 @@ def draw_into(buf, handle):
 def main():
     conn = vp.Connection.connect("battery-svg", "0.1.0")
     cfg = conn.wait_for_configure()
+
+    # Optional theming from [plugin.config], both RGBA 0..1 floats where the
+    # fourth channel IS the opacity (no separate knob):
+    #   pill_color = the chip ([0, 0, 0, 0] draws no chip at all)
+    #   icon_color = tints the glyph (default: as authored -- white; pick a
+    #                dark tint if you pick a light pill_color)
+    plugin_cfg = json.loads(os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}")
+    pill_color = vs.parse_color(plugin_cfg, "pill_color", PILL_BG, tag="battery-svg")
+    icon_color = vs.parse_color(plugin_cfg, "icon_color", None, tag="battery-svg")
+
     icons = load_icons()
     dev = vp.GbmDevice()
     # BufferChain, not a single LinearBuffer: this widget REDRAWS (the icon
@@ -166,7 +179,8 @@ def main():
     for ev in pacer.events(conn, timeout=30.0):
         if ev.kind is vp.Event.RENDER:
             pct, charging = read_battery_state()
-            draw_into(chain.acquire(), icons.get(pick_icon(pct, charging)))
+            handle = icons.get(pick_icon(pct, charging))
+            draw_into(chain.acquire(), handle, pill_color, icon_color)
             chain.send(conn)
             pacer.submitted()
         elif ev.kind is vp.Event.RECONFIGURE:

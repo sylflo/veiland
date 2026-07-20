@@ -33,9 +33,19 @@ files = ["veiland_plugin.py", "veiland_dbus.py", "tests"]
 # tests/ has no __init__.py, so mypy sees the files as top-level modules
 # (test_codec, conftest), not tests.*. Match those names directly.
 [[tool.mypy.overrides]]
-module = ["test_codec", "test_buffer_chain", "test_dbus", "conftest"]
+module = ["test_codec", "test_buffer_chain", "test_dbus", "test_svg", "conftest"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+
+# veiland_svg.py is reached from tests only through test_svg.py's gi/cairo
+# stubs; the module itself needs the librsvg stack, which mypy's env lacks
+# (same reason the examples are not in `files`). Treat it as Any rather than
+# pulling gi into the strict run -- its pure-logic surface (parse_color) is
+# still exercised by test_svg.py at runtime.
+[[tool.mypy.overrides]]
+module = "veiland_svg"
+follow_imports = "skip"
+ignore_missing_imports = true
 
 # Don't analyze pytest's own source. Depending on the environment mypy may
 # find the installed package (not just a missing stub), and checking its

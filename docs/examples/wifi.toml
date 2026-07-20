@@ -1,6 +1,7 @@
-# Test config for the wifi example (python/examples/wifi.py): a monochrome-white
+# Test config for the wifi example (python/examples/wifi.py): a monochrome
 # signal-strength glyph in a small circular translucent pill, inset from the
-# top-right corner (matching the reference lockscreen's status chip). An if/else
+# top-right corner (matching the reference lockscreen's status chip). Themed
+# light here via [plugin.config] at the bottom -- frosted chip, dark glyph. An if/else
 # buckets the reading to a wifi-0/25/50/75/100.svg glyph -- or wifi-off.svg when
 # the radio is off or absent -- and draw_svg blits it onto the same cairo context
 # that writes into buf.map(). It is the battery_svg.py template with the reading
@@ -28,3 +29,14 @@ name = "veiland-wifi"
 binary = "./python/examples/wifi.py"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
+
+# Optional theming, both RGBA floats 0..1 where the fourth value IS the opacity
+# (no separate knob). pill_color is the chip -- [0, 0, 0, 0] draws no chip at
+# all, a bare floating glyph. icon_color tints the white glyph (unset = white
+# as authored). This scene goes LIGHT: a frosted near-white chip, which is
+# exactly the case where the glyph must be re-tinted dark or it vanishes.
+# (battery_svg.toml stays on the defaults for the reference look; ethernet.toml
+# sets pill_color only; bluetooth.toml tints both.)
+[plugin.config]
+pill_color = [0.93, 0.94, 0.96, 0.80]
+icon_color = [0.12, 0.13, 0.18, 1.0]

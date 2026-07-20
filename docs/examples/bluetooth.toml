@@ -27,3 +27,11 @@ name = "veiland-bluetooth"
 binary = "./python/examples/bluetooth.py"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
+
+# Optional theming (RGBA floats 0..1; the fourth value IS the opacity). Both
+# knobs set here: a deep bluetooth-blue chip with an ice-blue glyph tint.
+# (battery_svg.toml stays on the defaults; wifi.toml shows the light-pill case;
+# ethernet.toml sets pill_color only.)
+[plugin.config]
+pill_color = [0.08, 0.16, 0.38, 0.78]
+icon_color = [0.62, 0.78, 1.0, 1.0]

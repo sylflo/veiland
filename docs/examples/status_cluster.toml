@@ -50,6 +50,15 @@ speed = 0.6
 # --- the chip row (anchored, resolution-independent, right to left) -----------
 # All chips share halign=right, valign=top, width/height, and margin_y (so they
 # top-align); only margin_x steps to space them horizontally.
+#
+# Every chip also takes optional [plugin.config] theming: pill_color (the chip,
+# RGBA 0..1 floats where the fourth value is the opacity; [0, 0, 0, 0] = no chip)
+# and icon_color (tints the white glyph; unset = white as authored). This row
+# leaves all four on the defaults so it reads as one visual language; if you
+# theme it, set the SAME pair on every chip. status_cluster_color.toml is this
+# same row deliberately re-themed LOUD, one color pair per chip; the standalone
+# scenes show single variants (wifi.toml light chip + dark glyph, ethernet.toml
+# pill only, bluetooth.toml both, battery_svg.toml the defaults, commented).
 
 # Battery: rightmost chip, smallest margin_x (hugs the corner).
 [[plugin]]
