@@ -243,6 +243,7 @@ def draw_avatar_disc(
     cy: float,
     d: float,
     ring: vs.RGBA,
+    font: vt.FontSpec,
 ) -> None:
     # The picture cover-cropped into a circle, or the initials disc; then the
     # ring stroked on the rim. Everything derives from the diameter, so the one
@@ -270,7 +271,7 @@ def draw_avatar_disc(
         cr.fill()
         cr.restore()
         letter = name[:1].upper() or "?"
-        layout = _line_layout(cr, letter, d, d * 0.42, Pango.Weight.MEDIUM)
+        layout = _line_layout(cr, letter, d, d * 0.42, Pango.Weight.MEDIUM, font)
         _, logical = layout.get_pixel_extents()
         cr.move_to(cx - logical.width / 2, cy - logical.height / 2)
         cr.set_source_rgba(1, 1, 1, 0.95)
@@ -299,6 +300,7 @@ def draw_greeting_pill(
     max_w: float,
     pill: vs.RGBA,
     text_color: vs.RGBA,
+    font: vt.FontSpec,
 ) -> None:
     # The capsule centered on (cx, cy): measure the shaped line first, then
     # trace the pill around it. pill alpha 0 drops both the capsule and the
@@ -310,7 +312,7 @@ def draw_greeting_pill(
     gap = pill_h * 0.26
 
     inner_max = max_w - 2 * pad - (glyph_size + gap if with_pill else 0)
-    layout = _line_layout(cr, text, max(inner_max, 1.0), px, Pango.Weight.NORMAL)
+    layout = _line_layout(cr, text, max(inner_max, 1.0), px, Pango.Weight.NORMAL, font)
     _, logical = layout.get_pixel_extents()
     text_w = min(logical.width, inner_max)
 
@@ -347,6 +349,7 @@ class Style:
     avatar: cairo.ImageSurface | None
     name: str
     glyph: Any  # Rsvg.Handle | None -- opaque, round-trips into veiland_svg
+    font: vt.FontSpec  # family/italic for the greeting + initials (font_from_config)
     pill: vs.RGBA
     ring: vs.RGBA
     text: vs.RGBA
@@ -377,7 +380,7 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
             pad_r = pill_h * 0.50
             inner_max = w - (inset + d + gap + pad_r)
             layout = _line_layout(
-                cr, greeting, max(inner_max, 1.0), px, Pango.Weight.NORMAL
+                cr, greeting, max(inner_max, 1.0), px, Pango.Weight.NORMAL, style.font
             )
             _, logical = layout.get_pixel_extents()
             text_w = min(logical.width, inner_max) if greeting else 0.0
@@ -391,7 +394,14 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
                 cr.fill()
                 cr.restore()
             draw_avatar_disc(
-                cr, style.avatar, style.name, x0 + inset + d / 2, cy, d, style.ring
+                cr,
+                style.avatar,
+                style.name,
+                x0 + inset + d / 2,
+                cy,
+                d,
+                style.ring,
+                style.font,
             )
             if greeting:
                 cr.move_to(x0 + inset + d + gap, cy - logical.height / 2)
@@ -406,7 +416,7 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
             y0 = (h - used) / 2
             cx = w / 2
             draw_avatar_disc(
-                cr, style.avatar, style.name, cx, y0 + d / 2, d, style.ring
+                cr, style.avatar, style.name, cx, y0 + d / 2, d, style.ring, style.font
             )
             if greeting:
                 draw_greeting_pill(
@@ -419,6 +429,7 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
                     w - 4,
                     style.pill,
                     style.text,
+                    style.font,
                 )
 
         surface.flush()  # commit cairo's writes before we unmap
@@ -447,6 +458,10 @@ def main() -> None:
         avatar=load_avatar(plugin_cfg),
         name=name,
         glyph=glyph,
+        # font_family + italic theme the greeting/initials type; font_size stays
+        # geometry-derived here (a separate text_size knob is deferred), so only
+        # the family/italic fields of this FontSpec are consulted.
+        font=vt.font_from_config(plugin_cfg, tag="avatar"),
         pill=vs.parse_color(plugin_cfg, "pill_color", GLASS, tag="avatar"),
         ring=vs.parse_color(plugin_cfg, "ring_color", RING, tag="avatar"),
         text=vs.parse_color(plugin_cfg, "text_color", TEXT, tag="avatar"),

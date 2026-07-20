@@ -152,16 +152,28 @@ def line_layout(
     max_w: float,
     px: float,
     weight: Pango.Weight,
+    spec: FontSpec | None = None,
 ) -> Pango.Layout:
     """One shaped, end-ellipsized single line, sized in PIXELS (px). max_w is the
     pixel width past which it ellipsizes with an ellipsis. Shared by the three
     draw helpers below and usable directly when a caller needs the layout's
-    measured extents before placing it (the widgets do, to size a pill)."""
+    measured extents before placing it (the widgets do, to size a pill).
+
+    spec (from font_from_config) supplies the FAMILY and ITALIC flag -- the
+    styling that is uniform across a widget. Weight and size stay per-call
+    arguments, NOT taken from spec: weight is a per-LINE role (a title is
+    semibold, its artist normal), and size (px) is derived from the geometry of
+    the box each line sits in. So spec themes the family; the caller keeps
+    deciding each line's weight and size. spec=None keeps the old default
+    (fontconfig "sans-serif", upright) so callers that don't thread a font are
+    unchanged."""
     layout = PangoCairo.create_layout(cr)
     font = Pango.FontDescription()
-    font.set_family("sans-serif")
+    font.set_family(spec.family if spec is not None else "sans-serif")
     font.set_absolute_size(px * Pango.SCALE)
     font.set_weight(weight)
+    if spec is not None and spec.italic:
+        font.set_style(Pango.Style.ITALIC)
     layout.set_font_description(font)
     layout.set_width(int(max_w * Pango.SCALE))
     layout.set_ellipsize(Pango.EllipsizeMode.END)
@@ -178,10 +190,12 @@ def draw_ellipsized(
     px: float,
     rgb: RGB,
     weight: Pango.Weight = Pango.Weight.NORMAL,
+    spec: FontSpec | None = None,
 ) -> None:
     # Draw a shaped, end-ellipsized line with its TOP-LEFT at (x, y). The whole
-    # reason a text widget uses PangoCairo and not cairo's toy text.
-    layout = line_layout(cr, text, max_w, px, weight)
+    # reason a text widget uses PangoCairo and not cairo's toy text. spec themes
+    # the family/italic (see line_layout); weight/size stay per-call.
+    layout = line_layout(cr, text, max_w, px, weight, spec)
     cr.move_to(x, y)
     cr.set_source_rgb(*rgb)
     PangoCairo.show_layout(cr, layout)
@@ -196,11 +210,12 @@ def draw_ellipsized_centered(
     px: float,
     rgb: RGB,
     weight: Pango.Weight = Pango.Weight.NORMAL,
+    spec: FontSpec | None = None,
 ) -> None:
     # Same, but vertically CENTERED on cy: the measured line height (which
     # differs by script -- CJK is taller than Latin) grows symmetrically around
     # cy instead of downward, so a tall CJK title can't shove what's below it.
-    layout = line_layout(cr, text, max_w, px, weight)
+    layout = line_layout(cr, text, max_w, px, weight, spec)
     _, logical = layout.get_pixel_extents()
     cr.move_to(x, cy - logical.height / 2)
     cr.set_source_rgb(*rgb)
@@ -215,11 +230,12 @@ def draw_ellipsized_right(
     px: float,
     rgb: RGB,
     weight: Pango.Weight = Pango.Weight.NORMAL,
+    spec: FontSpec | None = None,
 ) -> None:
     # Same shaped line, but its RIGHT edge sits at right_x (measure, then place).
     # Used for the right-aligned total time in both layouts. 1e6 max width so
     # the line never ellipsizes -- callers use this for short strings.
-    layout = line_layout(cr, text, 1e6, px, weight)
+    layout = line_layout(cr, text, 1e6, px, weight, spec)
     _, logical = layout.get_pixel_extents()
     cr.move_to(right_x - logical.width, y)
     cr.set_source_rgb(*rgb)

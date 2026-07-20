@@ -450,6 +450,7 @@ def draw_pause_badge(
     y: float,
     size: float,
     accent: Accent,
+    font: vt.FontSpec,
 ) -> None:
     # The star layout's paused indicator: a small "Paused" pill over the art
     # corner (the compact layout uses a hollow dot instead -- the star card is
@@ -458,7 +459,7 @@ def draw_pause_badge(
     bar_h = size * 0.5
     gap = size * 0.12
     text = "PAUSED"
-    lay = _line_layout(cr, text, 1e6, size * 0.62, Pango.Weight.SEMIBOLD)
+    lay = _line_layout(cr, text, 1e6, size * 0.62, Pango.Weight.SEMIBOLD, font)
     _, ext = lay.get_pixel_extents()
     pill_h = size * 1.1
     pill_w = bar_w * 2 + gap + size * 0.4 + ext.width + size * 0.5
@@ -482,7 +483,11 @@ def draw_pause_badge(
 
 
 def draw_star(
-    cr: cairo.Context[cairo.ImageSurface], w: float, h: float, track: Track | None
+    cr: cairo.Context[cairo.ImageSurface],
+    w: float,
+    h: float,
+    track: Track | None,
+    font: vt.FontSpec,
 ) -> None:
     # The card as centerpiece: a large PORTRAIT card (big art on top, meta
     # stacked below) centered on a TRANSPARENT full surface -- whatever plugin
@@ -533,7 +538,7 @@ def draw_star(
     # -- paused badge over the art's top-right corner --
     if track and not playing:
         bsize = art * 0.11
-        draw_pause_badge(cr, ax + pad * 0.5, ay + pad * 0.5, bsize, accent)
+        draw_pause_badge(cr, ax + pad * 0.5, ay + pad * 0.5, bsize, accent, font)
 
     # -- text stack under the art --
     tx = cx + pad
@@ -559,6 +564,7 @@ def draw_star(
         card_w * 0.058,
         PRIMARY,
         weight=Pango.Weight.SEMIBOLD,
+        spec=font,
     )
     vt.draw_ellipsized_centered(
         cr,
@@ -568,6 +574,7 @@ def draw_star(
         tw,
         card_w * 0.046,
         SECONDARY,
+        spec=font,
     )
 
     # -- progress: filled track + times, only when there is a track --
@@ -586,10 +593,17 @@ def draw_star(
         times_px = card_w * 0.036
         ty = bar_y + bar_h + card_w * 0.03
         vt.draw_ellipsized(
-            cr, fmt_time(track["elapsed"]), tx, ty, tw * 0.5, times_px, SECONDARY
+            cr,
+            fmt_time(track["elapsed"]),
+            tx,
+            ty,
+            tw * 0.5,
+            times_px,
+            SECONDARY,
+            spec=font,
         )
         vt.draw_ellipsized_right(
-            cr, fmt_time(track["total"]), tx + tw, ty, times_px, SECONDARY
+            cr, fmt_time(track["total"]), tx + tw, ty, times_px, SECONDARY, spec=font
         )
 
 
@@ -597,7 +611,11 @@ def draw_star(
 
 
 def draw_compact(
-    cr: cairo.Context[cairo.ImageSurface], w: float, h: float, track: Track | None
+    cr: cairo.Context[cairo.ImageSurface],
+    w: float,
+    h: float,
+    track: Track | None,
+    font: vt.FontSpec,
 ) -> None:
     # The bottom-left chip: square art left, title/artist stacked right, a filled
     # progress track spanning the bottom. Sizes are derived from the card height
@@ -668,6 +686,7 @@ def draw_compact(
         h * 0.18,
         PRIMARY,
         weight=Pango.Weight.SEMIBOLD,
+        spec=font,
     )
     vt.draw_ellipsized_centered(
         cr,
@@ -677,6 +696,7 @@ def draw_compact(
         text_w,
         h * 0.145,
         SECONDARY,
+        spec=font,
     )
 
     # -- progress: a filled track + elapsed / total times, only when playing --
@@ -699,18 +719,36 @@ def draw_compact(
         times_px = h * 0.11
         ty = h * 0.86 - times_px / 2
         vt.draw_ellipsized(
-            cr, fmt_time(track["elapsed"]), bar_x, ty, bar_w * 0.5, times_px, SECONDARY
+            cr,
+            fmt_time(track["elapsed"]),
+            bar_x,
+            ty,
+            bar_w * 0.5,
+            times_px,
+            SECONDARY,
+            spec=font,
         )
         # right-aligned total
         vt.draw_ellipsized_right(
-            cr, fmt_time(track["total"]), bar_x + bar_w, ty, times_px, SECONDARY
+            cr,
+            fmt_time(track["total"]),
+            bar_x + bar_w,
+            ty,
+            times_px,
+            SECONDARY,
+            spec=font,
         )
 
 
 # ------------------------------------------------------------------ draw entry
 
 
-def draw_into(buf: vp.LinearBuffer, layout_name: str, track: Track | None) -> None:
+def draw_into(
+    buf: vp.LinearBuffer,
+    layout_name: str,
+    track: Track | None,
+    font: vt.FontSpec,
+) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw straight
     # into GPU-visible memory. cairo needs the MAP stride, not buf.stride.
     with buf.map() as (mem, map_stride):
@@ -724,9 +762,9 @@ def draw_into(buf: vp.LinearBuffer, layout_name: str, track: Track | None) -> No
         # Two layouts, picked from config. Unknown names fall back to compact
         # rather than drawing nothing.
         if layout_name == "star":
-            draw_star(cr, buf.width, buf.height, track)
+            draw_star(cr, buf.width, buf.height, track, font)
         else:
-            draw_compact(cr, buf.width, buf.height, track)
+            draw_compact(cr, buf.width, buf.height, track, font)
         surface.flush()
         surface.finish()
 
@@ -775,6 +813,10 @@ def main() -> None:
     )
     layout_name = str(plugin_cfg.get("layout", "compact"))
     fetch_remote = bool(plugin_cfg.get("fetch_remote_art", False))
+    # font_family + italic theme the card's type; font_size stays geometry-derived
+    # (every line's size is a fraction of the card), so only the family/italic
+    # fields of this FontSpec are consulted -- same as avatar.py.
+    font = vt.font_from_config(plugin_cfg, tag="now-playing")
 
     mpris = MprisClient()
     # art_url -> (cairo surface | None, accent); one entry at a time
@@ -821,7 +863,7 @@ def main() -> None:
             # RECONFIGURE-forced redraw).
             track = current_track() if pending is _Unread.UNREAD else pending
             pending = _Unread.UNREAD
-            draw_into(chain.acquire(), layout_name, track)
+            draw_into(chain.acquire(), layout_name, track, font)
             last_sig = display_signature(track)
             chain.send(conn)
             pacer.submitted()
