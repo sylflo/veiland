@@ -21,6 +21,8 @@ from __future__ import annotations
 import math
 import os
 import sys
+from collections.abc import Mapping
+from typing import Any, overload
 
 import cairo
 import gi
@@ -31,12 +33,18 @@ from gi.repository import GLib, Rsvg  # noqa: E402  (after gi.require_version)
 __all__ = [
     "SvgError",
     "SvgLoadError",
+    "RGBA",
     "load_svg",
     "draw_svg",
     "draw_svg_centered",
     "draw_pill",
     "parse_color",
 ]
+
+# An (r, g, b, a) color, 0..1 floats, alpha IS the opacity -- the one color
+# shape this companion traffics in (draw_pill's fill, draw_svg's tint,
+# parse_color's result). tuple[...] not | so the alias evaluates on 3.9.
+RGBA = tuple[float, float, float, float]
 
 
 class SvgError(Exception):
@@ -77,7 +85,15 @@ def load_svg(path: str) -> Rsvg.Handle:
     return handle
 
 
-def draw_svg(cr, handle, x, y, w, h, tint=None):
+def draw_svg(
+    cr: cairo.Context[Any],
+    handle: Rsvg.Handle,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    tint: RGBA | None = None,
+) -> None:
     """Render handle scaled to fit the (x, y, w, h) box on cairo context cr.
 
     Uses render_document (librsvg >= 2.46): librsvg fits the document's own
@@ -122,7 +138,14 @@ def draw_svg(cr, handle, x, y, w, h, tint=None):
     cr.restore()
 
 
-def draw_svg_centered(cr, handle, cx, cy, size, tint=None):
+def draw_svg_centered(
+    cr: cairo.Context[Any],
+    handle: Rsvg.Handle,
+    cx: float,
+    cy: float,
+    size: float,
+    tint: RGBA | None = None,
+) -> None:
     """Draw handle as a size x size square centered on (cx, cy). The common
     case for a status glyph: you have a center and a target size, not a
     top-left box. Thin wrapper over draw_svg; tint passes through."""
@@ -130,7 +153,9 @@ def draw_svg_centered(cr, handle, cx, cy, size, tint=None):
     draw_svg(cr, handle, cx - half, cy - half, size, size, tint=tint)
 
 
-def draw_pill(cr, cx, cy, radius, rgba):
+def draw_pill(
+    cr: cairo.Context[Any], cx: float, cy: float, radius: float, rgba: RGBA
+) -> None:
     """Fill a circular pill of radius centered on (cx, cy) with an (r, g, b, a)
     tuple of 0..1 floats -- the translucent chip a status glyph sits on. Pure
     cairo (no SVG), kept here so a status widget composes pill + icon from two
@@ -144,7 +169,27 @@ def draw_pill(cr, cx, cy, radius, rgba):
     cr.restore()
 
 
-def parse_color(cfg, key, default, tag="veiland-svg"):
+# Two overloads make the "default passes through" contract visible to mypy: a
+# non-None default means the caller always gets a color back; a None default
+# means None can come back too ("feature off").
+@overload
+def parse_color(
+    cfg: Mapping[str, Any], key: str, default: RGBA, tag: str = ...
+) -> RGBA: ...
+
+
+@overload
+def parse_color(
+    cfg: Mapping[str, Any], key: str, default: None, tag: str = ...
+) -> RGBA | None: ...
+
+
+def parse_color(
+    cfg: Mapping[str, Any],
+    key: str,
+    default: RGBA | None,
+    tag: str = "veiland-svg",
+) -> RGBA | None:
     """Read an RGBA color from a plugin-config dict: [r, g, b, a] numbers in
     0..1 (the same form the Rust plugins' color fields take -- alpha IS the
     opacity, there is no separate knob), clamped per channel. Key absent ->

@@ -12,8 +12,11 @@
 # pip). This example instead adds the repo's python/ dir to sys.path so it runs
 # straight from the tree.
 
+from __future__ import annotations
+
 import os
 import sys
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -21,10 +24,15 @@ import glob  # noqa: E402  (after the sys.path shim, so the SDK import resolves)
 
 import veiland_plugin as vp  # noqa: E402
 
+if TYPE_CHECKING:
+    # For annotations only: at runtime PIL stays lazily imported inside the
+    # draw functions (the SDK's own upload() treats Pillow the same way).
+    from PIL import Image
+
 # ------------------------------------------------------------- battery reading
 
 
-def read_battery():
+def read_battery() -> int | None:
     for cap in glob.glob("/sys/class/power_supply/*/capacity"):
         try:
             with open(cap) as f:
@@ -42,7 +50,7 @@ def read_battery():
 # instead of the hand-parsed dict.
 
 
-def draw_widget(cfg, pct):
+def draw_widget(cfg: vp.Configure, pct: int | None) -> Image.Image:
     from PIL import Image
 
     s = cfg.scale
@@ -52,7 +60,7 @@ def draw_widget(cfg, pct):
     return canvas
 
 
-def draw_card(w, h, s, pct):
+def draw_card(w: int, h: int, s: float, pct: int | None) -> Image.Image:
     from PIL import Image, ImageDraw, ImageFont
 
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -122,7 +130,7 @@ def draw_card(w, h, s, pct):
 # ----------------------------------------------------------------- main
 
 
-def main():
+def main() -> None:
     conn = vp.Connection.connect("battery", "0.1.0")  # env fd, handshake, Hello
     cfg = conn.wait_for_configure()
     dev = vp.GbmDevice()
@@ -141,7 +149,9 @@ def main():
             chain.acquire().upload(draw_widget(cfg, read_battery()))
             chain.send(conn)
             pacer.submitted()
-        elif ev.kind is vp.Event.RECONFIGURE:
+        elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:
+            # (`is not None` narrows for mypy; the SDK always sets .configure
+            # on a RECONFIGURE event.)
             cfg = ev.configure
             chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()

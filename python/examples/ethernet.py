@@ -26,9 +26,12 @@
 # python/ dir to sys.path so it runs straight from the tree. The script must be
 # chmod +x or the host spawn fails with "Permission denied (os error 13)".
 
+from __future__ import annotations
+
 import json
 import os
 import sys
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -72,7 +75,7 @@ class EthernetSource:
     # Wakes the plugin on any NetworkManager PropertiesChanged (a cable
     # plug/unplug flips the device State), so a link change repaints
     # immediately; the plugin's TIMEOUT tick is the slow fallback.
-    def __init__(self, bus):
+    def __init__(self, bus: vd.DBusConnection) -> None:
         self.bus = bus
         # Match the whole NetworkManager subtree, like wifi.py: the wired
         # device's State lives under /org/freedesktop/NetworkManager and we do
@@ -83,7 +86,7 @@ class EthernetSource:
             path_namespace=NM_PATH,
         )
 
-    def _wired_device(self):
+    def _wired_device(self) -> str | None:
         # The first ETHERNET device's object path, or None. NetworkManager lists
         # all devices under .Devices; we filter by DeviceType.
         paths = self.bus.get_prop(NM_PATH, NM_IFACE, "Devices", bus_name=NM)
@@ -95,7 +98,7 @@ class EthernetSource:
                 return str(path)
         return None
 
-    def read(self):
+    def read(self) -> bool:
         # Return True if a wired link is up (device present AND activated), else
         # False. No device, not activated, or any D-Bus failure all collapse to
         # False == "down" -- the single honest bucket for "no working cable".
@@ -105,29 +108,30 @@ class EthernetSource:
         state = self.bus.get_prop(dev, DEV_IFACE, "State", bus_name=NM)
         return state == NM_STATE_ACTIVATED
 
-    def fileno(self):
+    def fileno(self) -> int:
         return self.bus.fileno()
 
-    def drain_signals(self):
+    def drain_signals(self) -> None:
         self.bus.drain_signals()
 
-    def close(self):
+    def close(self) -> None:
         self.bus.close()
 
 
-def pick_icon(up):
+def pick_icon(up: bool) -> str:
     # The whole "logic" of the widget: link up -> the connected glyph, else the
     # unplugged glyph. Two states, no bucketing (unlike wifi/battery): a wired
     # link either carries or it does not.
     return "ethernet-up.svg" if up else "ethernet-down.svg"
 
 
-def load_icons():
+def load_icons() -> dict[str, Any]:
     # Parse every icon once at startup. A missing/corrupt file logs one line and
     # stores None; draw_into then draws just the pill for that state -- a bad
     # asset must never crash the locker or spew a traceback. (Same as
     # battery_svg.py / wifi.py; ethernet-*.svg ship in python/examples/icons/.)
-    icons = {}
+    # Values are Rsvg.Handle-or-None; gi ships no types, so the handle is Any.
+    icons: dict[str, Any] = {}
     for name in ICON_FILES:
         try:
             icons[name] = vs.load_svg(os.path.join(ICON_DIR, name))
@@ -145,7 +149,12 @@ def load_icons():
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
 
-def draw_into(buf, handle, pill_color, icon_color):
+def draw_into(
+    buf: vp.LinearBuffer,
+    handle: Any,
+    pill_color: vs.RGBA,
+    icon_color: vs.RGBA | None,
+) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
     # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
     # buf.stride. Identical structure to battery_svg.py / wifi.py.
@@ -173,7 +182,7 @@ def draw_into(buf, handle, pill_color, icon_color):
 # ----------------------------------------------------------------- main
 
 
-def main():
+def main() -> None:
     conn = vp.Connection.connect("ethernet", "0.1.0")
     cfg = conn.wait_for_configure()
 
@@ -181,7 +190,9 @@ def main():
     # fourth channel IS the opacity: pill_color = the chip ([0,0,0,0] = none),
     # icon_color = tints the glyph (default: as authored -- white). Same pair
     # on every status pill; see battery_svg.py, the template.
-    plugin_cfg = json.loads(os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}")
+    plugin_cfg: dict[str, Any] = json.loads(
+        os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}"
+    )
     pill_color = vs.parse_color(plugin_cfg, "pill_color", PILL_BG, tag="ethernet")
     icon_color = vs.parse_color(plugin_cfg, "icon_color", None, tag="ethernet")
 
@@ -190,7 +201,7 @@ def main():
     # Best-effort D-Bus: if the SYSTEM bus is unreachable, run in a permanent
     # "down" state rather than exiting -- the pill still draws, it just always
     # shows ethernet-down. (source is None -> no extra_fd, no reads.)
-    source = None
+    source: EthernetSource | None = None
     try:
         bus = vd.DBusConnection.connect("SYSTEM", tag="ethernet")
         source = EthernetSource(bus)
@@ -204,7 +215,7 @@ def main():
     # is not showing. (Same rationale as battery_svg.py / wifi.py.)
     chain = vp.BufferChain(dev, cfg.region_w, cfg.region_h)
 
-    def current_icon():
+    def current_icon() -> Any:
         up = source.read() if source is not None else False
         return icons.get(pick_icon(up))
 
@@ -219,7 +230,9 @@ def main():
             draw_into(chain.acquire(), current_icon(), pill_color, icon_color)
             chain.send(conn)
             pacer.submitted()
-        elif ev.kind is vp.Event.RECONFIGURE:
+        elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:
+            # (`is not None` narrows for mypy; the SDK always sets .configure
+            # on a RECONFIGURE event.)
             cfg = ev.configure
             chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()

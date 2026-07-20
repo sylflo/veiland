@@ -18,10 +18,13 @@ select = ["E", "W", "F", "I", "UP", "B"]
 python_version = "3.9"
 strict = true
 # The vendorable files have no package structure; point mypy at the sources
-# explicitly rather than relying on package discovery. veiland_dbus.py is the
-# opt-in D-Bus companion (like veiland_svg.py's SVG one), held to the same
-# --strict bar as the core SDK file; the examples are not checked here.
-files = ["veiland_plugin.py", "veiland_dbus.py", "tests"]
+# explicitly rather than relying on package discovery. The companions
+# (veiland_dbus.py, veiland_svg.py) are held to the same --strict bar as the
+# core SDK file, and so are the examples: five of them (battery_svg, wifi,
+# ethernet, bluetooth, now_playing) are widgets real users vendor and run,
+# and the two battery demos are the first code a plugin author reads --
+# reference code earns the shipped-SDK bar, not the relaxed tests one.
+files = ["veiland_plugin.py", "veiland_dbus.py", "veiland_svg.py", "examples", "tests"]
 
 # The tests are checked, but not held to full --strict. Requiring a `-> None`
 # on every pytest function and typing every fixture is high-noise, low-value
@@ -37,13 +40,14 @@ module = ["test_codec", "test_buffer_chain", "test_dbus", "test_svg", "conftest"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
-# veiland_svg.py is reached from tests only through test_svg.py's gi/cairo
-# stubs; the module itself needs the librsvg stack, which mypy's env lacks
-# (same reason the examples are not in `files`). Treat it as Any rather than
-# pulling gi into the strict run -- its pure-logic surface (parse_color) is
-# still exercised by test_svg.py at runtime.
+# gi (PyGObject) ships no py.typed and generates gi.repository modules at
+# runtime, so Rsvg/Pango/GLib are untyped no matter the environment. Skip
+# rather than analyze: the result is identical whether or not the typelibs
+# are importable in mypy's env (mypy never executes imports), and everything
+# reached through gi is Any. pycairo and Pillow, by contrast, DO ship types,
+# so the cairo/PIL halves of the examples are genuinely checked.
 [[tool.mypy.overrides]]
-module = "veiland_svg"
+module = ["gi", "gi.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
 

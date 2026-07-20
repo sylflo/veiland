@@ -19,8 +19,11 @@
 # AND veiland_svg.py beside itself; this example adds the repo's python/ dir to
 # sys.path so it runs straight from the tree.
 
+from __future__ import annotations
+
 import os
 import sys
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -48,7 +51,7 @@ ICON_FILES = [
 # ------------------------------------------------------------- battery reading
 
 
-def read_battery():
+def read_battery() -> int | None:
     # Unchanged from battery_cairo.py: first readable capacity, or None.
     for cap in glob.glob("/sys/class/power_supply/*/capacity"):
         try:
@@ -59,7 +62,7 @@ def read_battery():
     return None
 
 
-def read_battery_state():
+def read_battery_state() -> tuple[int | None, bool]:
     # Percentage plus whether any supply reports it is actively charging.
     # "Full"/"Discharging"/"Not charging"/"Unknown" all read as not charging.
     pct = read_battery()
@@ -75,7 +78,7 @@ def read_battery_state():
     return pct, charging
 
 
-def pick_icon(pct, charging):
+def pick_icon(pct: int | None, charging: bool) -> str:
     # The whole "logic" of a status widget: state -> filename. Charging wins;
     # None means no battery file (desktop / AC only) -> show the plugged glyph.
     # Thresholds are the midpoints between the 25/50/75/100 buckets.
@@ -90,12 +93,14 @@ def pick_icon(pct, charging):
     return "battery-25.svg"
 
 
-def load_icons():
+def load_icons() -> dict[str, Any]:
     # Parse every icon once at startup (draw_svg is called many times per icon).
+    # The values are Rsvg.Handle-or-None; gi ships no types, so the handle is
+    # Any to mypy -- opaque here anyway, it only round-trips into veiland_svg.
     # A missing or corrupt file logs one line and stores None; draw_into then
     # draws just the empty pill for that state -- a bad asset must never crash
     # the locker or spew a traceback.
-    icons = {}
+    icons: dict[str, Any] = {}
     for name in ICON_FILES:
         try:
             icons[name] = vs.load_svg(os.path.join(ICON_DIR, name))
@@ -114,7 +119,12 @@ def load_icons():
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
 
-def draw_into(buf, handle, pill_color, icon_color):
+def draw_into(
+    buf: vp.LinearBuffer,
+    handle: Any,
+    pill_color: vs.RGBA,
+    icon_color: vs.RGBA | None,
+) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
     # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
     # buf.stride -- map() hands back the one it wants.
@@ -153,7 +163,7 @@ def draw_into(buf, handle, pill_color, icon_color):
 # ----------------------------------------------------------------- main
 
 
-def main():
+def main() -> None:
     conn = vp.Connection.connect("battery-svg", "0.1.0")
     cfg = conn.wait_for_configure()
 
@@ -162,7 +172,9 @@ def main():
     #   pill_color = the chip ([0, 0, 0, 0] draws no chip at all)
     #   icon_color = tints the glyph (default: as authored -- white; pick a
     #                dark tint if you pick a light pill_color)
-    plugin_cfg = json.loads(os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}")
+    plugin_cfg: dict[str, Any] = json.loads(
+        os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}"
+    )
     pill_color = vs.parse_color(plugin_cfg, "pill_color", PILL_BG, tag="battery-svg")
     icon_color = vs.parse_color(plugin_cfg, "icon_color", None, tag="battery-svg")
 
@@ -183,7 +195,9 @@ def main():
             draw_into(chain.acquire(), handle, pill_color, icon_color)
             chain.send(conn)
             pacer.submitted()
-        elif ev.kind is vp.Event.RECONFIGURE:
+        elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:
+            # (`is not None` narrows for mypy; the SDK always sets .configure
+            # on a RECONFIGURE event.)
             cfg = ev.configure
             chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()

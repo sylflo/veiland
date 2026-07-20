@@ -17,6 +17,8 @@
 # A real plugin vendors veiland_plugin.py next to itself. This example adds the
 # repo's python/ dir to sys.path so it runs straight from the tree.
 
+from __future__ import annotations
+
 import math
 import os
 import sys
@@ -32,7 +34,7 @@ import veiland_plugin as vp  # noqa: E402
 # ------------------------------------------------------------- battery reading
 
 
-def read_battery():
+def read_battery() -> int | None:
     for cap in glob.glob("/sys/class/power_supply/*/capacity"):
         try:
             with open(cap) as f:
@@ -49,7 +51,14 @@ def read_battery():
 # reorder -- set_source_rgba + fill and cairo lays down the right bytes.
 
 
-def rounded_rect(cr, x, y, w, h, r):
+def rounded_rect(
+    cr: cairo.Context[cairo.ImageSurface],
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    r: float,
+) -> None:
     # cairo has no rounded-rectangle primitive; trace one from four arcs.
     r = min(r, w / 2, h / 2)
     cr.new_sub_path()
@@ -60,7 +69,13 @@ def rounded_rect(cr, x, y, w, h, r):
     cr.close_path()
 
 
-def draw_card(cr, w, h, s, pct):
+def draw_card(
+    cr: cairo.Context[cairo.ImageSurface],
+    w: float,
+    h: float,
+    s: float,
+    pct: int | None,
+) -> None:
     label = "AC" if pct is None else f"{pct}%"
     level = 100 if pct is None else max(0, min(100, pct))
     if level > 40:
@@ -107,7 +122,7 @@ def draw_card(cr, w, h, s, pct):
     cr.show_text(label)
 
 
-def draw_into(buf, cfg, pct):
+def draw_into(buf: vp.LinearBuffer, cfg: vp.Configure, pct: int | None) -> None:
     # The zero-copy path: wrap buf.map()'s memoryview in a cairo surface and
     # draw straight into GPU-visible memory. cairo needs the MAP stride (the
     # pitch of the CPU mapping it writes), not buf.stride (the bo stride sent
@@ -132,7 +147,7 @@ def draw_into(buf, cfg, pct):
 # ----------------------------------------------------------------- main
 
 
-def main():
+def main() -> None:
     conn = vp.Connection.connect("battery-cairo", "0.1.0")
     cfg = conn.wait_for_configure()
     dev = vp.GbmDevice()
@@ -148,7 +163,9 @@ def main():
             draw_into(chain.acquire(), cfg, read_battery())
             chain.send(conn)
             pacer.submitted()
-        elif ev.kind is vp.Event.RECONFIGURE:
+        elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:
+            # (`is not None` narrows for mypy; the SDK always sets .configure
+            # on a RECONFIGURE event.)
             cfg = ev.configure
             chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()

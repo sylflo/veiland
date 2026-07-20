@@ -420,11 +420,14 @@
 
             # gi/librsvg wiring for import parity with the dev shell (the
             # same rationale pillow/pycairo are here for). The gate itself --
-            # ruff + mypy + pytest -- never imports gi: veiland_svg.py is not
-            # in mypy's `files`, ruff/mypy don't execute it, and pytest only
-            # runs tests/ (which don't import it). So these are parity /
-            # future-proofing, not a hard requirement; if the typelib ever
-            # misbehaves in the hermetic builder, dropping them keeps CI green.
+            # ruff + mypy + pytest -- never imports gi at runtime: mypy is
+            # static (veiland_svg.py + the examples ARE in its `files` now,
+            # but gi.* is follow_imports=skip in pyproject.toml, so the
+            # typelibs are never loaded), ruff doesn't execute code, and
+            # pytest only runs tests/ (which don't import gi). So these are
+            # parity / future-proofing, not a hard requirement; if the typelib
+            # ever misbehaves in the hermetic builder, dropping them keeps CI
+            # green.
             GI_TYPELIB_PATH = pkgs.lib.makeSearchPath "lib/girepository-1.0" [
               pkgs.librsvg
               pkgs.gobject-introspection

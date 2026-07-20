@@ -32,6 +32,8 @@
 # A real plugin vendors veiland_plugin.py (and veiland_dbus.py) next to itself.
 # This example adds the repo's python/ dir to sys.path so it runs from the tree.
 
+from __future__ import annotations
+
 import colorsys
 import hashlib
 import json
@@ -40,6 +42,8 @@ import os
 import sys
 import urllib.parse
 import urllib.request
+from enum import Enum
+from typing import Any, TypedDict, cast
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -58,6 +62,28 @@ from PIL import Image  # noqa: E402
 import veiland_dbus as vd  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 
+# An (r, g, b) accent, 0..1 floats. tuple[...] not | so the alias (a runtime
+# assignment, unlike annotations) evaluates on the SDK's 3.9 floor.
+Accent = tuple[float, float, float]
+
+
+class Track(TypedDict):
+    """One player reading, as the drawing code consumes it. MprisClient reads
+    the wire fields; read_track fills cover/accent (initialised to the no-cover
+    placeholders by _to_track). Field types are best-effort: the raw values
+    come from D-Bus (Any), so this documents the shape rather than proving it --
+    the drawing code tolerates junk the same way it always has."""
+
+    title: str
+    artist: str
+    art_url: str
+    elapsed: float
+    total: float
+    playing: bool
+    cover: cairo.ImageSurface | None
+    accent: Accent
+
+
 # ------------------------------------------------------------- MPRIS over D-Bus
 #
 # A tiny read-only MPRIS client on the session bus. It finds the active
@@ -72,7 +98,7 @@ MPRIS_PATH = "/org/mpris/MediaPlayer2"
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 
 
-def log(msg):
+def log(msg: str) -> None:
     # One-line stderr log, tagged. Used at the untrusted-I/O boundaries below
     # (D-Bus, cover fetch): they catch broadly and degrade rather than crash the
     # locker, but a persistent failure must not be silent -- log it so it is
@@ -86,7 +112,7 @@ class MprisClient:
     # close now live in vd.DBusConnection (the same wrapper wifi/ethernet/
     # bluetooth use on the SYSTEM bus). This class keeps only the MPRIS-specific
     # shaping: which players exist and how to read one into a track dict.
-    def __init__(self):
+    def __init__(self) -> None:
         # One blocking session-bus connection. Its socket fd (fileno()) goes on
         # the pacer's extra_fds so PropertiesChanged wakes us with no polling.
         self.bus = vd.DBusConnection.connect("SESSION", tag="now-playing")
@@ -100,16 +126,16 @@ class MprisClient:
             path=MPRIS_PATH,
         )
 
-    def fileno(self):
+    def fileno(self) -> int:
         # The bus socket fd, for the pacer's extra_fds.
         return self.bus.fileno()
 
-    def drain_signals(self):
+    def drain_signals(self) -> None:
         # Consume all queued PropertiesChanged without parsing -- their arrival
         # is the whole message ("something changed, re-read").
         self.bus.drain_signals()
 
-    def _list_players(self):
+    def _list_players(self) -> list[str] | None:
         body = self.bus.call(
             "/org/freedesktop/DBus",
             "org.freedesktop.DBus",
@@ -120,7 +146,7 @@ class MprisClient:
             return None
         return [n for n in body[0] if n.startswith(MPRIS_PREFIX)]
 
-    def read(self):
+    def read(self) -> Track | None:
         # Return the active player's state dict, or None if nothing is playing.
         # "Active" = the first player that is Playing; else the first that
         # exists (so a paused player still shows). A D-Bus error surfaces as
@@ -140,14 +166,16 @@ class MprisClient:
                 best = props  # remember the first readable (likely paused)
         return self._to_track(best) if best else None
 
-    def _get_props(self, bus_name):
+    def _get_props(self, bus_name: str) -> dict[str, Any]:
         # {} on error (companion logs) -- a player that vanished mid-read or
         # returns junk skips cleanly rather than taking down the widget.
         return self.bus.get_all_props(MPRIS_PATH, PLAYER_IFACE, bus_name=bus_name)
 
     @staticmethod
-    def _to_track(props):
+    def _to_track(props: dict[str, Any]) -> Track:
         # Map raw MPRIS properties to the track dict the drawing code expects.
+        # cover/accent start at their no-cover placeholders; read_track fills
+        # them (this reader has no business decoding images).
         md = {k: v[1] for k, v in props.get("Metadata", {}).items()}
         artists = md.get("xesam:artist", [])
         artist = ", ".join(artists) if isinstance(artists, list) else str(artists)
@@ -158,9 +186,11 @@ class MprisClient:
             "elapsed": props.get("Position", 0) / 1_000_000,  # us -> s
             "total": md.get("mpris:length", 0) / 1_000_000,
             "playing": props.get("PlaybackStatus") == "Playing",
+            "cover": None,
+            "accent": (0.0, 0.0, 0.0),
         }
 
-    def close(self):
+    def close(self) -> None:
         self.bus.close()
 
 
@@ -178,19 +208,19 @@ _CACHE_DIR = os.path.join(
 _CACHE_MAX = 128
 
 
-def _cache_path(url):
+def _cache_path(url: str) -> str:
     return os.path.join(_CACHE_DIR, hashlib.sha256(url.encode()).hexdigest()[:32])
 
 
-def _fetch_to_cache(url, dest):
+def _fetch_to_cache(url: str, dest: str) -> None:
     # Fetch url to dest, clearing the cache first if it's full. Atomic write via
     # a .tmp rename so a mid-fetch interruption (e.g. suspend) never leaves a
     # truncated file that would later decode as a broken cover.
     os.makedirs(_CACHE_DIR, exist_ok=True)
     entries = os.listdir(_CACHE_DIR)
     if len(entries) >= _CACHE_MAX:
-        for f in entries:
-            os.remove(os.path.join(_CACHE_DIR, f))
+        for name in entries:
+            os.remove(os.path.join(_CACHE_DIR, name))
     req = urllib.request.Request(url, headers={"User-Agent": "veiland"})
     with urllib.request.urlopen(req, timeout=5) as r:
         data = r.read()
@@ -200,7 +230,7 @@ def _fetch_to_cache(url, dest):
     os.replace(tmp, dest)
 
 
-def load_cover(art_url, fetch_remote):
+def load_cover(art_url: str, fetch_remote: bool) -> Image.Image | None:
     # Resolve mpris:artUrl to a PIL RGB image, or None for the note fallback.
     #   file://       -> decode locally (no network, always).
     #   http(s)://    -> only if fetch_remote; fetch once (cached), then decode.
@@ -224,25 +254,31 @@ def load_cover(art_url, fetch_remote):
     return None
 
 
-def accent_from_cover(image):
+def accent_from_cover(image: Image.Image) -> Accent:
     # The sampled-from-art accent: average the cover to one colour (a 1x1 box
     # downscale does the averaging), then push saturation and clamp lightness so
     # the progress bar / dot read as a colour, not mud. Returns (r, g, b) 0..1.
-    r, g, b = (c / 255 for c in image.resize((1, 1)).getpixel((0, 0))[:3])
+    # (The cast pins getpixel's wide stub union: an RGB image yields (r, g, b).)
+    pixel = cast("tuple[int, int, int]", image.resize((1, 1)).getpixel((0, 0)))
+    r, g, b = (c / 255 for c in pixel)
     h, light, s = colorsys.rgb_to_hls(r, g, b)
     s = min(1.0, s * 1.6 + 0.15)
     light = min(0.72, max(0.42, light))
     return colorsys.hls_to_rgb(h, light, s)
 
 
-def tint_from_title(title):
+def tint_from_title(title: str) -> Accent:
     # Stable fallback tint when there's no cover to sample: hash the title to a
     # hue at fixed saturation/lightness. Same song -> same colour.
     hue = int(hashlib.sha256(title.encode()).hexdigest(), 16) % 360 / 360
     return colorsys.hls_to_rgb(hue, 0.58, 0.6)
 
 
-def read_track(mpris, fetch_remote, cover_cache):
+def read_track(
+    mpris: MprisClient,
+    fetch_remote: bool,
+    cover_cache: dict[str, tuple[cairo.ImageSurface | None, Accent]],
+) -> Track | None:
     # The one call the render loop makes: read the player, resolve the cover to a
     # ready-to-paint cairo surface + accent, and return the track dict the
     # drawing code wants (or None -> "nothing playing"). Resolving the cover
@@ -284,7 +320,14 @@ HAIRLINE = (1, 1, 1, 0.09)  # top highlight on the glass
 # ------------------------------------------------------------------- helpers
 
 
-def rounded_rect(cr, x, y, w, h, r):
+def rounded_rect(
+    cr: cairo.Context[cairo.ImageSurface],
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    r: float,
+) -> None:
     # cairo has no rounded-rectangle primitive; trace one from four arcs.
     # (Same helper as battery_cairo.py.)
     r = min(r, w / 2, h / 2)
@@ -296,21 +339,28 @@ def rounded_rect(cr, x, y, w, h, r):
     cr.close_path()
 
 
-def fmt_time(seconds):
+def fmt_time(seconds: float) -> str:
     seconds = max(0, int(seconds))
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
-def bar_fill(accent, playing):
+def bar_fill(accent: Accent, playing: bool) -> Accent:
     # The progress-bar fill colour: the accent when playing, desaturated halfway
     # toward grey when paused so playing vs paused reads at a glance. Shared by
     # both layouts so the paused look stays one decision.
     if playing:
         return accent
-    return tuple((a + s) / 2 for a, s in zip(accent, SECONDARY))
+    r, g, b = ((a + s) / 2 for a, s in zip(accent, SECONDARY))
+    return (r, g, b)
 
 
-def _line_layout(cr, text, max_w, px, weight):
+def _line_layout(
+    cr: cairo.Context[cairo.ImageSurface],
+    text: str,
+    max_w: float,
+    px: float,
+    weight: Pango.Weight,
+) -> Pango.Layout:
     # One shaped, end-ellipsized single line. Shared by the top-left and
     # vertically-centered draw helpers.
     layout = PangoCairo.create_layout(cr)
@@ -325,7 +375,16 @@ def _line_layout(cr, text, max_w, px, weight):
     return layout
 
 
-def draw_ellipsized(cr, text, x, y, max_w, px, rgb, weight=Pango.Weight.NORMAL):
+def draw_ellipsized(
+    cr: cairo.Context[cairo.ImageSurface],
+    text: str,
+    x: float,
+    y: float,
+    max_w: float,
+    px: float,
+    rgb: Accent,
+    weight: Pango.Weight = Pango.Weight.NORMAL,
+) -> None:
     # Draw a shaped, end-ellipsized line with its TOP-LEFT at (x, y). The whole
     # reason this widget uses PangoCairo and not cairo's toy text.
     layout = _line_layout(cr, text, max_w, px, weight)
@@ -335,8 +394,15 @@ def draw_ellipsized(cr, text, x, y, max_w, px, rgb, weight=Pango.Weight.NORMAL):
 
 
 def draw_ellipsized_centered(
-    cr, text, x, cy, max_w, px, rgb, weight=Pango.Weight.NORMAL
-):
+    cr: cairo.Context[cairo.ImageSurface],
+    text: str,
+    x: float,
+    cy: float,
+    max_w: float,
+    px: float,
+    rgb: Accent,
+    weight: Pango.Weight = Pango.Weight.NORMAL,
+) -> None:
     # Same, but vertically CENTERED on cy: the measured line height (which
     # differs by script -- CJK is taller than Latin) grows symmetrically around
     # cy instead of downward, so a tall CJK title can't shove what's below it.
@@ -347,7 +413,15 @@ def draw_ellipsized_centered(
     PangoCairo.show_layout(cr, layout)
 
 
-def draw_ellipsized_right(cr, text, right_x, y, px, rgb, weight=Pango.Weight.NORMAL):
+def draw_ellipsized_right(
+    cr: cairo.Context[cairo.ImageSurface],
+    text: str,
+    right_x: float,
+    y: float,
+    px: float,
+    rgb: Accent,
+    weight: Pango.Weight = Pango.Weight.NORMAL,
+) -> None:
     # Same shaped line, but its RIGHT edge sits at right_x (measure, then place).
     # Used for the right-aligned total time in both layouts. 1e6 max width so
     # the time never ellipsizes -- it is always short.
@@ -358,7 +432,7 @@ def draw_ellipsized_right(cr, text, right_x, y, px, rgb, weight=Pango.Weight.NOR
     PangoCairo.show_layout(cr, layout)
 
 
-def _pil_to_surface(image):
+def _pil_to_surface(image: Image.Image) -> cairo.ImageSurface:
     # PIL RGB -> a cairo ARGB32 ImageSurface. cairo's ARGB32 is premultiplied
     # BGRA in memory (little-endian); the cover is opaque, so premultiply is a
     # no-op and we just reorder RGB->BGRA with a full-alpha byte. bytearray so
@@ -381,7 +455,13 @@ def _pil_to_surface(image):
     return cairo.ImageSurface.create_for_data(buf, cairo.FORMAT_ARGB32, w, h, stride)
 
 
-def draw_cover(cr, surface, x, y, size):
+def draw_cover(
+    cr: cairo.Context[cairo.ImageSurface],
+    surface: cairo.ImageSurface,
+    x: float,
+    y: float,
+    size: float,
+) -> None:
     # Paint a cover surface into the size x size square at (x, y), scaled to
     # fill. The surface is built once per track (_pil_to_surface is not cheap --
     # a full-image byte reorder) and cached, so this is called with the same
@@ -397,7 +477,13 @@ def draw_cover(cr, surface, x, y, size):
     cr.restore()
 
 
-def draw_note_glyph(cr, cx, cy, size, rgb):
+def draw_note_glyph(
+    cr: cairo.Context[cairo.ImageSurface],
+    cx: float,
+    cy: float,
+    size: float,
+    rgb: Accent,
+) -> None:
     # A simple eighth-note: a filled ellipse head + a stem. Used when the track
     # has no cover art (the tasteful fallback, never a broken-image box).
     cr.save()
@@ -429,7 +515,13 @@ def draw_note_glyph(cr, cx, cy, size, rgb):
     cr.restore()
 
 
-def draw_pause_badge(cr, x, y, size, accent):
+def draw_pause_badge(
+    cr: cairo.Context[cairo.ImageSurface],
+    x: float,
+    y: float,
+    size: float,
+    accent: Accent,
+) -> None:
     # The star layout's paused indicator: a small "Paused" pill over the art
     # corner (the compact layout uses a hollow dot instead -- the star card is
     # big enough to carry a legible badge). Two bars + a word.
@@ -438,9 +530,9 @@ def draw_pause_badge(cr, x, y, size, accent):
     gap = size * 0.12
     text = "PAUSED"
     lay = _line_layout(cr, text, 1e6, size * 0.62, Pango.Weight.SEMIBOLD)
-    _, log = lay.get_pixel_extents()
+    _, ext = lay.get_pixel_extents()
     pill_h = size * 1.1
-    pill_w = bar_w * 2 + gap + size * 0.4 + log.width + size * 0.5
+    pill_w = bar_w * 2 + gap + size * 0.4 + ext.width + size * 0.5
     rounded_rect(cr, x, y, pill_w, pill_h, pill_h / 2)
     cr.set_source_rgba(10 / 255, 13 / 255, 20 / 255, 0.66)
     cr.fill()
@@ -452,7 +544,7 @@ def draw_pause_badge(cr, x, y, size, accent):
     cr.rectangle(bx + bar_w + gap, by, bar_w, bar_h)
     cr.fill()
     # label
-    cr.move_to(bx + bar_w * 2 + gap + size * 0.35, y + (pill_h - log.height) / 2)
+    cr.move_to(bx + bar_w * 2 + gap + size * 0.35, y + (pill_h - ext.height) / 2)
     cr.set_source_rgb(*PRIMARY)
     PangoCairo.show_layout(cr, lay)
 
@@ -460,7 +552,9 @@ def draw_pause_badge(cr, x, y, size, accent):
 # ----------------------------------------------------------------- star layout
 
 
-def draw_star(cr, w, h, track):
+def draw_star(
+    cr: cairo.Context[cairo.ImageSurface], w: float, h: float, track: Track | None
+) -> None:
     # The card as centerpiece: a large PORTRAIT card (big art on top, meta
     # stacked below) centered on a TRANSPARENT full surface -- whatever plugin
     # sits behind it (a wallpaper/gradient at a lower z_index, or the core's
@@ -497,8 +591,9 @@ def draw_star(cr, w, h, track):
     cr.save()
     rounded_rect(cr, ax, ay, art, art, art_r)
     cr.clip()
-    if track and track.get("cover"):
-        draw_cover(cr, track["cover"], ax, ay, art)
+    cover = track["cover"] if track else None
+    if cover is not None:
+        draw_cover(cr, cover, ax, ay, art)
     else:
         cr.set_source_rgba(1, 1, 1, 0.06)
         cr.rectangle(ax, ay, art, art)
@@ -572,7 +667,9 @@ def draw_star(cr, w, h, track):
 # --------------------------------------------------------------- compact layout
 
 
-def draw_compact(cr, w, h, track):
+def draw_compact(
+    cr: cairo.Context[cairo.ImageSurface], w: float, h: float, track: Track | None
+) -> None:
     # The bottom-left chip: square art left, title/artist stacked right, a filled
     # progress track spanning the bottom. Sizes are derived from the card height
     # so the layout scales with whatever region the host gives us.
@@ -602,8 +699,9 @@ def draw_compact(cr, w, h, track):
     cr.save()
     rounded_rect(cr, ax, ay, art, art, art_r)
     cr.clip()
-    if track and track.get("cover"):
-        draw_cover(cr, track["cover"], ax, ay, art)
+    cover = track["cover"] if track else None
+    if cover is not None:
+        draw_cover(cr, cover, ax, ay, art)
     else:
         # fallback well: faint accent tint + centered music note
         cr.set_source_rgba(1, 1, 1, 0.06)
@@ -683,7 +781,7 @@ def draw_compact(cr, w, h, track):
 # ------------------------------------------------------------------ draw entry
 
 
-def draw_into(buf, layout_name, track):
+def draw_into(buf: vp.LinearBuffer, layout_name: str, track: Track | None) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw straight
     # into GPU-visible memory. cairo needs the MAP stride, not buf.stride.
     with buf.map() as (mem, map_stride):
@@ -704,7 +802,7 @@ def draw_into(buf, layout_name, track):
         surface.finish()
 
 
-def display_signature(track):
+def display_signature(track: Track | None) -> tuple[object, ...]:
     # Everything that changes what the card LOOKS like -- so we can skip a
     # redraw when nothing visible changed. Note the 1s tick fires every second,
     # but the elapsed time only *displays* to whole seconds, so the signature
@@ -727,7 +825,15 @@ def display_signature(track):
 # ----------------------------------------------------------------- main
 
 
-def main():
+class _Unread(Enum):
+    """Typed sentinel: "no track read this cycle" -- distinct from None, which
+    is a real reading ("nothing playing"). An Enum member rather than a bare
+    object() so mypy narrows the `is` check (PEP 484's sentinel idiom)."""
+
+    UNREAD = "unread"
+
+
+def main() -> None:
     conn = vp.Connection.connect("now-playing", "0.1.0")
     cfg = conn.wait_for_configure()
 
@@ -735,14 +841,17 @@ def main():
     #   layout           = "compact" | "star"   (default compact)
     #   fetch_remote_art = bool: allow fetching http(s):// covers (default false;
     #                      a locked screen makes no network request unless asked)
-    plugin_cfg = json.loads(os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}")
-    layout_name = plugin_cfg.get("layout", "compact")
+    plugin_cfg: dict[str, Any] = json.loads(
+        os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}"
+    )
+    layout_name = str(plugin_cfg.get("layout", "compact"))
     fetch_remote = bool(plugin_cfg.get("fetch_remote_art", False))
 
     mpris = MprisClient()
-    cover_cache = {}  # art_url -> (cairo surface | None, accent); one entry at a time
+    # art_url -> (cairo surface | None, accent); one entry at a time
+    cover_cache: dict[str, tuple[cairo.ImageSurface | None, Accent]] = {}
 
-    def current_track():
+    def current_track() -> Track | None:
         return read_track(mpris, fetch_remote, cover_cache)
 
     dev = vp.GbmDevice()
@@ -754,11 +863,12 @@ def main():
     # mid-edit. See veiland_plugin.BufferChain.
     chain = vp.BufferChain(dev, cfg.region_w, cfg.region_h)
 
-    last_sig = None  # signature of what we last drew; None -> never drawn
-    _UNREAD = object()  # sentinel: no track read this cycle (distinct from None)
-    pending = _UNREAD  # a track a change-check already read, for RENDER to reuse
+    # signature of what we last drew; None -> never drawn
+    last_sig: tuple[object, ...] | None = None
+    # a track a change-check already read, for RENDER to reuse
+    pending: Track | None | _Unread = _Unread.UNREAD
 
-    def check_dirty():
+    def check_dirty() -> None:
         # Read the player once, stash it for the upcoming RENDER, and mark_dirty
         # only if what's shown actually changed. The stash is what stops RENDER
         # from re-reading (a second ListNames + per-player GetAll round-trip) the
@@ -780,17 +890,20 @@ def main():
             # Reuse the track the change-check already read this cycle; only read
             # afresh when RENDER was triggered without one (the first frame, or a
             # RECONFIGURE-forced redraw).
-            track = current_track() if pending is _UNREAD else pending
-            pending = _UNREAD
+            track = current_track() if pending is _Unread.UNREAD else pending
+            pending = _Unread.UNREAD
             draw_into(chain.acquire(), layout_name, track)
             last_sig = display_signature(track)
             chain.send(conn)
             pacer.submitted()
-        elif ev.kind is vp.Event.RECONFIGURE:
+        elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:
+            # (`is not None` narrows for mypy; the SDK always sets .configure
+            # on a RECONFIGURE event.)
             cfg = ev.configure
             chain = chain.resize_or_keep(dev, cfg)
             last_sig = None  # new surface size -> force a redraw
-            pending = _UNREAD  # its size, not the track, changed -> read at RENDER
+            # its size, not the track, changed -> read at RENDER
+            pending = _Unread.UNREAD
             pacer.mark_dirty()
         elif ev.kind is vp.Event.FD_READY:
             # The bus woke us: a player emitted PropertiesChanged. Drain the
