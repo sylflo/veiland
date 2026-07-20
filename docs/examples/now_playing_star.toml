@@ -30,15 +30,18 @@ speed = 0.6
 name = "veiland-now-playing"
 binary = "./python/examples/now_playing.py"
 z_index = 10
+
+[plugin.config]
+layout = "star"
 # fetch_remote_art fetches http(s):// covers (e.g. Spotify) so the big card art
 # is the real cover and the accent is sampled from it -- OFF by default (no
 # locked-screen network unless you opt in). Without a cover: a music-note
 # fallback + a per-track colour tint. See now_playing.toml for full option notes.
-#
+fetch_remote_art = true
 # font_family sets the card's type (title/artist/times); here the cursive
 # "Dancing Script" the dev shell ships. Any fontconfig family works and it falls
 # back to Sans if absent. Sizes stay derived from the card geometry.
-config = { layout = "star", fetch_remote_art = true, font_family = "Dancing Script" }
+font_family = "Dancing Script"
 
 # Password indicator near the bottom-center, clear of the centered card. `x` is
 # left unset so the core centers it horizontally; `y_percent` is the box CENTER

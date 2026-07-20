@@ -52,22 +52,24 @@ name = "veiland-now-playing"
 binary = "./python/examples/now_playing.py"
 z_index = 10
 region = { halign = "left", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
+
+[plugin.config]
 # layout: "compact" | "star". fetch_remote_art: allow the plugin to fetch
 # http(s):// cover art (e.g. Spotify) over the network -- OFF by default, so a
 # locked screen makes no network request unless you opt in. file:// covers
 # (local players) are always decoded; with no cover you get a music-note
 # fallback and a per-track colour tint instead of the sampled-from-art accent.
-config = { layout = "compact", fetch_remote_art = true }
+layout = "compact"
+fetch_remote_art = true
 
 # --- The "star" variant -------------------------------------------------------
 # The card becomes the centerpiece: a large PORTRAIT card centered on screen,
 # on a full-surface blurred copy of the cover. Because its backdrop fills the
 # whole screen, the star's region is the FULL SURFACE -- so DROP the region line
 # (the plugin then gets the whole lock surface, like the label/clock plugins)
-# and switch the layout. To try it, replace the two lines above (region +
-# config) with just:
-#
-#   config = { layout = "star" }
+# and switch the layout: remove the `region = {...}` line above and set
+# `layout = "star"` in the [plugin.config] block. See now_playing_star.toml for
+# the worked scene.
 #
 # (No [plugin.region]; the star centers the card within the full surface. Keep
 # it as the only plugin, or put a wallpaper at a lower z_index -- the star's own
