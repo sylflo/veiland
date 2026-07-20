@@ -19,12 +19,19 @@ python_version = "3.9"
 strict = true
 # The vendorable files have no package structure; point mypy at the sources
 # explicitly rather than relying on package discovery. The companions
-# (veiland_dbus.py, veiland_svg.py) are held to the same --strict bar as the
-# core SDK file, and so are the examples: five of them (battery_svg, wifi,
-# ethernet, bluetooth, now_playing) are widgets real users vendor and run,
-# and the two battery demos are the first code a plugin author reads --
-# reference code earns the shipped-SDK bar, not the relaxed tests one.
-files = ["veiland_plugin.py", "veiland_dbus.py", "veiland_svg.py", "examples", "tests"]
+# (veiland_dbus.py, veiland_svg.py, veiland_text.py) are held to the same
+# --strict bar as the core SDK file, and so are the examples: five of them
+# (battery_svg, wifi, ethernet, bluetooth, now_playing) are widgets real users
+# vendor and run, and the two battery demos are the first code a plugin author
+# reads -- reference code earns the shipped-SDK bar, not the relaxed tests one.
+files = [
+    "veiland_plugin.py",
+    "veiland_dbus.py",
+    "veiland_svg.py",
+    "veiland_text.py",
+    "examples",
+    "tests",
+]
 
 # The tests are checked, but not held to full --strict. Requiring a `-> None`
 # on every pytest function and typing every fixture is high-noise, low-value

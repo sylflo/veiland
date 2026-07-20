@@ -57,6 +57,12 @@ from PIL import Image  # noqa: E402
 
 import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
+import veiland_text as vt  # noqa: E402
+
+# The shaped single-line layout builder now lives in the text companion (it was
+# copy-pasted here and in now_playing.py). Alias it to the old private name so
+# the measuring/draw code below reads unchanged.
+_line_layout = vt.line_layout
 
 ICON_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "icons", "user.svg"
@@ -227,27 +233,6 @@ def rounded_rect(
     cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
     cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
     cr.close_path()
-
-
-def _line_layout(
-    cr: cairo.Context[cairo.ImageSurface],
-    text: str,
-    max_w: float,
-    px: float,
-    weight: Pango.Weight,
-) -> Pango.Layout:
-    # One shaped, end-ellipsized single line (the now_playing helper): a long
-    # name must shorten cleanly, not overflow the pill.
-    layout = PangoCairo.create_layout(cr)
-    font = Pango.FontDescription()
-    font.set_family("sans-serif")
-    font.set_absolute_size(px * Pango.SCALE)
-    font.set_weight(weight)
-    layout.set_font_description(font)
-    layout.set_width(int(max_w * Pango.SCALE))
-    layout.set_ellipsize(Pango.EllipsizeMode.END)
-    layout.set_text(text, -1)
-    return layout
 
 
 def draw_avatar_disc(

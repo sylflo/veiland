@@ -61,6 +61,13 @@ from PIL import Image  # noqa: E402
 
 import veiland_dbus as vd  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
+import veiland_text as vt  # noqa: E402
+
+# The shaped single-line layout + ellipsized draw helpers now live in the text
+# companion (they were copy-pasted here and in avatar.py). Alias the layout
+# builder to its old private name so the pause-badge measuring code reads the
+# same; the draw_ellipsized* helpers are called through vt.
+_line_layout = vt.line_layout
 
 # An (r, g, b) accent, 0..1 floats. tuple[...] not | so the alias (a runtime
 # assignment, unlike annotations) evaluates on the SDK's 3.9 floor.
@@ -354,84 +361,6 @@ def bar_fill(accent: Accent, playing: bool) -> Accent:
     return (r, g, b)
 
 
-def _line_layout(
-    cr: cairo.Context[cairo.ImageSurface],
-    text: str,
-    max_w: float,
-    px: float,
-    weight: Pango.Weight,
-) -> Pango.Layout:
-    # One shaped, end-ellipsized single line. Shared by the top-left and
-    # vertically-centered draw helpers.
-    layout = PangoCairo.create_layout(cr)
-    font = Pango.FontDescription()
-    font.set_family("sans-serif")
-    font.set_absolute_size(px * Pango.SCALE)
-    font.set_weight(weight)
-    layout.set_font_description(font)
-    layout.set_width(int(max_w * Pango.SCALE))
-    layout.set_ellipsize(Pango.EllipsizeMode.END)
-    layout.set_text(text, -1)
-    return layout
-
-
-def draw_ellipsized(
-    cr: cairo.Context[cairo.ImageSurface],
-    text: str,
-    x: float,
-    y: float,
-    max_w: float,
-    px: float,
-    rgb: Accent,
-    weight: Pango.Weight = Pango.Weight.NORMAL,
-) -> None:
-    # Draw a shaped, end-ellipsized line with its TOP-LEFT at (x, y). The whole
-    # reason this widget uses PangoCairo and not cairo's toy text.
-    layout = _line_layout(cr, text, max_w, px, weight)
-    cr.move_to(x, y)
-    cr.set_source_rgb(*rgb)
-    PangoCairo.show_layout(cr, layout)
-
-
-def draw_ellipsized_centered(
-    cr: cairo.Context[cairo.ImageSurface],
-    text: str,
-    x: float,
-    cy: float,
-    max_w: float,
-    px: float,
-    rgb: Accent,
-    weight: Pango.Weight = Pango.Weight.NORMAL,
-) -> None:
-    # Same, but vertically CENTERED on cy: the measured line height (which
-    # differs by script -- CJK is taller than Latin) grows symmetrically around
-    # cy instead of downward, so a tall CJK title can't shove what's below it.
-    layout = _line_layout(cr, text, max_w, px, weight)
-    _, logical = layout.get_pixel_extents()
-    cr.move_to(x, cy - logical.height / 2)
-    cr.set_source_rgb(*rgb)
-    PangoCairo.show_layout(cr, layout)
-
-
-def draw_ellipsized_right(
-    cr: cairo.Context[cairo.ImageSurface],
-    text: str,
-    right_x: float,
-    y: float,
-    px: float,
-    rgb: Accent,
-    weight: Pango.Weight = Pango.Weight.NORMAL,
-) -> None:
-    # Same shaped line, but its RIGHT edge sits at right_x (measure, then place).
-    # Used for the right-aligned total time in both layouts. 1e6 max width so
-    # the time never ellipsizes -- it is always short.
-    layout = _line_layout(cr, text, 1e6, px, weight)
-    _, logical = layout.get_pixel_extents()
-    cr.move_to(right_x - logical.width, y)
-    cr.set_source_rgb(*rgb)
-    PangoCairo.show_layout(cr, layout)
-
-
 def _pil_to_surface(image: Image.Image) -> cairo.ImageSurface:
     # PIL RGB -> a cairo ARGB32 ImageSurface. cairo's ARGB32 is premultiplied
     # BGRA in memory (little-endian); the cover is opaque, so premultiply is a
@@ -621,7 +550,7 @@ def draw_star(
         cr.fill()
         cr.restore()
         tstart = tx + dot_r * 2 + pad * 0.5
-    draw_ellipsized_centered(
+    vt.draw_ellipsized_centered(
         cr,
         track["title"] if track else "Nothing playing",
         tstart,
@@ -631,7 +560,7 @@ def draw_star(
         PRIMARY,
         weight=Pango.Weight.SEMIBOLD,
     )
-    draw_ellipsized_centered(
+    vt.draw_ellipsized_centered(
         cr,
         track["artist"] if track else "No active player",
         tx,
@@ -656,10 +585,10 @@ def draw_star(
             cr.fill()
         times_px = card_w * 0.036
         ty = bar_y + bar_h + card_w * 0.03
-        draw_ellipsized(
+        vt.draw_ellipsized(
             cr, fmt_time(track["elapsed"]), tx, ty, tw * 0.5, times_px, SECONDARY
         )
-        draw_ellipsized_right(
+        vt.draw_ellipsized_right(
             cr, fmt_time(track["total"]), tx + tw, ty, times_px, SECONDARY
         )
 
@@ -730,7 +659,7 @@ def draw_compact(
         cr.fill()
         cr.restore()
         tstart = tx + dot_r * 2 + pad * 0.4
-    draw_ellipsized_centered(
+    vt.draw_ellipsized_centered(
         cr,
         track["title"] if track else "Nothing playing",
         tstart,
@@ -740,7 +669,7 @@ def draw_compact(
         PRIMARY,
         weight=Pango.Weight.SEMIBOLD,
     )
-    draw_ellipsized_centered(
+    vt.draw_ellipsized_centered(
         cr,
         track["artist"] if track else "No active player",
         tx,
@@ -769,11 +698,11 @@ def draw_compact(
         # times, centered on the 0.86h zone
         times_px = h * 0.11
         ty = h * 0.86 - times_px / 2
-        draw_ellipsized(
+        vt.draw_ellipsized(
             cr, fmt_time(track["elapsed"]), bar_x, ty, bar_w * 0.5, times_px, SECONDARY
         )
         # right-aligned total
-        draw_ellipsized_right(
+        vt.draw_ellipsized_right(
             cr, fmt_time(track["total"]), bar_x + bar_w, ty, times_px, SECONDARY
         )
 
