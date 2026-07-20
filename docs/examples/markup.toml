@@ -1,0 +1,67 @@
+# Test config for the markup widget (python/examples/markup.py): ONE block of
+# Pango markup with {variable} substitution, composited over the wallpaper. This
+# is the DYNAMIC text tier -- variables and inline <span> styling -- additive to
+# the Rust veiland-label plugin (the lean static tier), not a replacement.
+#
+# This scene is a clock-style time+date block: a big bold time over a smaller
+# date line, done as ONE markup string instead of two fixed labels -- the widget
+# subsumes the clock look while adding {variables}. With an EMPTY [plugin.config]
+# it draws exactly this default block (the `text` below just spells it out).
+#
+# The `text` string may contain BOTH Pango <span> tags (inline size/weight/color,
+# no config DSL to learn) AND {placeholders}: {user}, {name} (your GECOS full
+# name), {host}, {time:STRFTIME}, {date:STRFTIME}. A {time:%H:%M} line redraws
+# once a minute; a static line never redraws after the first frame. A bad
+# strftime spec shows the literal "{time:...}" so you can fix it; malformed
+# markup falls back to plain text -- neither ever crashes the locker.
+#
+# This needs the gi stack: pygobject3 + Pango/PangoCairo typelibs on
+# GI_TYPELIB_PATH (the flake's dev shell wires them; run from `nix develop`).
+#
+# The binary path is relative, so run veiland from the repo root; the script
+# must be chmod +x or the host spawn fails with "Permission denied (os error
+# 13)". The ANCHORED region form is fractions of the surface, so the block lands
+# identically on 1080p and 4K; the font size derives from the region height. See
+# docs/config.md.
+[[plugin]]
+name = "veiland-markup"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "center", valign = "top", width = 0.5, height = 0.22, margin_y = 0.12 }
+
+[plugin.config]
+# text: a Pango markup string with {variable} placeholders. \n splits lines; the
+# <span> tag styles a run inline (overriding the base font below). Use single
+# quotes so the double quotes inside the <span> need no escaping.
+text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
+{date:%A %d %B}'''
+
+# Everything below is optional -- these are the defaults spelled out.
+#
+# The base font, same keys (and defaults) as the Rust label plugin. font_size is
+# a FRACTION of the region height; an inline <span size=...> overrides it:
+# font_family = "Sans"     # any fontconfig family; falls back gracefully
+# font_size   = 0.030      # fraction of the region height
+# font_weight = 400        # CSS numeric 100..900 (the block's base weight)
+# italic      = false
+#
+# Placement of the laid-out block WITHIN its region:
+# halign = "center"        # or "left" / "right" (also sets multi-line justify)
+# valign = "center"        # or "top" / "bottom"
+#
+# Colors are RGBA floats 0..1 where the fourth value IS the opacity:
+# text_color   = [1.0, 1.0, 1.0, 0.96]
+# shadow_color = [0.0, 0.0, 0.0, 0.45]   # soft drop shadow; alpha 0 -> no shadow
+
+# A greeting-line alternative -- one styled line mixing {name} and a colored
+# accent run, parked bottom-center as a caption:
+#
+# [[plugin]]
+# name = "veiland-markup"
+# binary = "./python/examples/markup.py"
+# z_index = 10
+# region = { halign = "center", valign = "bottom", width = 0.6, height = 0.08, margin_y = 0.1 }
+#
+# [plugin.config]
+# text = 'Welcome back, <span foreground="#8ab4f8" weight="bold">{name}</span>'
+# valign = "bottom"
