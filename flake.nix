@@ -258,6 +258,15 @@
             pango
             harfbuzz
 
+            # dancing-script: an OFL-1.1 handwriting/cursive font, so the text
+            # widgets' font_family key has something fun to resolve to inside the
+            # dev shell (the markup demo uses it). fontconfig picks up any font
+            # package listed here by scanning its share/fonts dir. Purely a
+            # demo/example convenience: the SDK ships no font, font_family falls
+            # back to Sans when a family is absent, and nothing at runtime needs
+            # this. Add more families here the same way if the examples want them.
+            dancing-script
+
             # ruff: formatter + import-sort + linter for the Python SDK, in
             # one binary (replaces black + isort + flake8). Standalone, so it
             # goes here rather than in the interpreter env above.

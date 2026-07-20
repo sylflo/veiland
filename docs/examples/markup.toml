@@ -40,8 +40,11 @@ text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
 #
 # The base font, same keys (and defaults) as the Rust label plugin. font_size is
 # a FRACTION of the region height; an inline <span size=...> overrides it:
-# font_family = "Sans"     # any fontconfig family; falls back gracefully
-# font_size   = 0.030      # fraction of the region height
+# font_family = "Sans"     # any fontconfig family; falls back to Sans if absent.
+#                          # The dev shell also ships "Dancing Script" (a cursive
+#                          # handwriting font) -- try it, see the greeting below.
+# font_size   = 0.20       # base size as a fraction of the region height (an
+#                          # inline <span size=...> scales relative to this)
 # font_weight = 400        # CSS numeric 100..900 (the block's base weight)
 # italic      = false
 #
@@ -53,15 +56,17 @@ text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
 # text_color   = [1.0, 1.0, 1.0, 0.96]
 # shadow_color = [0.0, 0.0, 0.0, 0.45]   # soft drop shadow; alpha 0 -> no shadow
 
-# A greeting-line alternative -- one styled line mixing {name} and a colored
-# accent run, parked bottom-center as a caption:
+# A greeting-line alternative -- one flowing handwritten line, parked
+# bottom-center as a caption. font_family = "Dancing Script" is the cursive font
+# the dev shell ships (fontconfig falls back to Sans if it isn't installed):
 #
 # [[plugin]]
 # name = "veiland-markup"
 # binary = "./python/examples/markup.py"
 # z_index = 10
-# region = { halign = "center", valign = "bottom", width = 0.6, height = 0.08, margin_y = 0.1 }
+# region = { halign = "center", valign = "bottom", width = 0.6, height = 0.1, margin_y = 0.1 }
 #
 # [plugin.config]
-# text = 'Welcome back, <span foreground="#8ab4f8" weight="bold">{name}</span>'
+# text = 'Good evening, <span foreground="#8ab4f8">{name}</span>'
+# font_family = "Dancing Script"
 # valign = "bottom"
