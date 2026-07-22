@@ -58,6 +58,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # pins come before gi.repository; cairo is imported before PangoCairo can render
 # onto a cairo.Context.
 import json  # noqa: E402
+import math  # noqa: E402
 import pwd  # noqa: E402
 import re  # noqa: E402
 import socket  # noqa: E402
@@ -81,6 +82,16 @@ import veiland_text as vt  # noqa: E402
 # overridable per config (text_color / shadow_color) via veiland_svg.parse_color.
 TEXT = (1.0, 1.0, 1.0, 0.96)
 SHADOW = (0.0, 0.0, 0.0, 0.45)
+
+# The optional frosted chip behind the text. Its geometry, both resolution-
+# independent fractions so one config scales across monitors: bg_radius is a
+# fraction of the chip HEIGHT (0.5 = a full capsule, matching the greeting
+# pill's pill_h/2), bg_padding the breathing room between the text block and the
+# chip edge as a fraction of the font pixel size. The chip's COLOR (bg_color)
+# has no code default -- absent means off, byte-identical to bare markup -- so
+# only the geometry gets a constant here.
+DEFAULT_BG_RADIUS = 0.5
+DEFAULT_BG_PADDING = 0.5
 
 # The base font size, as a fraction of the region HEIGHT. font_from_config's own
 # default (0.030) is calibrated for the Rust label's fraction-of-SURFACE; a
@@ -146,6 +157,24 @@ def resolve_font(cfg: dict[str, Any]) -> vt.FontSpec:
     return font
 
 
+def resolve_float(cfg: dict[str, Any], key: str, default: float) -> float:
+    # A single non-negative float knob (bg_radius / bg_padding). Absent ->
+    # default; a non-number or a negative value logs one line and falls back to
+    # the default -- the untrusted-input rule, a bad chip dimension mis-sizes the
+    # chip at worst, it never crashes the widget. log() already tags the line
+    # with the plugin name, matching resolve_text/resolve_font.
+    raw = cfg.get(key, default)
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        log(f"{key}: expected a number, got {raw!r}; using {default}")
+        return default
+    if val < 0.0:
+        log(f"{key}: expected a value >= 0, got {val}; using {default}")
+        return default
+    return val
+
+
 # ------------------------------------------------------- variable substitution
 
 
@@ -182,6 +211,26 @@ def substitute(template: str, name: str) -> str:
 
 
 # ------------------------------------------------------------------- drawing
+
+
+def rounded_rect(
+    cr: cairo.Context[cairo.ImageSurface],
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    r: float,
+) -> None:
+    # cairo has no rounded-rectangle primitive; trace one from four arcs. r is
+    # clamped to half the shorter side, so a bg_radius >= 0.5 of the height gives
+    # a full capsule (same helper as avatar.py / now_playing.py).
+    r = min(r, w / 2, h / 2)
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
 
 
 def _font_description(font: vt.FontSpec, px: float) -> Pango.FontDescription:
@@ -244,6 +293,9 @@ class Style:
     valign: str  # content_valign: top|center|bottom -- vertical placement
     text: vs.RGBA
     shadow: vs.RGBA
+    bg: vs.RGBA | None  # bg_color: optional frosted chip behind the text (None -> off)
+    bg_radius: float  # chip corner radius as a fraction of the chip HEIGHT
+    bg_padding: float  # chip padding around the text, as a fraction of font px
     border_on: bool  # debug_border: stroke the region-box edge to see placement
     border_color: vs.RGBA
 
@@ -283,6 +335,22 @@ def draw_into(buf: vp.LinearBuffer, style: Style, shown: str) -> None:
         # LINES relative to each other within the block. For left/top logical.x is
         # 0 and this is a no-op -- without it, center/right double-shift off-box.
         draw_x = x - float(logical.x)
+
+        # Optional frosted chip UNDER the text: sized to the measured block plus
+        # bg_padding, cornered by bg_radius, placed at the SAME anchor offset
+        # (x, y) the text block uses so chip and text move together. Absent bg
+        # (None) or a fully transparent one draws nothing -- byte-identical to
+        # bare markup. Drawn after the CLEAR, before the shadow/text; the debug
+        # border stays a separate hollow overlay drawn last.
+        if style.bg is not None and style.bg[3] > 0.0:
+            pad = style.bg_padding * px
+            chip_w = block_w + 2.0 * pad
+            chip_h = block_h + 2.0 * pad
+            cr.save()
+            rounded_rect(cr, x - pad, y - pad, chip_w, chip_h, style.bg_radius * chip_h)
+            cr.set_source_rgba(*style.bg)
+            cr.fill()
+            cr.restore()
 
         # Drop shadow first (offset a hair down-right), then the text over it.
         # alpha 0 on the shadow color drops it -- bare text, no shadow.
@@ -327,6 +395,9 @@ def main() -> None:
         valign=content_valign,
         text=vs.parse_color(plugin_cfg, "text_color", TEXT, tag="markup"),
         shadow=vs.parse_color(plugin_cfg, "shadow_color", SHADOW, tag="markup"),
+        bg=vs.parse_color(plugin_cfg, "bg_color", None, tag="markup"),
+        bg_radius=resolve_float(plugin_cfg, "bg_radius", DEFAULT_BG_RADIUS),
+        bg_padding=resolve_float(plugin_cfg, "bg_padding", DEFAULT_BG_PADDING),
         border_on=border_on,
         border_color=border_color,
     )

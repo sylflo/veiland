@@ -24,7 +24,7 @@
 # identically on 1080p and 4K; the font size derives from the region height. See
 # docs/config.md.
 [[plugin]]
-name = "veiland-markup"
+name = "markup-clock"
 binary = "./python/examples/markup.py"
 z_index = 10
 # Region pinned to the screen's TOP-LEFT corner (halign/valign = left/top with
@@ -76,18 +76,33 @@ debug_border = true
 # Colors are RGBA floats 0..1 where the fourth value IS the opacity:
 # text_color   = [1.0, 1.0, 1.0, 0.96]
 # shadow_color = [0.0, 0.0, 0.0, 0.45]   # soft drop shadow; alpha 0 -> no shadow
+#
+# An OPTIONAL frosted chip behind the text -- a rounded card the block sits on,
+# handy over a busy wallpaper. Absent (or alpha 0) -> no chip, byte-identical to
+# bare markup. The chip tracks the same content anchor as the text, so the two
+# move together; give it a region with some slack (don't anchor the text flush
+# to an edge) so the padding isn't clipped:
+# bg_color   = [0.059, 0.071, 0.110, 0.69]   # the family glass; absent -> off
+# bg_radius  = 0.5    # corner radius as a fraction of the chip HEIGHT
+#                     # (0.5 -> a full capsule, matching the pill widgets)
+# bg_padding = 0.5    # breathing room around the text, as a fraction of font px
 
-# A greeting-line alternative -- one flowing handwritten line, parked
-# bottom-center as a caption. font_family = "Dancing Script" is the cursive font
-# the dev shell ships (fontconfig falls back to Sans if it isn't installed):
-#
-# [[plugin]]
-# name = "veiland-markup"
-# binary = "./python/examples/markup.py"
-# z_index = 10
-# region = { halign = "center", valign = "bottom", width = 0.6, height = 0.1, margin_y = 0.1 }
-#
-# [plugin.config]
-# text = 'Good evening, <span foreground="#8ab4f8">{name}</span>'
-# font_family = "Dancing Script"
-# content_valign = "bottom"
+# A SECOND markup region, live alongside the clock above: one flowing handwritten
+# line on a frosted chip, parked bottom-center as a caption -- so this scene shows
+# BOTH the content-anchor/border demo (top-left) and the new background chip
+# (bottom). font_family = "Dancing Script" is the cursive font the dev shell ships
+# (fontconfig falls back to Sans if it isn't installed); bg_color is the family
+# glass, so the line reads as a floating pill over the wallpaper -- the greeting
+# look, from the generic markup widget.
+[[plugin]]
+name = "markup-greeting"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "center", valign = "bottom", width = 0.6, height = 0.1, margin_y = 0.1 }
+
+[plugin.config]
+text = 'Good evening, <span foreground="#8ab4f8">{name}</span>'
+font_family = "Dancing Script"
+content_valign = "center"
+bg_color = [0.427, 0.027, 0.102, 1.0]   # the frosted greeting chip
+font_size   = 0.50 
