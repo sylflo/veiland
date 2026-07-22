@@ -55,6 +55,7 @@ import cairo  # noqa: E402
 from gi.repository import Pango, PangoCairo  # noqa: E402
 from PIL import Image  # noqa: E402
 
+import veiland_layout as vl  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
 import veiland_text as vt  # noqa: E402
@@ -353,6 +354,8 @@ class Style:
     pill: vs.RGBA
     ring: vs.RGBA
     text: vs.RGBA
+    border_on: bool  # debug_border: stroke the region-box edge to see placement
+    border_color: vs.RGBA
 
 
 def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
@@ -432,6 +435,15 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
                     style.font,
                 )
 
+        # Debug border: trace the region box (= buffer edge) when debug_border is
+        # set, so the (invisible) box avatar was handed is visible. Off by default
+        # (untrusted-input rule).
+        if style.border_on:
+            cr.set_source_rgba(*style.border_color)
+            cr.set_line_width(1.0)
+            cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0)
+            cr.stroke()
+
         surface.flush()  # commit cairo's writes before we unmap
         surface.finish()
 
@@ -453,6 +465,7 @@ def main() -> None:
         glyph = vs.load_svg(ICON_PATH)
     except vs.SvgError as e:
         log(f"user.svg: {e}")  # pill renders without the glyph
+    border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="avatar")
     style = Style(
         layout=resolve_layout(plugin_cfg),
         avatar=load_avatar(plugin_cfg),
@@ -465,6 +478,8 @@ def main() -> None:
         pill=vs.parse_color(plugin_cfg, "pill_color", GLASS, tag="avatar"),
         ring=vs.parse_color(plugin_cfg, "ring_color", RING, tag="avatar"),
         text=vs.parse_color(plugin_cfg, "text_color", TEXT, tag="avatar"),
+        border_on=border_on,
+        border_color=border_color,
     )
 
     dev = vp.GbmDevice()

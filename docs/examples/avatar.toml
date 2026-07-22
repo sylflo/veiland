@@ -40,6 +40,12 @@ region = { halign = "center", valign = "top", width = 0.24, height = 0.14, margi
 # ring_color = [1.0, 1.0, 1.0, 0.22]         # thin rim on the avatar;
 #                                            # alpha 0 -> no ring
 # text_color = [1.0, 1.0, 1.0, 0.94]
+#
+# Debug aid while tuning placement -- stroke the (invisible) region box in bright
+# magenta so you can see where it landed and how much slack surrounds the avatar.
+# Off by default (see docs/config.md):
+# debug_border = true
+# debug_border_color = [1.0, 0.0, 1.0, 1.0]
 
 # The corner-chip alternative, aligned with the status cluster's row (same
 # height and top inset as the status pills, hugging the top-LEFT corner):
