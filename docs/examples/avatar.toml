@@ -1,60 +1,85 @@
-# Test config for the avatar + greeting widget (python/examples/avatar.py): a
-# round-cropped user picture over a one-line greeting in the family glass pill,
-# placed on the center column just above the core's password indicator -- the
-# display-manager look. Pure config: no D-Bus, no network; the widget draws
-# once and idles.
+# The "this is MY lockscreen" scene: a round user disc with a greeting under it
+# on the center column, just above the core's password indicator -- the
+# display-manager look. It is TWO plugins composed, not one widget:
 #
-# With an EMPTY [plugin.config] the widget still personalises itself: the name
-# comes from the GECOS full name in /etc/passwd (then $USER), and the picture
-# from ~/.face (the display-manager convention) -- no picture anywhere gives a
-# tinted initials disc, hue hashed stably from the name.
+#   1. veiland-avatar  -- JUST the round disc (picture / ~/.face / initials + ring)
+#   2. veiland-markup  -- the greeting line ("Good evening, {name}") on a glass
+#                         chip, the generic dynamic-text widget doing greeting duty
 #
-# This needs the gi stack: pygobject3 + Pango/PangoCairo + librsvg typelibs on
+# That composition IS the point: one region holds the disc, one holds the
+# greeting, each with its own region + content anchor. Want them in different
+# corners, or a different greeting, or {time} in it? Edit the two blocks
+# independently. The casual user copies this scene and it Just Works; the "two
+# blocks" cost is paid here (by us), not by them.
+#
+# With EMPTY [plugin.config] blocks it still personalises itself: the disc's
+# picture comes from ~/.face (the display-manager convention; no picture anywhere
+# -> a tinted initials disc, hue hashed stably from the name), and both the disc
+# initials and the greeting's {name} come from the GECOS full name in /etc/passwd
+# (then $USER).
+#
+# This needs the gi stack: pygobject3 + Pango/PangoCairo typelibs on
 # GI_TYPELIB_PATH (the flake's dev shell wires them; run from `nix develop`).
 #
-# The binary path is relative, so run veiland from the repo root; the script
-# must be chmod +x or the host spawn fails with "Permission denied (os error
-# 13)". The ANCHORED region form is fractions of the surface, so the column
-# lands identically on 1080p and 4K; the avatar diameter and text sizes all
-# derive from the region height. See docs/config.md.
+# The binary paths are relative, so run veiland from the repo root; both scripts
+# must be chmod +x or the host spawn fails with "Permission denied (os error 13)".
+# The ANCHORED region form is fractions of the surface, so the column lands
+# identically on 1080p and 4K; the disc diameter and the greeting font size derive
+# from each region's height. See docs/config.md.
+
+# --- The disc: a small square region, upper-centre. The disc fills the shorter
+# side of its box, so keep the region roughly square; content anchor defaults to
+# centre, so the disc sits dead-centre in it.
 [[plugin]]
 name = "veiland-avatar"
 binary = "./python/examples/avatar.py"
 z_index = 10
-region = { halign = "center", valign = "top", width = 0.24, height = 0.14, margin_y = 0.46 }
+region = { halign = "center", valign = "top", width = 0.12, height = 0.12, margin_y = 0.42 }
 
 [plugin.config]
 # Everything below is optional -- this block shows the defaults spelled out.
 #
 # avatar   = "~/Pictures/me.png"   # omit -> ~/.face -> initials disc
-# name     = "Sylflo"             # omit -> GECOS full name -> $USER
-# greeting = "Hi, {name}"          # free-form; "auto" -> Good morning/afternoon/
-#                                  # evening by local time; "" -> avatar only
-# layout   = "stack"               # or "row": avatar inside a wide capsule
-#                                  # beside the text, for corner placement
+# name     = "Sylflo"             # omit -> GECOS full name -> $USER (seeds the
+#                                  # initials letter + the disc's hashed tint)
 #
 # Colors are RGBA floats 0..1 where the fourth value IS the opacity:
-# pill_color = [0.059, 0.071, 0.110, 0.69]   # the greeting capsule (the same
-#                                            # glass as the status pills);
-#                                            # alpha 0 -> bare floating text
-# ring_color = [1.0, 1.0, 1.0, 0.22]         # thin rim on the avatar;
-#                                            # alpha 0 -> no ring
-# text_color = [1.0, 1.0, 1.0, 0.94]
+# ring_color = [1.0, 1.0, 1.0, 0.22]   # thin rim on the disc; alpha 0 -> no ring
+#
+# Placement of the d x d disc WITHIN its region (default centre/centre):
+# content_halign = "center"   # or "left" / "right"
+# content_valign = "center"   # or "top" / "bottom"
 #
 # Debug aid while tuning placement -- stroke the (invisible) region box in bright
-# magenta so you can see where it landed and how much slack surrounds the avatar.
+# magenta so you can see where it landed and how much slack surrounds the disc.
 # Off by default (see docs/config.md):
 # debug_border = true
 # debug_border_color = [1.0, 0.0, 1.0, 1.0]
 
-# The corner-chip alternative, aligned with the status cluster's row (same
-# height and top inset as the status pills, hugging the top-LEFT corner):
-#
-# [[plugin]]
-# name = "veiland-avatar"
-# binary = "./python/examples/avatar.py"
-# z_index = 10
-# region = { halign = "left", valign = "top", width = 0.14, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
-#
-# [plugin.config]
-# layout = "row"
+# --- The greeting: a wide, short region just BELOW the disc, holding one line on
+# a glass chip. This is the generic markup widget (python/examples/markup.py); it
+# resolves {name} the same GECOS way the disc does, and gains {time}/inline <span>
+# styling for free. bg_color is the family glass, so the line reads as the old
+# greeting pill -- text on a translucent capsule.
+[[plugin]]
+name = "avatar-greeting"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "center", valign = "top", width = 0.5, height = 0.07, margin_y = 0.55 }
+
+[plugin.config]
+# "auto"-style greeting is a markup {time}-flavoured trick; here a plain literal
+# with {name}. Swap in <span> tags or {time:%H:%M} to taste.
+text = "Good evening, {name}"
+content_valign = "center"
+# font_size is a fraction of the region height; 0.32 sizes the line to sit in
+# proportion under the disc (markup's own default is tuned for a taller block).
+font_size = 0.32
+bg_color = [0.059, 0.071, 0.110, 0.69]   # the family glass chip
+# font_family = "Dancing Script"   # the cursive font the dev shell ships, for a
+#                                  # handwritten greeting; falls back to Sans
+
+# Once the markup `icon` key lands (docs/plans/markup-icon.md), add
+#   icon = "./python/examples/icons/user.svg"
+# to this block to put the little person glyph back left of the text, exactly like
+# the old combined avatar greeting pill -- from the generic widget, no bespoke code.

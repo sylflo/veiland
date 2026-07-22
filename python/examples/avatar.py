@@ -1,31 +1,36 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The avatar + greeting widget: a round-cropped user picture over a one-line
-# greeting in the family glass pill -- the "this is MY lockscreen" ingredient,
-# meant to sit just above the core's password indicator on the center column.
-# Pure config: no D-Bus, no network, no polling. It draws once at Configure and
-# then idles (static plugins idling is legal; only greeting = "auto" wakes on a
-# slow tick to roll Good morning -> afternoon -> evening over).
+# The avatar widget: JUST the round user disc -- a picture cover-cropped into a
+# circle, or a tinted initials disc, with a thin rim -- the "this is MY
+# lockscreen" ingredient. Pure config: no D-Bus, no network, no polling. It draws
+# once at Configure and then idles (static plugins idling is legal).
+#
+# It is disc-ONLY by design. The greeting that used to live here is now a markup
+# region (python/examples/markup.py, which gained an optional background chip):
+# one region holds the disc, one holds the greeting, each its own region + content
+# anchor -- the project's own "compose plugins" thesis. docs/examples/avatar.toml
+# wires both blocks into the display-manager look out of the box. This split is a
+# BEHAVIOR CHANGE from the earlier combined widget (which stacked a greeting pill
+# under the disc); avatar was unreleased, so that is acceptable.
 #
 # Zero-config personalisation, each step falling back to the next:
 #   name:   [plugin.config] name -> the GECOS full name in /etc/passwd -> $USER
+#           (the name only seeds the initials + the disc's hashed tint now)
 #   avatar: [plugin.config] avatar -> ~/.face (the display-manager convention)
 #           -> a tinted initials disc (hue hashed from the name, the same
 #           stable-tint trick now_playing.py uses for coverless tracks)
 #
-# Two layouts from one config key, like now_playing's compact/star:
-#   layout = "stack"  avatar above the greeting pill (the center-column look)
-#   layout = "row"    avatar inside a wide capsule beside the text, sized for a
-#                     status-cluster-height corner region
+# The disc fills the shorter side of its region and is placed by the shared
+# content anchor (content_halign/content_valign via veiland_layout), so a
+# square-ish region shows a full centered disc and the 9 anchor points move it
+# cleanly. The initials letter uses PangoCairo (real shaping), so this needs the
+# gi stack: pygobject3 + Pango/PangoCairo typelibs (the flake's dev shell wires
+# them). Image decode is PIL, as now_playing does for covers.
 #
-# Text uses PangoCairo (real shaping + end-ellipsization, same as now_playing);
-# the pill glyph is icons/user.svg via the veiland_svg companion, so this needs
-# the gi stack: pygobject3 + Pango/PangoCairo + librsvg typelibs (the flake's
-# dev shell wires them). Image decode is PIL, as now_playing does for covers.
-#
-# A real plugin vendors veiland_plugin.py (and veiland_svg.py) next to itself.
-# This example adds the repo's python/ dir to sys.path so it runs from the tree.
+# A real plugin vendors veiland_plugin.py (and veiland_text.py / veiland_layout.py)
+# next to itself. This example adds the repo's python/ dir to sys.path so it runs
+# from the tree.
 
 from __future__ import annotations
 
@@ -44,7 +49,6 @@ import hashlib  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import pwd  # noqa: E402
-import time  # noqa: E402
 
 import gi  # noqa: E402
 
@@ -60,23 +64,15 @@ import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
 import veiland_text as vt  # noqa: E402
 
-# The shaped single-line layout builder now lives in the text companion (it was
-# copy-pasted here and in now_playing.py). Alias it to the old private name so
-# the measuring/draw code below reads unchanged.
+# The shaped single-line layout builder lives in the text companion (shared with
+# now_playing.py). Alias it to the old private name so the initials draw reads
+# unchanged.
 _line_layout = vt.line_layout
 
-ICON_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "icons", "user.svg"
-)
-
-# Family defaults: the status pills' glass, a thin translucent ring, near-white
-# text. All three are RGBA 0..1 floats where alpha IS the opacity, overridable
-# per config (pill_color / ring_color / text_color) via veiland_svg.parse_color.
-GLASS = (15 / 255, 18 / 255, 28 / 255, 176 / 255)
+# A thin translucent ring on the disc rim, RGBA 0..1 where alpha IS the opacity,
+# overridable per config (ring_color) via veiland_svg.parse_color. alpha 0 -> no
+# ring.
 RING = (1.0, 1.0, 1.0, 0.22)
-TEXT = (1.0, 1.0, 1.0, 0.94)
-
-DEFAULT_GREETING = "Hi, {name}"
 
 
 def log(msg: str) -> None:
@@ -89,8 +85,8 @@ def log(msg: str) -> None:
 def resolve_name(cfg: dict[str, Any]) -> str:
     # name -> GECOS full name -> $USER. The GECOS field ("Sylvain Chateau,,,")
     # is where a full name already lives on most systems, so an empty
-    # [plugin.config] still greets by name; only the part before the first
-    # comma is the name proper.
+    # [plugin.config] still seeds the initials + tint by name; only the part
+    # before the first comma is the name proper.
     raw = cfg.get("name")
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
@@ -106,41 +102,6 @@ def resolve_name(cfg: dict[str, Any]) -> str:
     except KeyError:
         pass
     return os.environ.get("USER") or "there"
-
-
-def resolve_greeting_template(cfg: dict[str, Any]) -> str:
-    raw = cfg.get("greeting", DEFAULT_GREETING)
-    if not isinstance(raw, str):
-        log(f"greeting: expected a string, got {raw!r}; using default")
-        return DEFAULT_GREETING
-    return raw
-
-
-def greeting_now(template: str, name: str) -> str:
-    # "auto" buckets the local hour; anything else is a literal with {name}
-    # replaced via str.replace, NOT str.format -- the template is untrusted
-    # config, and a stray "{" must mis-render at worst, never raise. An empty
-    # template means avatar only.
-    if template == "auto":
-        hour = time.localtime().tm_hour
-        if 5 <= hour < 12:
-            word = "Good morning"
-        elif 12 <= hour < 18:
-            word = "Good afternoon"
-        elif 18 <= hour < 23:
-            word = "Good evening"
-        else:
-            word = "Good night"
-        return f"{word}, {name}"
-    return template.replace("{name}", name)
-
-
-def resolve_layout(cfg: dict[str, Any]) -> str:
-    raw = cfg.get("layout", "stack")
-    if raw in ("stack", "row"):
-        return str(raw)
-    log(f'layout: expected "stack" or "row", got {raw!r}; using "stack"')
-    return "stack"
 
 
 # -------------------------------------------------------------- avatar loading
@@ -217,25 +178,6 @@ def disc_colors(name: str) -> tuple[vs.RGBA, vs.RGBA]:
 # ------------------------------------------------------------------- drawing
 
 
-def rounded_rect(
-    cr: cairo.Context[cairo.ImageSurface],
-    x: float,
-    y: float,
-    w: float,
-    h: float,
-    r: float,
-) -> None:
-    # cairo has no rounded-rectangle primitive; trace one from four arcs.
-    # (Same helper as now_playing.py / battery_cairo.py.)
-    r = min(r, w / 2, h / 2)
-    cr.new_sub_path()
-    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
-    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
-    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
-    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
-    cr.close_path()
-
-
 def draw_avatar_disc(
     cr: cairo.Context[cairo.ImageSurface],
     surface: cairo.ImageSurface | None,
@@ -247,8 +189,8 @@ def draw_avatar_disc(
     font: vt.FontSpec,
 ) -> None:
     # The picture cover-cropped into a circle, or the initials disc; then the
-    # ring stroked on the rim. Everything derives from the diameter, so the one
-    # function serves both layouts at any region size.
+    # ring stroked on the rim. Everything derives from the diameter, so the disc
+    # renders at any region size.
     radius = d / 2
     if surface is not None:
         cr.save()
@@ -291,78 +233,25 @@ def draw_avatar_disc(
         cr.restore()
 
 
-def draw_greeting_pill(
-    cr: cairo.Context[cairo.ImageSurface],
-    text: str,
-    glyph: Any,
-    cx: float,
-    cy: float,
-    pill_h: float,
-    max_w: float,
-    pill: vs.RGBA,
-    text_color: vs.RGBA,
-    font: vt.FontSpec,
-) -> None:
-    # The capsule centered on (cx, cy): measure the shaped line first, then
-    # trace the pill around it. pill alpha 0 drops both the capsule and the
-    # glyph -- bare floating text, matching the status pills' "no chip" mode.
-    with_pill = pill[3] > 0
-    px = pill_h * 0.44
-    glyph_size = pill_h * 0.46
-    pad = pill_h * 0.55
-    gap = pill_h * 0.26
-
-    inner_max = max_w - 2 * pad - (glyph_size + gap if with_pill else 0)
-    layout = _line_layout(cr, text, max(inner_max, 1.0), px, Pango.Weight.NORMAL, font)
-    _, logical = layout.get_pixel_extents()
-    text_w = min(logical.width, inner_max)
-
-    if with_pill:
-        pill_w = pad + glyph_size + gap + text_w + pad
-        x0 = cx - pill_w / 2
-        cr.save()
-        rounded_rect(cr, x0, cy - pill_h / 2, pill_w, pill_h, pill_h / 2)
-        cr.set_source_rgba(*pill)
-        cr.fill()
-        cr.restore()
-        if glyph is not None:
-            tr, tg, tb, ta = text_color
-            vs.draw_svg_centered(
-                cr,
-                glyph,
-                x0 + pad + glyph_size / 2,
-                cy,
-                glyph_size,
-                tint=(tr, tg, tb, ta * 0.75),
-            )
-        text_x = x0 + pad + glyph_size + gap
-    else:
-        text_x = cx - text_w / 2
-
-    cr.move_to(text_x, cy - logical.height / 2)
-    cr.set_source_rgba(*text_color)
-    PangoCairo.show_layout(cr, layout)
-
-
 @dataclass(frozen=True)
 class Style:
-    layout: str
     avatar: cairo.ImageSurface | None
     name: str
-    glyph: Any  # Rsvg.Handle | None -- opaque, round-trips into veiland_svg
-    font: vt.FontSpec  # family/italic for the greeting + initials (font_from_config)
-    pill: vs.RGBA
+    font: vt.FontSpec  # family/italic for the initials letter (font_from_config)
     ring: vs.RGBA
-    text: vs.RGBA
+    halign: str  # content_halign: anchor the d x d disc within its region box
+    valign: str  # content_valign
     border_on: bool  # debug_border: stroke the region-box edge to see placement
     border_color: vs.RGBA
 
 
-def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
+def draw_into(buf: vp.LinearBuffer, style: Style) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw
     # straight into GPU-visible memory. The buffer IS the region (the host owns
-    # WHERE it sits), so both layouts just center themselves in their own box,
-    # everything a fraction of the box so one config scales across monitors.
+    # WHERE it sits). The disc is a d x d square block that fills the shorter
+    # side; the shared content anchor (veiland_layout) places that block within
+    # the box, so content_halign/valign move the disc and the default
+    # (center, center) sits it dead-centre.
     with buf.map() as (mem, map_stride):
         surface = cairo.ImageSurface.create_for_data(
             mem, cairo.FORMAT_ARGB32, buf.width, buf.height, map_stride
@@ -373,67 +262,18 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
         cr.set_operator(cairo.OPERATOR_OVER)
 
         w, h = float(buf.width), float(buf.height)
-        if style.layout == "row":
-            # One wide capsule: avatar inset at the left, text beside it.
-            pill_h = h * 0.92
-            d = pill_h * 0.78
-            inset = (pill_h - d) / 2
-            px = pill_h * 0.38
-            gap = pill_h * 0.24
-            pad_r = pill_h * 0.50
-            inner_max = w - (inset + d + gap + pad_r)
-            layout = _line_layout(
-                cr, greeting, max(inner_max, 1.0), px, Pango.Weight.NORMAL, style.font
-            )
-            _, logical = layout.get_pixel_extents()
-            text_w = min(logical.width, inner_max) if greeting else 0.0
-            pill_w = inset + d + (gap + text_w + pad_r if greeting else inset)
-            x0 = (w - pill_w) / 2
-            cy = h / 2
-            if style.pill[3] > 0:
-                cr.save()
-                rounded_rect(cr, x0, cy - pill_h / 2, pill_w, pill_h, pill_h / 2)
-                cr.set_source_rgba(*style.pill)
-                cr.fill()
-                cr.restore()
-            draw_avatar_disc(
-                cr,
-                style.avatar,
-                style.name,
-                x0 + inset + d / 2,
-                cy,
-                d,
-                style.ring,
-                style.font,
-            )
-            if greeting:
-                cr.move_to(x0 + inset + d + gap, cy - logical.height / 2)
-                cr.set_source_rgba(*style.text)
-                PangoCairo.show_layout(cr, layout)
-        else:
-            # Stack: avatar over the pill, the used height centered vertically.
-            d = h * 0.60
-            gap = h * 0.10
-            pill_h = h * 0.30
-            used = d + (gap + pill_h if greeting else 0)
-            y0 = (h - used) / 2
-            cx = w / 2
-            draw_avatar_disc(
-                cr, style.avatar, style.name, cx, y0 + d / 2, d, style.ring, style.font
-            )
-            if greeting:
-                draw_greeting_pill(
-                    cr,
-                    greeting,
-                    style.glyph,
-                    cx,
-                    y0 + d + gap + pill_h / 2,
-                    pill_h,
-                    w - 4,
-                    style.pill,
-                    style.text,
-                    style.font,
-                )
+        d = min(w, h)  # the disc fills the shorter side of the region
+        x, y = vl.anchor_offset(style.halign, style.valign, w, h, d, d)
+        draw_avatar_disc(
+            cr,
+            style.avatar,
+            style.name,
+            x + d / 2,
+            y + d / 2,
+            d,
+            style.ring,
+            style.font,
+        )
 
         # Debug border: trace the region box (= buffer edge) when debug_border is
         # set, so the (invisible) box avatar was handed is visible. Off by default
@@ -455,45 +295,32 @@ def main() -> None:
     plugin_cfg: dict[str, Any] = json.loads(
         os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}"
     )
-    name = resolve_name(plugin_cfg)
-    template = resolve_greeting_template(plugin_cfg)
-    glyph: Any = None
-    try:
-        glyph = vs.load_svg(ICON_PATH)
-    except vs.SvgError as e:
-        log(f"user.svg: {e}")  # pill renders without the glyph
+    content_halign, content_valign = vl.anchor_from_config(plugin_cfg, tag="avatar")
     border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="avatar")
     style = Style(
-        layout=resolve_layout(plugin_cfg),
         avatar=load_avatar(plugin_cfg),
-        name=name,
-        glyph=glyph,
-        # font_family + italic theme the greeting/initials type; font_size stays
-        # geometry-derived here (a separate text_size knob is deferred), so only
+        name=resolve_name(plugin_cfg),
+        # font_family + italic theme the initials letter; font_size stays
+        # geometry-derived here (the letter is sized from the diameter), so only
         # the family/italic fields of this FontSpec are consulted.
         font=vt.font_from_config(plugin_cfg, tag="avatar"),
-        pill=vs.parse_color(plugin_cfg, "pill_color", GLASS, tag="avatar"),
         ring=vs.parse_color(plugin_cfg, "ring_color", RING, tag="avatar"),
-        text=vs.parse_color(plugin_cfg, "text_color", TEXT, tag="avatar"),
+        halign=content_halign,
+        valign=content_valign,
         border_on=border_on,
         border_color=border_color,
     )
 
     dev = vp.GbmDevice()
-    # BufferChain even though redraws are rare (reconfigures, the "auto"
-    # rollover): any redraw of a single in-place buffer races the host's live
-    # sampling into a flicker, so every redrawing CPU widget keeps the chain.
+    # BufferChain even though the disc is static: any redraw of a single in-place
+    # buffer (a reconfigure on a monitor change) races the host's live sampling
+    # into a flicker, so every redrawing CPU widget keeps the chain.
     chain = vp.BufferChain(dev, cfg.region_w, cfg.region_h)
 
-    shown = greeting_now(template, name)
-    # A static widget blocks forever; only "auto" needs a tick to notice the
-    # morning/afternoon/evening boundary, and a minute's lag on those is fine.
-    tick = 60.0 if template == "auto" else None
     pacer = vp.FramePacer.on_demand()
-    for ev in pacer.events(conn, timeout=tick):
+    for ev in pacer.events(conn):
         if ev.kind is vp.Event.RENDER:
-            shown = greeting_now(template, name)
-            draw_into(chain.acquire(), style, shown)
+            draw_into(chain.acquire(), style)
             chain.send(conn)
             pacer.submitted()
         elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:
@@ -502,9 +329,6 @@ def main() -> None:
             cfg = ev.configure
             chain = chain.resize_or_keep(dev, cfg)
             pacer.mark_dirty()
-        elif ev.kind is vp.Event.TIMEOUT:
-            if greeting_now(template, name) != shown:
-                pacer.mark_dirty()  # the time-of-day bucket rolled over
         elif ev.kind is vp.Event.SHUTDOWN:
             break
 
