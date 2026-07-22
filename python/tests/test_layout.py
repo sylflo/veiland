@@ -1,15 +1,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Pure-logic tests for veiland_layout -- the 9-point content anchor and its two
-# config parsers. Unlike test_svg.py, this file needs NO module stubs:
-# veiland_layout is pure stdlib (float math + dict reading), so it imports and
-# runs anywhere pytest does, no graphics stack required. That is the whole point
-# of keeping the anchor helpers dependency-free -- the placement math is testable
-# without a display.
+# Pure-logic tests for veiland_layout -- the 9-point content anchor, its two
+# config parsers, and the debug-border draw helper. veiland_layout imports cairo
+# at module load for draw_debug_border, but that helper only calls METHODS on a
+# cairo context the caller passes; the anchor/parser logic touches no cairo at
+# all. So we stub cairo before the import (like test_svg.py) and exercise
+# draw_debug_border with a fake context that records its calls -- the whole file
+# stays display-free.
 
 from __future__ import annotations
 
-import veiland_layout as vl
+import sys
+import types
+from typing import Any, cast
+
+sys.modules.setdefault("cairo", types.ModuleType("cairo"))
+
+import veiland_layout as vl  # noqa: E402  (after the cairo stub, deliberately)
 
 # ------------------------------------------------------------- anchor_offset
 #
@@ -115,3 +122,41 @@ def test_debug_border_bad_color_falls_back_and_logs(capsys):
     assert color == (1.0, 0.0, 1.0, 1.0)
     err = capsys.readouterr().err
     assert "wifi: debug_border_color:" in err and "using default" in err
+
+
+# ------------------------------------------------------------ draw_debug_border
+
+
+class _RecordingContext:
+    """A fake cairo context that records the calls draw_debug_border makes, so we
+    can assert the geometry without a real cairo/display. Only the four methods
+    the helper uses are implemented."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def set_source_rgba(self, *rgba: float) -> None:
+        self.calls.append(("set_source_rgba", *rgba))
+
+    def set_line_width(self, w: float) -> None:
+        self.calls.append(("set_line_width", w))
+
+    def rectangle(self, x: float, y: float, w: float, h: float) -> None:
+        self.calls.append(("rectangle", x, y, w, h))
+
+    def stroke(self) -> None:
+        self.calls.append(("stroke",))
+
+
+def test_draw_debug_border_strokes_inset_rectangle():
+    cr = _RecordingContext()
+    # cast: the double duck-types the four cairo methods the helper uses; the
+    # helper's param is a real cairo.Context, so tell mypy we mean it.
+    vl.draw_debug_border(cast(Any, cr), 200.0, 120.0, (1.0, 0.0, 1.0, 1.0))
+    assert cr.calls == [
+        ("set_source_rgba", 1.0, 0.0, 1.0, 1.0),
+        ("set_line_width", 1.0),
+        # 0.5px inset so the whole 1px stroke lands inside the box (0.5..199.5).
+        ("rectangle", 0.5, 0.5, 199.0, 119.0),
+        ("stroke",),
+    ]

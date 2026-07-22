@@ -439,10 +439,7 @@ def draw_into(buf: vp.LinearBuffer, style: Style, greeting: str) -> None:
         # set, so the (invisible) box avatar was handed is visible. Off by default
         # (untrusted-input rule).
         if style.border_on:
-            cr.set_source_rgba(*style.border_color)
-            cr.set_line_width(1.0)
-            cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0)
-            cr.stroke()
+            vl.draw_debug_border(cr, w, h, style.border_color)
 
         surface.flush()  # commit cairo's writes before we unmap
         surface.finish()

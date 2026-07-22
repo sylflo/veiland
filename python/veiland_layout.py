@@ -1,19 +1,21 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Optional layout companion for the veiland Python plugin SDK. Pure stdlib: a
-# 9-point content anchor plus the two config parsers that feed it. No cairo, no
-# gi, no Pango -- just float math and dict reading -- so ANY widget vendors it
-# cheaply (text or svg), with none of the typelib/import weight veiland_svg.py
-# and veiland_text.py carry.
+# Optional layout companion for the veiland Python plugin SDK: a 9-point content
+# anchor, the two config parsers that feed it, and the debug-border draw helper.
+# WHERE a widget draws its content inside the buffer it was handed is a
+# presentation concern on a different axis from transport/buffer/pacing, so it
+# lives in its own companion rather than growing veiland_plugin.py (~1150 lines)
+# with unrelated surface. It joins the companion set (veiland_svg / veiland_dbus /
+# veiland_text / veiland_layout): each a single-purpose file a widget vendors when
+# it wants that capability.
 #
-# This is a SEPARATE, opt-in file, NOT part of veiland_plugin.py. That file is
-# the transport + buffer + pacing SDK (codec, Connection, the GBM/ctypes layer,
-# LinearBuffer, FramePacer); WHERE a widget draws its content inside the buffer
-# it was handed is a presentation concern on a different axis, so it lives in its
-# own companion rather than growing the ~1150-line core file with unrelated
-# surface. It joins the companion set (veiland_svg / veiland_dbus / veiland_text
-# / veiland_layout): each a single-purpose file a widget vendors when it wants
-# that capability.
+# It imports cairo for the one draw helper (draw_debug_border) -- cheap, since a
+# widget compositing into a mapped buffer already builds a cairo context, so
+# cairo is present by construction. The anchor/parser half is pure float math and
+# dict reading and would run without cairo, but keeping the border DRAW next to
+# its config PARSE (debug_border_from_config) is the cohesive place for it: the
+# whole feature in one file, reachable with the one import every widget here
+# already makes.
 #
 # It is a CONVENTION, not a placement system the SDK imposes -- the exact status
 # font_from_config / parse_color already have (a carrot, not a fence). Region
@@ -27,9 +29,8 @@
 #
 # anchor_offset does the math (measure your block, get back a top-left);
 # anchor_from_config / debug_border_from_config read the keys the way parse_color
-# reads colors -- one parser each, never a crash on a bad value. The DRAWING is
-# always the plugin's: it multiplies the offset into its own cairo/whatever, and
-# strokes its own debug rectangle. This file stays drawing-free.
+# reads colors -- one parser each, never a crash on a bad value; draw_debug_border
+# strokes the region-box outline the parser enables.
 
 from __future__ import annotations
 
@@ -37,17 +38,20 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
+import cairo
+
 __all__ = [
     "RGBA",
     "anchor_from_config",
     "anchor_offset",
     "debug_border_from_config",
+    "draw_debug_border",
 ]
 
 # An (r, g, b, a) color, 0..1 floats, alpha IS the opacity -- the same shape
-# veiland_svg.RGBA carries, redeclared here so this file stays pure stdlib (a
-# text-only widget vendors veiland_layout without pulling in the SVG stack).
-# tuple[...] not | so the alias evaluates on the SDK's 3.9 floor.
+# veiland_svg.RGBA carries, redeclared here so a widget that vendors only
+# veiland_layout (not the SVG companion) still has the alias. tuple[...] not | so
+# the alias evaluates on the SDK's 3.9 floor.
 RGBA = tuple[float, float, float, float]
 
 # The 9-point anchor's vocabulary. content_halign / content_valign each name one
@@ -172,12 +176,37 @@ def debug_border_from_config(
     return (enabled, color)
 
 
+def draw_debug_border(
+    cr: cairo.Context[Any], width: float, height: float, rgba: RGBA
+) -> None:
+    """Stroke a 1px rectangle just inside the (0, 0, width, height) buffer edge in
+    rgba -- the debug_border_from_config half that does the DRAWING. Because the
+    host sizes the buffer 1:1 with the region, this rectangle exactly traces the
+    (otherwise invisible) region box, so a widget can see where the host placed it
+    and where its content sits. Call it LAST, over the content, inside your
+    already-built cairo context:
+
+        border_on, border_color = vl.debug_border_from_config(cfg, tag="my-widget")
+        ...
+        if border_on:
+            vl.draw_debug_border(cr, w, h, border_color)
+
+    The 0.5px inset lands the whole 1px stroke inside the box on the pixel grid so
+    it stays crisp. Saves/restores the source and line width via a fresh path but
+    leaves the caller's state otherwise untouched (it does not save/restore the
+    matrix -- pass buffer-space width/height, which every caller already has)."""
+    cr.set_source_rgba(*rgba)
+    cr.set_line_width(1.0)
+    cr.rectangle(0.5, 0.5, width - 1.0, height - 1.0)
+    cr.stroke()
+
+
 def _parse_rgba(cfg: Mapping[str, Any], key: str, default: RGBA, tag: str) -> RGBA:
     # The same [r, g, b, a]-in-0..1 clamp veiland_svg.parse_color does, inlined
-    # here so this file needs no import from the SVG companion (which would drag
-    # in cairo/gi and break the pure-stdlib promise). Absent -> default; malformed
-    # -> default plus one stderr line. Kept private: debug_border_color is the
-    # only color this companion reads, and parse_color remains the public parser.
+    # here so this file needs no import from the SVG companion (which would drag in
+    # the gi/librsvg stack). Absent -> default; malformed -> default plus one
+    # stderr line. Kept private: debug_border_color is the only color this
+    # companion reads, and parse_color remains the public parser.
     raw = cfg.get(key)
     if raw is None:
         return default

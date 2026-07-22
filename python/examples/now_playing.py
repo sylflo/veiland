@@ -773,10 +773,7 @@ def draw_into(
         # the screen and makes the centered card's placement visible; for compact
         # the region is the card's own box. Off by default (untrusted-input rule).
         if border_on:
-            cr.set_source_rgba(*border_color)
-            cr.set_line_width(1.0)
-            cr.rectangle(0.5, 0.5, float(buf.width) - 1.0, float(buf.height) - 1.0)
-            cr.stroke()
+            vl.draw_debug_border(cr, float(buf.width), float(buf.height), border_color)
         surface.flush()
         surface.finish()
 
