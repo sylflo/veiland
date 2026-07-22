@@ -71,6 +71,7 @@ gi.require_version("PangoCairo", "1.0")  # noqa: E402
 import cairo  # noqa: E402
 from gi.repository import Pango, PangoCairo  # noqa: E402
 
+import veiland_layout as vl  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
 import veiland_text as vt  # noqa: E402
@@ -143,16 +144,6 @@ def resolve_font(cfg: dict[str, Any]) -> vt.FontSpec:
     if "font_size" not in cfg:
         font = replace(font, size=DEFAULT_SIZE)
     return font
-
-
-def resolve_align(cfg: dict[str, Any], key: str, allowed: tuple[str, ...]) -> str:
-    # halign/valign within the region, same idea as the anchored region form but
-    # for the text block inside its own box. Default is the first `allowed`.
-    raw = cfg.get(key, allowed[0])
-    if raw in allowed:
-        return str(raw)
-    log(f"{key}: expected one of {allowed}, got {raw!r}; using {allowed[0]!r}")
-    return allowed[0]
 
 
 # ------------------------------------------------------- variable substitution
@@ -249,17 +240,20 @@ class Style:
     template: str
     name: str
     font: vt.FontSpec
-    halign: str  # left | center | right -- horizontal placement in the region
-    valign: str  # top | center | bottom -- vertical placement in the region
+    halign: str  # content_halign: left|center|right -- placement + line justify
+    valign: str  # content_valign: top|center|bottom -- vertical placement
     text: vs.RGBA
     shadow: vs.RGBA
+    border_on: bool  # debug_border: stroke the region-box edge to see placement
+    border_color: vs.RGBA
 
 
 def draw_into(buf: vp.LinearBuffer, style: Style, shown: str) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw straight
     # into GPU-visible memory. The buffer IS the region (the host owns WHERE it
-    # sits), so we only place the block within our own box: font size is a
-    # fraction of the box height, and halign/valign park the laid-out block.
+    # sits); we place the laid-out block within our own box via the shared
+    # content-anchor convention (veiland_layout), so content_halign="left" parks
+    # the text flush at the box's left edge instead of always centering it.
     with buf.map() as (mem, map_stride):
         surface = cairo.ImageSurface.create_for_data(
             mem, cairo.FORMAT_ARGB32, buf.width, buf.height, map_stride
@@ -271,32 +265,46 @@ def draw_into(buf: vp.LinearBuffer, style: Style, shown: str) -> None:
 
         w, h = float(buf.width), float(buf.height)
         px = style.font.size * h  # font_size is a fraction of the box height
-        # The layout's width is the whole region and its alignment is halign, so
-        # Pango has ALREADY positioned each line horizontally within w (left,
-        # centered, or right). We therefore draw at x = 0 and let Pango own the
-        # horizontal placement -- adding our own halign offset on top would shift
-        # the block twice. Only vertical placement is left to us.
+        # Lay the block out at the full region width so multi-line justification
+        # (tied to content_halign -- the settled one-key-does-both decision) has
+        # room to work, then measure the block's own extent and let the ANCHOR,
+        # not a hardcoded x=0, own where that block sits in the box. anchor_offset
+        # returns (0, 0) when the block already fills the box, so a full-width
+        # block never shifts -- the feature only moves what has slack.
         layout = build_layout(cr, shown, style.font, px, style.halign, w)
         _, logical = layout.get_pixel_extents()
-
-        block_h = float(logical.height)
-        if style.valign == "center":
-            y = (h - block_h) / 2.0
-        elif style.valign == "bottom":
-            y = h - block_h
-        else:
-            y = 0.0
+        block_w, block_h = float(logical.width), float(logical.height)
+        x, y = vl.anchor_offset(style.halign, style.valign, w, h, block_w, block_h)
+        # anchor_offset places the block's LEFT edge at x. But Pango, handed the
+        # full region width plus a CENTER/RIGHT alignment, has ALREADY shifted the
+        # glyphs right by logical.x to justify them in that width. show_layout
+        # draws the origin at logical.x, so subtract it back out: the anchor alone
+        # then owns box placement, while Pango's alignment still justifies the
+        # LINES relative to each other within the block. For left/top logical.x is
+        # 0 and this is a no-op -- without it, center/right double-shift off-box.
+        draw_x = x - float(logical.x)
 
         # Drop shadow first (offset a hair down-right), then the text over it.
         # alpha 0 on the shadow color drops it -- bare text, no shadow.
         if style.shadow[3] > 0.0:
             off = max(1.0, px * 0.04)
-            cr.move_to(off, y + off)
+            cr.move_to(draw_x + off, y + off)
             cr.set_source_rgba(*style.shadow)
             PangoCairo.show_layout(cr, layout)
-        cr.move_to(0.0, y)
+        cr.move_to(draw_x, y)
         cr.set_source_rgba(*style.text)
         PangoCairo.show_layout(cr, layout)
+
+        # Debug border LAST, over the content: a 1px rectangle inset half a pixel
+        # from the buffer edge so the whole stroke lands inside the box on the
+        # pixel grid. Because the host sizes the buffer 1:1 with the region, this
+        # traces the (otherwise invisible) region box, making anchor tuning
+        # visible. Off unless debug_border = true (untrusted-input rule).
+        if style.border_on:
+            cr.set_source_rgba(*style.border_color)
+            cr.set_line_width(1.0)
+            cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0)
+            cr.stroke()
 
         surface.flush()  # commit cairo's writes before we unmap
         surface.finish()
@@ -312,14 +320,18 @@ def main() -> None:
     plugin_cfg: dict[str, Any] = json.loads(
         os.environ.get("VEILAND_PLUGIN_CONFIG") or "{}"
     )
+    content_halign, content_valign = vl.anchor_from_config(plugin_cfg, tag="markup")
+    border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="markup")
     style = Style(
         template=resolve_text(plugin_cfg),
         name=resolve_name(),
         font=resolve_font(plugin_cfg),
-        halign=resolve_align(plugin_cfg, "halign", ("center", "left", "right")),
-        valign=resolve_align(plugin_cfg, "valign", ("center", "top", "bottom")),
+        halign=content_halign,
+        valign=content_valign,
         text=vs.parse_color(plugin_cfg, "text_color", TEXT, tag="markup"),
         shadow=vs.parse_color(plugin_cfg, "shadow_color", SHADOW, tag="markup"),
+        border_on=border_on,
+        border_color=border_color,
     )
 
     dev = vp.GbmDevice()

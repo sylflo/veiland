@@ -27,7 +27,10 @@
 name = "veiland-markup"
 binary = "./python/examples/markup.py"
 z_index = 10
-region = { halign = "center", valign = "top", width = 0.5, height = 0.22, margin_y = 0.12 }
+# Region pinned to the screen's TOP-LEFT corner (halign/valign = left/top with
+# zero margins) so the box's corner IS the display corner. Combined with the
+# content_* keys below this is the motivating flush-corner case -- see it live.
+region = { halign = "left", valign = "top", width = 0.5, height = 0.22, margin_x = 0, margin_y = 0 }
 
 [plugin.config]
 # text: a Pango markup string with {variable} placeholders. \n splits lines; the
@@ -35,6 +38,14 @@ region = { halign = "center", valign = "top", width = 0.5, height = 0.22, margin
 # quotes so the double quotes inside the <span> need no escaping.
 text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
 {date:%A %d %B}'''
+
+# Park the text at the box's top-left and outline the box so you can SEE the
+# content anchor working: the block sits flush in the corner instead of centered,
+# and the magenta frame traces the region. Remove these three lines (or set them
+# to center/center) for the default centered look.
+content_halign = "left"
+content_valign = "top"
+debug_border = true
 
 # Everything below is optional -- these are the defaults spelled out.
 #
@@ -48,9 +59,19 @@ text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
 # font_weight = 400        # CSS numeric 100..900 (the block's base weight)
 # italic      = false
 #
-# Placement of the laid-out block WITHIN its region:
-# halign = "center"        # or "left" / "right" (also sets multi-line justify)
-# valign = "center"        # or "top" / "bottom"
+# Placement of the laid-out block WITHIN its region (the content-anchor
+# convention -- see docs/config.md; distinct from the region's own halign on the
+# region line above: that places the BOX, these place the TEXT inside it):
+# content_halign = "center"   # or "left" / "right" (also sets multi-line justify)
+# content_valign = "center"   # or "top" / "bottom"
+#
+# The motivating flush-left recipe: content_halign = "left" together with
+# margin_x = 0 on the region line pins the text to the screen's left edge.
+#
+# Debug aid while tuning placement -- stroke the (invisible) region box so you
+# can see where it landed and where your content sits in it. Off by default:
+# debug_border = true
+# debug_border_color = [1.0, 0.0, 1.0, 1.0]   # bright magenta; loud on purpose
 #
 # Colors are RGBA floats 0..1 where the fourth value IS the opacity:
 # text_color   = [1.0, 1.0, 1.0, 0.96]
@@ -69,4 +90,4 @@ text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
 # [plugin.config]
 # text = 'Good evening, <span foreground="#8ab4f8">{name}</span>'
 # font_family = "Dancing Script"
-# valign = "bottom"
+# content_valign = "bottom"
