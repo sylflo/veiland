@@ -42,6 +42,13 @@ fetch_remote_art = true
 # "Dancing Script" the dev shell ships. Any fontconfig family works and it falls
 # back to Sans if absent. Sizes stay derived from the card geometry.
 font_family = "Dancing Script"
+#
+# Debug aid while tuning placement -- the star's region is the WHOLE surface with
+# the card floating centered in it, so this bright-magenta frame outlines the
+# screen and shows how much slack surrounds the card. Off by default (see
+# docs/config.md):
+# debug_border = true
+# debug_border_color = [1.0, 0.0, 1.0, 1.0]
 
 # Password indicator near the bottom-center, clear of the centered card. `x` is
 # left unset so the core centers it horizontally; `y_percent` is the box CENTER
