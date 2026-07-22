@@ -387,6 +387,50 @@ defaults they document.
 The keys each first-party plugin accepts (with types and defaults)
 are documented in [`plugins.md`](plugins.md).
 
+#### Shared opt-in conventions (`content_halign`, `debug_border`)
+
+A handful of `[plugin.config]` keys are not core keys, but the
+first-party plugins agree to read them the same way — a *convention*,
+the same status `font_family` has. veiland-core still does not
+interpret any of them; each plugin reads and honours the key in its
+own process. A third-party plugin is free to ignore them.
+
+- **`content_halign`** (string): `left` | `center` | `right`.
+  Default `center`.
+- **`content_valign`** (string): `top` | `center` | `bottom`.
+  Default `center`.
+
+  These place a plugin's *content within its own region box* — a
+  distinct thing from the `region` table's `halign`/`valign`, which
+  place the *box on the output*. The box is a trust boundary the core
+  resolves and clips; where a plugin draws inside the buffer it was
+  handed is invisible to the core, so this is purely the plugin's own
+  pixels. Anchoring only moves content that is *smaller* than its box:
+  a block that fills the region does not shift (the anchor is a no-op),
+  so setting these on a full-region widget changes nothing.
+
+  The motivating case is flush-left text: `content_halign = "left"`
+  with `margin_x = 0` on the region pins text to the screen's left
+  edge, instead of the block re-centring inside the box.
+
+- **`debug_border`** (bool, default `false`) and
+  **`debug_border_color`** (`[r, g, b, a]` floats `0..1`, default a
+  bright magenta) — a development aid. When set, the plugin strokes a
+  1px rectangle just inside its buffer edge; because the host sizes the
+  buffer 1:1 with the region, that rectangle traces the otherwise
+  invisible region box, so you can see where it landed and where your
+  content sits while tuning `content_*`. Off by default, so a normal
+  locked session pays nothing.
+
+A bad value for any of these logs one line to the plugin's stderr and
+falls back to the default — a mistyped key mis-places or mis-colours,
+it never crashes the widget (the untrusted-input rule). Which
+first-party plugins honour the convention is noted in
+[`plugins.md`](plugins.md). The Python reference widgets implement it
+via the `veiland_layout` companion (`anchor_from_config`,
+`anchor_offset`, `debug_border_from_config`, `draw_debug_border`); see
+that module's docstrings.
+
 ## 4. Worked examples
 
 ### One plugin filling the screen
