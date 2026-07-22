@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cairo  # noqa: E402
 
 import veiland_dbus as vd  # noqa: E402
+import veiland_layout as vl  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
 
@@ -189,6 +190,10 @@ def draw_into(
     handle: Any,
     pill_color: vs.RGBA,
     icon_color: vs.RGBA | None,
+    halign: str,
+    valign: str,
+    border_on: bool,
+    border_color: vs.RGBA,
 ) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
     # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
@@ -202,15 +207,27 @@ def draw_into(
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        # The buffer IS our region, so placement is a two-line centering; WHERE
-        # the region sits on screen is the host's job (config anchor).
-        cx = buf.width / 2
-        cy = buf.height / 2
-        radius = min(buf.width, buf.height) / 2 - 4
+        # The buffer IS our region; the content-anchor convention (veiland_layout)
+        # parks the pill's 2*radius bounding square at content_halign/content_valign
+        # in it. WHERE the region sits on screen is the host's job (config anchor).
+        # Default center/center is a no-op: (w - 2r)/2 + r == w/2 (the old cx).
+        w, h = float(buf.width), float(buf.height)
+        radius = min(w, h) / 2 - 4
+        block = 2 * radius
+        x, y = vl.anchor_offset(halign, valign, w, h, block, block)
+        cx, cy = x + radius, y + radius
 
         vs.draw_pill(cr, cx, cy, radius, pill_color)
         if handle is not None:
             vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6, tint=icon_color)
+
+        # Debug border: trace the region box (= buffer edge) when debug_border is
+        # set. Off by default (untrusted-input rule).
+        if border_on:
+            cr.set_source_rgba(*border_color)
+            cr.set_line_width(1.0)
+            cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0)
+            cr.stroke()
 
         surface.flush()
         surface.finish()
@@ -232,6 +249,8 @@ def main() -> None:
     )
     pill_color = vs.parse_color(plugin_cfg, "pill_color", PILL_BG, tag="wifi")
     icon_color = vs.parse_color(plugin_cfg, "icon_color", None, tag="wifi")
+    halign, valign = vl.anchor_from_config(plugin_cfg, tag="wifi")
+    border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="wifi")
 
     icons = load_icons()
 
@@ -265,7 +284,16 @@ def main() -> None:
     extra = [source.fileno()] if source is not None else []
     for ev in pacer.events(conn, timeout=30.0, extra_fds=extra):
         if ev.kind is vp.Event.RENDER:
-            draw_into(chain.acquire(), current_icon(), pill_color, icon_color)
+            draw_into(
+                chain.acquire(),
+                current_icon(),
+                pill_color,
+                icon_color,
+                halign,
+                valign,
+                border_on,
+                border_color,
+            )
             chain.send(conn)
             pacer.submitted()
         elif ev.kind is vp.Event.RECONFIGURE and ev.configure is not None:

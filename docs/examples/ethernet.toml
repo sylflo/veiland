@@ -36,3 +36,11 @@ region = { halign = "right", valign = "top", width = 0.031, height = 0.056, marg
 # where re-tinting the icon IS required; bluetooth.toml tints both.)
 [plugin.config]
 pill_color = [0.05, 0.36, 0.44, 0.75]
+#
+# Content placement inside the region (the shared content-anchor convention --
+# see docs/config.md). This region is barely larger than the pill, so anchoring
+# has little slack to move it; it matters more with a generous region. The debug
+# border is handy here to SEE the small box the pill floats in while tuning:
+# content_halign = "center"   # or "left" / "right"
+# content_valign = "center"   # or "top" / "bottom"
+# debug_border   = true       # stroke the region box (bright magenta)
