@@ -51,17 +51,18 @@ weak; the composed screenshot is the pitch).
    preset or a wallpaper `blur` knob). ~90% of demand, no core change, respects
    isolation. Do NOT attempt Tier 2 (core-composited backdrop) for this release.
    See blur.md.
-3. **hero preset + curated wallpapers** — the FINISHER: one named default scene
-   (clock + status cluster + now-playing + avatar greeting over a blurred wallpaper)
-   + a small curated wallpaper set (Vaila's top comment was "may I have the
-   wallpapers?"). Small work (compose EXISTING widgets + a screenshot/GIF session),
-   but it's what the Reddit post leads with. Recording recipe:
-   [[project_recording_gallery_gifs]]. See widget-roadmap.md "hero preset".
+3. **hero preset — the STATIC "Deep Field" scene** — the FINISHER and the Reddit
+   thumbnail. The chosen hero is a specific composed astronomy scene (see
+   hero-deepfield.md): a deep-field nebula backdrop + starfield + moon + clock +
+   password. The STATIC tier fits v0.2.0 because it needs NO shader plugin — render
+   the nebula ONCE to an image, use it as a wallpaper background + blur, compose
+   stars/moon/clock on top. The LIVE/animated version is a separate arc (below).
+   Recording recipe: [[project_recording_gallery_gifs]].
 
-**🚩 CUT v0.2.0 HERE** once 1+2+3 land and the tree is green. The hero preset (3) is
-small enough to ride along; but if it somehow drags, ship weather+blur and make the
-preset a fast-follow — the 🚩 must never be held hostage by polish. Either way there
-is ONE Reddit post, leading with the composed hero scene.
+**🚩 CUT v0.2.0 HERE** once 1+2+3 land and the tree is green. The static hero (3) is
+the finisher; if it drags, ship weather+blur and make it a fast-follow — the 🚩 must
+never be held hostage by polish. ONE Reddit post, leading with the static deep-field
+scene.
 
 **Optional (include ONLY if the above lands with time to spare; must NOT delay):**
 
@@ -113,6 +114,31 @@ photograph); mention it in the next visual post's changelog, don't lead with it.
 **v0.3.0 = fingerprint**, **v0.4.0 = caps/layout + input-field**. Scope fingerprint
 first; if it balloons, ship it solo. Either way security-reviewed
 (`/security-review`). See auth-polish.md.
+
+---
+
+## → THE ANIMATED HERO ARC (veiland-shader → live Deep Field) — a multi-release track
+
+The user chose a specific hero (hero-deepfield.md) and to reproduce it FAITHFULLY.
+Its STATIC tier ships in v0.2.0 (above); its ANIMATED tier is a multi-release arc
+that PULLS veiland-shader forward from "someday big track" to a named priority,
+because 3 of the scene's layers (nebula, aurora, moon) are GPU shaders. Runs
+alongside/after the auth round; each stage is its own release theme + Reddit post:
+
+1. **veiland-shader host + nebula preset** (veiland-shader.md) — the generic GLSL
+   plugin, proven on SHADER_NEBULA (ports ~verbatim from the mockup). The static
+   hero's backdrop becomes LIVE. This is veiland-shader's reason to exist now.
+2. **Animated hero v1** — live nebula + starfield + meteor emitter + clock. The
+   churning backdrop is ~80% of the "wow"; ship BEFORE the hard shaders. A strong
+   "live, GPU, process-isolated — no other locker can do this" post.
+3. **Hard shaders** — aurora (net-new authorship; the mockup lists it but has no
+   shader) then the raymarched moon (hardest; ray-sphere + lighting + craters).
+   Polish on a hero that already reads; don't block the animated post on them.
+4. **Ephemeris data** — last; computed moon-phase/LST (cheap) vs. real sky data
+   (its own project — lean cheap). The scene reads as astronomy from visuals alone.
+
+See hero-deepfield.md for the full layer table + effort tags. The mockup at
+`mockups/veiland-lockers/` (Deep Field tab) is the spec.
 
 ## BACKLOG — after the auth round (re-rank on each ship; don't pre-number)
 
