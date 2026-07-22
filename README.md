@@ -471,6 +471,27 @@ regardless of the app, `ext-session-lock-v1` means the compositor keeps the
 session locked even if veiland itself crashes (see
 [Security model](#security-model)).
 
+## Roadmap
+
+Veiland locks reliably today, with a growing set of first-party plugins
+(clocks, wallpapers, particle backgrounds, a status cluster, now-playing,
+avatar, and freeform markup text). Where it's heading, roughly in order:
+
+- **A richer at-rest picture** — a weather widget, wallpaper blur, and a
+  polished default "hero" preset that composes the widgets into one scene.
+- **A richer lock experience** — a more responsive password field
+  (caps-lock indicator, failure feedback, familiar editing keys) and
+  **fingerprint unlock** via fprintd.
+- **Interactive widgets** — an opt-in, region-confined click forwarded to a
+  plugin, so widgets like now-playing gain transport controls. Pointer only,
+  never keyboard; a plugin still can't see the password or trigger an unlock.
+
+Longer term: a core-composited "frosted glass" blur behind widgets, a
+generic GLSL shader plugin, and colorscheme/preset integration.
+
+This is a direction, not a commitment — priorities follow real demand. If
+something here matters to you, an issue saying so genuinely moves it up.
+
 ## Design principles
 
 1. **Process isolation is non-negotiable.** A crashing or malicious plugin
@@ -489,9 +510,8 @@ session locked even if veiland itself crashes (see
 - A built-in plugin store.
 
 Veiland does password authentication only for now: it feeds the typed
-password to PAM. Fingerprint and hardware-token support, and pointer-driven
-widgets, aren't in this release; they're plausible additions if there's
-demand. There is no video playback.
+password to PAM (fingerprint and pointer-driven widgets are on the
+[roadmap](#roadmap)). There is no video playback.
 
 ## PAM setup
 
