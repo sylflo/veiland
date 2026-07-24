@@ -1,0 +1,8 @@
+<!-- weather-drizzle icon (cloud with light drizzle). CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <path d="M6.5 13 A3.2 3.2 0 0 1 7 6.4 A4.6 4.6 0 0 1 16 7.1 A3 3 0 0 1 16.7 13 Z" fill="#ffffff" stroke="none"/>
+  <g stroke="#ffffff" stroke-width="1.7" stroke-linecap="round">
+    <line x1="9.5" y1="16" x2="8.7" y2="18.3"/>
+    <line x1="14.5" y1="16" x2="13.7" y2="18.3"/>
+  </g>
+</svg>

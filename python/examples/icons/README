@@ -29,3 +29,12 @@ dims the rune and adds a slash, matching wifi-off / ethernet-down.
 
 user.svg is the head-and-shoulders outline the avatar widget (../avatar.py)
 draws inside its greeting pill, in the same stroke weight as the status glyphs.
+
+weather-*.svg are the condition glyphs the weather widget (../weather.py) picks
+by Open-Meteo WMO code. Eight conditions -- clear, partly-cloudy, cloudy, fog,
+drizzle, rain, snow, thunder -- share a common cloud/sun/precipitation
+vocabulary; only the two sky states split day vs night (weather-clear /
+weather-clear-night, weather-partly-cloudy / weather-partly-cloudy-night), since
+a clear night must not show a sun while rain/snow/fog/thunder look the same after
+dark. weather-unknown.svg is the "no reading yet / loading" placeholder: a plain
+cloud dimmed to 0.35, the same disabled-state convention as wifi-off.

@@ -1,0 +1,6 @@
+<!-- weather-thunder icon (cloud with a lightning bolt). CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <path d="M6.5 13 A3.2 3.2 0 0 1 7 6.4 A4.6 4.6 0 0 1 16 7.1 A3 3 0 0 1 16.7 13 Z" fill="#ffffff" stroke="none"/>
+  <path d="M13 14.5 L9.2 19.2 L11.6 19.2 L10.4 22.5 L14.8 17.4 L12.2 17.4 Z"
+        fill="#ffffff" stroke="none"/>
+</svg>

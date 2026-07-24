@@ -1,0 +1,95 @@
+# Test config for the weather example (python/examples/weather.py): a glanceable
+# "current weather" card -- a condition glyph + temperature -- composited over
+# the wallpaper. READ-ONLY (a display, like the clock): the unit is set here in
+# config, because the core cannot yet forward clicks into a plugin region.
+#
+# Live data comes from Open-Meteo over plain HTTPS (stdlib urllib -- no API key,
+# no dependency). Set your location below: a city string is geocoded once at
+# startup, OR give explicit latitude/longitude (which win). With no location the
+# card shows a "Set location" placeholder and makes NO network request.
+#
+# Network from a locked screen is deliberate and minimal: one short-timeout
+# fetch at startup, then one every `refresh_minutes` (floor 5), OFF the render
+# path; the last reading is cached to disk so a re-lock or a monitor hotplug
+# shows real data on frame one, and an offline box keeps showing the last-good
+# value. The fetch is synchronous on the refresh tick -- a slow network pauses
+# only THIS widget's repaints for up to ~3s, never the lock/password UI (the
+# locker is a separate process). If that pause bothers you, move the fetch to a
+# background thread and wake the loop with a self-pipe fd on the pacer's
+# extra_fds (the FD_READY plumbing wifi.py uses for its D-Bus socket); it is
+# left single-threaded here to keep the example small.
+#
+# Needs the Pango/PangoCairo GI stack (text shaping) and librsvg (the condition
+# icons): run veiland from inside `nix develop` so the flake wires pango +
+# harfbuzz + rsvg onto GI_TYPELIB_PATH / LD_LIBRARY_PATH. The binary path is
+# relative, so run veiland from the repo root; the script must be chmod +x
+# (already is in-tree) or the host spawn fails with os error 13.
+#
+# [plugin.region] anchors a small card bottom-left, hyprlock-style: halign/valign
+# pin the corner and width/height/margin are FRACTIONS of the surface, resolved
+# host-side per output, so the card is the same relative size on 1080p/1440p/4K.
+# See docs/config.md and now_playing.toml (the other anchored card example).
+
+# A gradient wallpaper BEHIND the card (z_index -100). Not just decor: the host
+# clears the lock surface to opaque black on every repaint and re-composites
+# plugins on top, so a translucent widget on a BARE surface shows black through
+# its transparent areas -- and a keystroke (which forces a repaint) makes that
+# flash = flicker. A full-surface opaque wallpaper underneath covers the clear.
+# Any opaque full-surface plugin does it; gradient is self-contained (no image).
+[[plugin]]
+name = "gradient"
+binary = "veiland-gradient"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.10, 0.16, 0.42],
+    [0.38, 0.12, 0.48],
+    [0.05, 0.36, 0.44],
+]
+angle_deg = 45.0
+speed = 0.6
+
+[[plugin]]
+name = "veiland-weather"
+binary = "./python/examples/weather.py"
+z_index = 10
+region = { halign = "left", valign = "bottom", width = 0.16, height = 0.10, margin = 0.03 }
+
+[plugin.config]
+# --- location (REQUIRED to fetch; pick ONE way) ------------------------------
+# A city string, geocoded once at startup via Open-Meteo's keyless geocoder.
+# This is the doxxing-safe override: name a city, not your coordinates, so a
+# screenshot need not reveal where you are.
+location = "Paris"
+# ...or give explicit coordinates instead (these WIN if both are set):
+# latitude = 48.85
+# longitude = 2.35
+
+# --- display -----------------------------------------------------------------
+units = "celsius"          # "celsius" | "fahrenheit"
+layout = "card"            # "card" (this file) | "pill" (see below)
+show_location = true       # card only: show the resolved place name as a third line
+# refresh_minutes = 15     # how often to re-fetch; floored at 5 (be kind to the free API)
+# network = true           # set false to freeze on the disk cache (never fetch)
+
+# --- theming (optional; same keys as the status pills / text widgets) --------
+# pill_color = [0.07, 0.08, 0.11, 0.69]   # the card/capsule background, RGBA 0..1 ([_,_,_,0] = none)
+# icon_color = [0.93, 0.94, 0.96, 1.0]    # tint the condition glyph (default: as authored, white)
+# font_family = "Sans"                    # any installed family; falls back gracefully
+# content_halign = "center"               # "left" | "center" | "right" -- place content within the region
+# content_valign = "center"               # "top"  | "center" | "bottom"
+# debug_border = true                     # trace the region box to tune placement
+
+# --- The "pill" variant -------------------------------------------------------
+# A compact top-right capsule (condition glyph + temperature) that drops into a
+# status-cluster row beside battery/wifi, instead of the bottom-left card. To
+# use it, set `layout = "pill"` above and swap the region for a small top-right
+# box, e.g.:
+#   region = { halign = "right", valign = "top", width = 0.075, height = 0.056, margin = 0.02 }
+# (show_location is ignored by the pill; it only draws the glyph + temperature.)
+
+# Password indicator near the bottom-center. `x` unset -> the core centers it;
+# `y_percent` is the box CENTER as a percent of surface height (92 -> just above
+# the bottom edge).
+[password]
+y_percent = 92

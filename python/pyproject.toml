@@ -50,6 +50,7 @@ module = [
     "test_dbus",
     "test_svg",
     "test_layout",
+    "test_weather",
     "conftest",
 ]
 disallow_untyped_defs = false

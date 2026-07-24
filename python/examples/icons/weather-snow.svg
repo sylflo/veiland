@@ -1,0 +1,16 @@
+<!-- weather-snow icon (cloud with snowflakes). CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <path d="M6.5 13 A3.2 3.2 0 0 1 7 6.4 A4.6 4.6 0 0 1 16 7.1 A3 3 0 0 1 16.7 13 Z" fill="#ffffff" stroke="none"/>
+  <g stroke="#ffffff" stroke-width="1.5" stroke-linecap="round">
+    <g transform="translate(8.5 17.5)">
+      <line x1="0" y1="-2" x2="0" y2="2"/>
+      <line x1="-1.73" y1="-1" x2="1.73" y2="1"/>
+      <line x1="-1.73" y1="1" x2="1.73" y2="-1"/>
+    </g>
+    <g transform="translate(15.5 17.5)">
+      <line x1="0" y1="-2" x2="0" y2="2"/>
+      <line x1="-1.73" y1="-1" x2="1.73" y2="1"/>
+      <line x1="-1.73" y1="1" x2="1.73" y2="-1"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,7 @@
+<!-- weather-partly-cloudy-night icon (moon behind a cloud). CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <path d="M14.5 9 A5.6 5.6 0 1 1 7.7 3.2 A4.4 4.4 0 0 0 14.5 9 Z"
+        fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linejoin="round"/>
+  <path d="M7.5 18.5 A3.2 3.2 0 0 1 8 12.2 A4.3 4.3 0 0 1 16.2 12.9 A3 3 0 0 1 16.8 18.5 Z"
+        fill="#ffffff" stroke="none"/>
+</svg>

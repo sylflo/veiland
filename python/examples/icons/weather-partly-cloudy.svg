@@ -1,0 +1,12 @@
+<!-- weather-partly-cloudy icon (sun behind a cloud). CC0-1.0, self-drawn for veiland. Public domain. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <circle cx="9" cy="8" r="3.1" fill="none" stroke="#ffffff" stroke-width="1.7"/>
+  <g stroke="#ffffff" stroke-width="1.7" stroke-linecap="round">
+    <line x1="9" y1="1.8" x2="9" y2="3.3"/>
+    <line x1="2.8" y1="8" x2="4.3" y2="8"/>
+    <line x1="4.6" y1="3.6" x2="5.7" y2="4.7"/>
+    <line x1="13.4" y1="3.6" x2="12.3" y2="4.7"/>
+  </g>
+  <path d="M7.5 18.5 A3.2 3.2 0 0 1 8 12.2 A4.3 4.3 0 0 1 16.2 12.9 A3 3 0 0 1 16.8 18.5 Z"
+        fill="#ffffff" stroke="none"/>
+</svg>
