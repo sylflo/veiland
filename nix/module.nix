@@ -28,8 +28,9 @@ in
     # veiland-core + reference plugins onto PATH.
     environment.systemPackages = [ cfg.package ];
 
-    # Register the `veiland` PAM service. veiland only runs the auth and
-    # account phases, so the default generated stack is exactly right.
+    # Register the `veiland` PAM service. veiland only runs the auth phase,
+    # so the default generated stack is more than enough (the account /
+    # session / password lines it also generates are simply never used).
     security.pam.services.veiland = { };
   };
 }

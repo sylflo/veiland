@@ -183,13 +183,18 @@ impl Drop for Session {
 /// sleeps on failure (pam_unix FAIL_DELAY, ~2s), which is why this runs
 /// on the auth worker thread, not the event loop. `password` is moved in
 /// and scrubbed by `PasswordConv`'s Drop when this returns.
+///
+/// `authenticate` only — deliberately no `acct_mgmt`. A locker re-verifies
+/// an *existing* session ("did the person at the keyboard prove they own
+/// this session?"); account admission ("may this account start a session?"
+/// — expiry, pam_time, pam_nologin) is a login manager's decision. Calling
+/// it here let a transient pam_unix AUTH_ERR during logind session teardown
+/// reject a correct password and lock the user out of their own live session.
 pub fn verify(service: &str, user: &str, password: CString) -> Result<(), AuthError> {
     let conv = PasswordConv { password };
     let mut ctx = Context::new(service, Some(user), conv).map_err(|_| AuthError::PamFailed)?;
 
     ctx.authenticate(Flag::NONE)
-        .map_err(|_| AuthError::PamFailed)?;
-    ctx.acct_mgmt(Flag::NONE)
         .map_err(|_| AuthError::PamFailed)?;
 
     Ok(())

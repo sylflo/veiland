@@ -114,8 +114,10 @@ plugin accepts.
 ## PAM setup
 
 Veiland authenticates against the PAM service named `veiland`, so
-`/etc/pam.d/veiland` must exist. Veiland only performs the `auth` and
-`account` phases; it does not open a session, so the config is minimal.
+`/etc/pam.d/veiland` must exist. Veiland only performs the `auth` phase; it
+does not open a session and does not run account management, so the config is
+minimal. Account admission ("may this account *start* a session?") is a login
+manager's decision — a locker re-verifies a session the user already has.
 
 The distro packages above bundle this file. On NixOS the flake module handles
 it; installing the package some other way needs:
@@ -129,14 +131,12 @@ For a source install on most distributions (Arch, Fedora, openSUSE), create
 
 ```
 auth     include system-auth
-account  include system-auth
 ```
 
-Debian and Ubuntu use `common-auth` / `common-account` instead:
+Debian and Ubuntu use `common-auth` instead:
 
 ```
 auth     include common-auth
-account  include common-account
 ```
 
 This inherits the system's password policy and stays correct as that policy

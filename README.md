@@ -516,9 +516,12 @@ password to PAM (fingerprint and pointer-driven widgets are on the
 ## PAM setup
 
 Veiland authenticates against the PAM service named `veiland`, so
-`/etc/pam.d/veiland` must exist. Veiland only performs the `auth` and
-`account` phases (verify the password, check the account is valid); it does
-not open a session, so the config is minimal.
+`/etc/pam.d/veiland` must exist. Veiland only performs the `auth` phase
+(verify the password); it does not open a session and does not run account
+management, so the config is minimal. Account admission ("may this account
+*start* a session?" — expiry, `pam_time`, `pam_nologin`) is a login
+manager's decision: a locker re-verifies a session the user already has, and
+enforcing admission there can lock someone out of their own live session.
 
 The **distro packages** (Arch/Debian/Fedora, above) bundle this file, so if
 you installed one of them there is nothing to do here.
@@ -536,14 +539,12 @@ openSUSE):
 
 ```
 auth     include system-auth
-account  include system-auth
 ```
 
-Debian/Ubuntu use `common-auth` / `common-account` instead:
+Debian/Ubuntu use `common-auth` instead:
 
 ```
 auth     include common-auth
-account  include common-account
 ```
 
 This inherits the system's password policy and stays correct as that policy
