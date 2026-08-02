@@ -35,13 +35,20 @@ struct Config {
     /// Multiplies RGB in the final pass. 0 = no dimming (default)
     #[serde(default)]
     darken: f32,
-    /// Optional "treated zone": inside this rect the wallpaper is
-    /// blurred AND dimmed, outside it stays sharp and full-brightness.
-    /// Absent (default) = blur+darken apply to the whole surface. Only
+    /// Optional "treated zones": inside any of these rects the wallpaper
+    /// is blurred AND dimmed, outside them all it stays sharp and
+    /// full-brightness. Empty (default) = blur+darken apply to the whole
+    /// surface. Up to `MAX_REGIONS`; extras are dropped with a log. Only
     /// meaningful when blur > 0; with blur = 0 it is ignored.
     #[serde(default)]
-    blur_region: Option<BlurRegion>,
+    blur_regions: Vec<BlurRegion>,
 }
+
+/// Shader-side cap on treated zones. GLES2 loop bounds must be a
+/// compile-time constant, so the copy shader always loops `MAX_REGIONS`
+/// times and early-outs past the live count. Kept in sync with the
+/// `const int MAX_REGIONS` in the copy fragment shader.
+const MAX_REGIONS: usize = 10;
 
 /// A fraction-of-surface rectangle. `x`/`y` are the top-left corner and
 /// `w`/`h` the size, all in [0, 1]; `y` is measured from the TOP (the
@@ -167,8 +174,10 @@ struct GpuState {
     u_sharp_loc: gl::types::GLint,
     // Post-blur dim applied in the copy pass; 0..1, 0 = unchanged.
     u_darken_loc: gl::types::GLint,
-    // Treated-zone rect (x0,y0,x1,y1 in UV); (0,0,1,1) = whole surface.
-    u_region_loc: gl::types::GLint,
+    // Treated-zone rects (u_regions[MAX_REGIONS], each x0,y0,x1,y1 in UV)
+    // and how many are live (u_region_count, 0..MAX_REGIONS).
+    u_regions_loc: gl::types::GLint,
+    u_region_count_loc: gl::types::GLint,
     // Separable Gaussian blur; direction chosen per pass by u_dir.
     blur_program: gl::types::GLuint,
     u_blur_tex_loc: gl::types::GLint,
@@ -183,9 +192,12 @@ struct GpuState {
     passes: u32,
     // Clamped 0..1 dim, applied in the copy pass independently of blur.
     darken: f32,
-    // Treated-zone rect in UV (x0,y0,x1,y1), y already flipped from the
-    // config's top-down convention. (0,0,1,1) when no blur_region is set.
-    region_uv: [f32; 4],
+    // Treated-zone rects in UV, flattened as [x0,y0,x1,y1, x0,y0,x1,y1, ..]
+    // for glUniform4fv. Always holds `region_count` rects (>= 1: the
+    // resolve step substitutes the whole surface (0,0,1,1) when the user
+    // set no blur_regions). No y flip: this pipeline's v_uv runs top-down.
+    region_uvs: Vec<f32>,
+    region_count: i32,
 }
 
 /// Build an offscreen framebuffer + colour texture at `w`x`h`. Returns
@@ -279,7 +291,8 @@ unsafe fn build_fbos(w: u32, h: u32) -> Option<[Fbo; 2]> {
 unsafe fn build_gpu_state(
     passes: u32,
     darken: f32,
-    region_uv: [f32; 4],
+    region_uvs: Vec<f32>,
+    region_count: i32,
     w: u32,
     h: u32,
 ) -> Result<GpuState, String> {
@@ -292,22 +305,37 @@ unsafe fn build_gpu_state(
         }\n\0";
 
     // Copy/composite pass. u_tex is the blurred image, u_tex_sharp the
-    // original wallpaper. u_region (x0,y0,x1,y1 in UV) is the treated
-    // zone: inside -> blurred + dimmed, outside -> sharp, full bright.
-    // When there is no blur_region, u_region is the whole surface
-    // (0,0,1,1) so the mix is blurred+dimmed everywhere, as before.
+    // original wallpaper. u_regions[] (each x0,y0,x1,y1 in UV) are the
+    // treated zones: inside ANY of them -> blurred + dimmed, outside them
+    // all -> sharp, full bright. u_region_count says how many entries are
+    // live (0..MAX_REGIONS). The resolve step always supplies at least one
+    // rect -- the whole surface (0,0,1,1) when the user set no regions --
+    // so "no regions" stays blurred+dimmed everywhere, as before.
+    // The loop bound is the compile-time const MAX_REGIONS (GLES2 requires
+    // a constant bound); the `i >= u_region_count` break skips unused
+    // slots. `inside = max(...)` is the union: overlapping rects just stay
+    // inside (they don't stack darken, since inside saturates at 1.0 and
+    // drives a single mix).
     // Dim RGB only; alpha stays as sampled (wallpaper is opaque, so
     // premultiplied == straight and rgb<=a holds). u_darken 0 = off.
     let fs_src = b"#version 100\n\
         precision mediump float;\n\
+        const int MAX_REGIONS = 10;\n\
         varying vec2 v_uv;\n\
         uniform sampler2D u_tex;\n\
         uniform sampler2D u_tex_sharp;\n\
         uniform float u_darken;\n\
-        uniform vec4 u_region;\n\
+        uniform vec4 u_regions[MAX_REGIONS];\n\
+        uniform int u_region_count;\n\
         void main() {\n\
-            float inside = step(u_region.x, v_uv.x) * step(v_uv.x, u_region.z)\n\
-                         * step(u_region.y, v_uv.y) * step(v_uv.y, u_region.w);\n\
+            float inside = 0.0;\n\
+            for (int i = 0; i < MAX_REGIONS; i++) {\n\
+                if (i >= u_region_count) break;\n\
+                vec4 r = u_regions[i];\n\
+                float hit = step(r.x, v_uv.x) * step(v_uv.x, r.z)\n\
+                          * step(r.y, v_uv.y) * step(v_uv.y, r.w);\n\
+                inside = max(inside, hit);\n\
+            }\n\
             vec4 blurred = texture2D(u_tex, v_uv);\n\
             vec4 sharp = texture2D(u_tex_sharp, v_uv);\n\
             vec4 treated = vec4(blurred.rgb * (1.0 - u_darken), blurred.a);\n\
@@ -395,7 +423,9 @@ unsafe fn build_gpu_state(
         let u_tex_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
         let u_sharp_loc = gl::GetUniformLocation(program, c"u_tex_sharp".as_ptr());
         let u_darken_loc = gl::GetUniformLocation(program, c"u_darken".as_ptr());
-        let u_region_loc = gl::GetUniformLocation(program, c"u_region".as_ptr());
+        // Array uniforms are queried by the [0] element's name.
+        let u_regions_loc = gl::GetUniformLocation(program, c"u_regions[0]".as_ptr());
+        let u_region_count_loc = gl::GetUniformLocation(program, c"u_region_count".as_ptr());
 
         let fbos = if passes > 0 {
             let built = build_fbos(w, h);
@@ -412,7 +442,8 @@ unsafe fn build_gpu_state(
             u_tex_loc,
             u_sharp_loc,
             u_darken_loc,
-            u_region_loc,
+            u_regions_loc,
+            u_region_count_loc,
             blur_program,
             u_blur_tex_loc,
             u_dir_loc,
@@ -420,7 +451,8 @@ unsafe fn build_gpu_state(
             fbos,
             passes,
             darken,
-            region_uv,
+            region_uvs,
+            region_count,
         })
     }
 }
@@ -465,8 +497,12 @@ fn run() -> Result<(), PluginError> {
 
     let config = veiland_plugin::load_config::<Config>(PLUGIN_NAME);
     eprintln!(
-        "veiland-{}: config path={:?}, blur={}, darken={}",
-        PLUGIN_NAME, config.path, config.blur, config.darken
+        "veiland-{}: config path={:?}, blur={}, darken={}, blur_regions={}",
+        PLUGIN_NAME,
+        config.path,
+        config.blur,
+        config.darken,
+        config.blur_regions.len()
     );
 
     // Decode runs on a worker thread so the connection handshake and
@@ -533,28 +569,52 @@ fn run() -> Result<(), PluginError> {
     // can't disagree. blur < 0.5 -> 0 passes -> the plain direct path.
     let passes = (config.blur.round() as i32).clamp(0, 20) as u32;
     let darken = config.darken.clamp(0.0, 1.0);
-    // Resolve blur_region (fractions of surface, x/y from the top-left) to
-    // the UV rect (x0,y0,x1,y1) the copy shader tests against. This
-    // pipeline's v_uv runs top-down relative to the screen (the FBO
-    // round-trip leaves the image upright without a flip, see the copy
-    // pass), so config y maps straight to UV y with no inversion. No
-    // region -> whole surface, so the copy pass treats everything
-    // (blurred+dimmed), matching prior behavior.
-    let region_uv = match config.blur_region {
-        Some(r) => {
+    // Resolve blur_regions (fractions of surface, x/y from the top-left)
+    // to the flat UV rect array (x0,y0,x1,y1 each) the copy shader tests
+    // against. This pipeline's v_uv runs top-down relative to the screen
+    // (the FBO round-trip leaves the image upright without a flip, see the
+    // copy pass), so config y maps straight to UV y with no inversion.
+    // Over MAX_REGIONS -> drop the extras and log (untrusted config, must
+    // not exceed the shader's fixed array). No regions -> substitute the
+    // whole surface (0,0,1,1) so the copy pass treats everything
+    // (blurred+dimmed), matching prior behavior with a single code path.
+    let mut regions = config.blur_regions.clone();
+    if regions.len() > MAX_REGIONS {
+        eprintln!(
+            "veiland-{PLUGIN_NAME}: {} blur_regions given, max {}; dropping extras",
+            regions.len(),
+            MAX_REGIONS
+        );
+        regions.truncate(MAX_REGIONS);
+    }
+    let mut region_uvs: Vec<f32> = regions
+        .iter()
+        .flat_map(|r| {
             let x0 = r.x.clamp(0.0, 1.0);
             let x1 = (r.x + r.w).clamp(0.0, 1.0);
             let y0 = r.y.clamp(0.0, 1.0);
             let y1 = (r.y + r.h).clamp(0.0, 1.0);
             [x0, y0, x1, y1]
-        }
-        None => [0.0, 0.0, 1.0, 1.0],
-    };
-    let mut gpu = unsafe { build_gpu_state(passes, darken, region_uv, dma.width(), dma.height()) }
-        .map_err(|e| {
-            eprintln!("veiland-{PLUGIN_NAME}: {e}");
-            PluginError::Render("shader build failed")
-        })?;
+        })
+        .collect();
+    if region_uvs.is_empty() {
+        region_uvs.extend_from_slice(&[0.0, 0.0, 1.0, 1.0]);
+    }
+    let region_count = (region_uvs.len() / 4) as i32;
+    let mut gpu = unsafe {
+        build_gpu_state(
+            passes,
+            darken,
+            region_uvs,
+            region_count,
+            dma.width(),
+            dma.height(),
+        )
+    }
+    .map_err(|e| {
+        eprintln!("veiland-{PLUGIN_NAME}: {e}");
+        PluginError::Render("shader build failed")
+    })?;
     let mut decode_rx: Option<Receiver<Option<DecodedImage>>> = Some(decode_rx);
 
     // On-demand: the wallpaper redraws only when the host asks (and once
@@ -698,13 +758,12 @@ fn render_and_send(
                 gl::Uniform1i(gpu.u_tex_loc, 0);
                 gl::Uniform1i(gpu.u_sharp_loc, 1);
                 gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
-                gl::Uniform4f(
-                    gpu.u_region_loc,
-                    gpu.region_uv[0],
-                    gpu.region_uv[1],
-                    gpu.region_uv[2],
-                    gpu.region_uv[3],
+                gl::Uniform4fv(
+                    gpu.u_regions_loc,
+                    gpu.region_count,
+                    gpu.region_uvs.as_ptr(),
                 );
+                gl::Uniform1i(gpu.u_region_count_loc, gpu.region_count);
                 dma.bind_for_rendering()?;
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::ActiveTexture(gl::TEXTURE0);
@@ -717,17 +776,21 @@ fn render_and_send(
                 gl::ActiveTexture(gl::TEXTURE0);
             }
             // No blur (or FBOs absent): sharp wallpaper, global darken.
-            // blur_region is meaningless without a blurred image, so force
-            // u_region to the whole surface and bind the sharp wallpaper to
-            // both samplers -> the mix is sharp+darken everywhere.
+            // blur_regions are meaningless without a blurred image, so force
+            // a single whole-surface treated rect and bind the sharp
+            // wallpaper to both samplers -> the mix is sharp+darken
+            // everywhere. WHOLE is a persistent [x0,y0,x1,y1] so its pointer
+            // stays valid for the glUniform4fv read.
             (Some(tex), None) => {
+                const WHOLE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
                 gl::ClearColor(0.0, 0.0, 0.0, 1.0);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::UseProgram(gpu.program);
                 gl::Uniform1i(gpu.u_tex_loc, 0);
                 gl::Uniform1i(gpu.u_sharp_loc, 1);
                 gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
-                gl::Uniform4f(gpu.u_region_loc, 0.0, 0.0, 1.0, 1.0);
+                gl::Uniform4fv(gpu.u_regions_loc, 1, WHOLE.as_ptr());
+                gl::Uniform1i(gpu.u_region_count_loc, 1);
                 gl::ActiveTexture(gl::TEXTURE0);
                 gl::BindTexture(gl::TEXTURE_2D, tex);
                 gl::ActiveTexture(gl::TEXTURE1);

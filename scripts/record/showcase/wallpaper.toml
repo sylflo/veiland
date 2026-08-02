@@ -11,6 +11,11 @@ z_index = 0
 
 [plugin.config]
 path = "docs/examples/assets/sakura-dusk.jpg"
-blur_region = { x=0, y=0, w=0.3, h=1 }
+# Two treated zones: a left strip and a small block, to show that blur
+# regions compose (blur+darken inside each, sharp outside).
+blur_regions = [
+  { x = 0.0,  y = 0.0, w = 0.3, h = 1.0 },
+  { x = 0.65, y = 0.6, w = 0.3, h = 0.3 },
+]
 blur = 8
 darken = 0.3
