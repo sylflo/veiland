@@ -64,6 +64,13 @@ struct BlurRegion {
     w: f32,
     #[serde(default)]
     h: f32,
+    /// Corner radius, as a fraction of surface HEIGHT (so it stays a
+    /// circle, not an ellipse, on a non-square surface). 0 (default) =
+    /// hard rectangular corners. Clamped in the shader to at most half the
+    /// region's shorter side, so an over-large radius becomes a pill/circle
+    /// rather than an inverted mask.
+    #[serde(default)]
+    radius: f32,
 }
 
 /// CPU-side decoded image. Held only between `decode_image` and the
@@ -174,10 +181,16 @@ struct GpuState {
     u_sharp_loc: gl::types::GLint,
     // Post-blur dim applied in the copy pass; 0..1, 0 = unchanged.
     u_darken_loc: gl::types::GLint,
-    // Treated-zone rects (u_regions[MAX_REGIONS], each x0,y0,x1,y1 in UV)
-    // and how many are live (u_region_count, 0..MAX_REGIONS).
+    // Treated-zone rects (u_regions[MAX_REGIONS], each x0,y0,x1,y1 in UV),
+    // their per-region corner radii (u_region_radii, height-fraction), and
+    // how many are live (u_region_count, 0..MAX_REGIONS).
     u_regions_loc: gl::types::GLint,
+    u_region_radii_loc: gl::types::GLint,
     u_region_count_loc: gl::types::GLint,
+    // width/height, so the rounded-corner SDF stays circular not elliptical.
+    u_aspect_loc: gl::types::GLint,
+    // Anti-alias band width for the rounded edge, in UV-height units.
+    u_edge_loc: gl::types::GLint,
     // Separable Gaussian blur; direction chosen per pass by u_dir.
     blur_program: gl::types::GLuint,
     u_blur_tex_loc: gl::types::GLint,
@@ -197,7 +210,12 @@ struct GpuState {
     // resolve step substitutes the whole surface (0,0,1,1) when the user
     // set no blur_regions). No y flip: this pipeline's v_uv runs top-down.
     region_uvs: Vec<f32>,
+    // Per-region corner radii (height-fraction), one per rect, same order.
+    region_radii: Vec<f32>,
     region_count: i32,
+    // Cached aspect (width/height) and AA band, refreshed on resize.
+    aspect: f32,
+    edge: f32,
 }
 
 /// Build an offscreen framebuffer + colour texture at `w`x`h`. Returns
@@ -292,6 +310,7 @@ unsafe fn build_gpu_state(
     passes: u32,
     darken: f32,
     region_uvs: Vec<f32>,
+    region_radii: Vec<f32>,
     region_count: i32,
     w: u32,
     h: u32,
@@ -318,22 +337,63 @@ unsafe fn build_gpu_state(
     // drives a single mix).
     // Dim RGB only; alpha stays as sampled (wallpaper is opaque, so
     // premultiplied == straight and rgb<=a holds). u_darken 0 = off.
+    // Each region's `inside` mask is a rounded-rectangle signed-distance
+    // test, not a plain step-box, so corners can be rounded (radius 0 gives
+    // back a hard rect). The math, in words, to keep the GLSL readable:
+    //
+    //   * Everything runs in ASPECT-CORRECTED UV: x is multiplied by
+    //     u_aspect (= width/height) so one unit in x and y is the same
+    //     physical distance. Without this a "circular" corner in raw UV
+    //     comes out as an ellipse on a 16:9 surface. The radius is given in
+    //     height-fraction units, so y needs no correction.
+    //   * For a rect we take its half-size and centre. The classic 2D
+    //     rounded-box SDF shrinks the half-size by the radius, measures the
+    //     distance from the fragment to that shrunk box, and subtracts the
+    //     radius: d < 0 inside, d > 0 outside, d == 0 on the rounded edge.
+    //   * radius is clamped to min(halfW, halfH) so an over-large value
+    //     saturates to a pill/circle instead of inverting the mask.
+    //   * the edge is anti-aliased by smoothstepping d across a one-pixel
+    //     band derived from fwidth(d) (screen-space derivative of the
+    //     distance field). This keeps the band ~1px on every edge; a fixed
+    //     epsilon collapses to a hard, stair-stepped edge on the vertical
+    //     sides once x has been stretched by u_aspect. u_edge is only a
+    //     fallback for the rare driver without GL_OES_standard_derivatives.
     let fs_src = b"#version 100\n\
-        precision mediump float;\n\
+        #extension GL_OES_standard_derivatives : enable\n\
+        precision highp float;\n\
         const int MAX_REGIONS = 10;\n\
         varying vec2 v_uv;\n\
         uniform sampler2D u_tex;\n\
         uniform sampler2D u_tex_sharp;\n\
         uniform float u_darken;\n\
         uniform vec4 u_regions[MAX_REGIONS];\n\
+        uniform float u_region_radii[MAX_REGIONS];\n\
         uniform int u_region_count;\n\
+        uniform float u_aspect;\n\
+        uniform float u_edge;\n\
+        float rounded_rect_hit(vec4 r, float rad, vec2 p) {\n\
+            vec2 lo = vec2(r.x * u_aspect, r.y);\n\
+            vec2 hi = vec2(r.z * u_aspect, r.w);\n\
+            vec2 half_sz = 0.5 * (hi - lo);\n\
+            vec2 center = 0.5 * (lo + hi);\n\
+            rad = min(rad, min(half_sz.x, half_sz.y));\n\
+            vec2 q = abs(p - center) - (half_sz - rad);\n\
+            float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;\n\
+            // Anti-alias band = one screen pixel of the distance field,\n\
+            // measured with fwidth so it is correct regardless of aspect,\n\
+            // radius, or which edge we are near (a fixed epsilon collapses\n\
+            // to a hard edge on vertical sides after the aspect stretch).\n\
+            // Fall back to u_edge if derivatives are unsupported (aa == 0).\n\
+            float aa = fwidth(d);\n\
+            float band = (aa > 0.0) ? aa : u_edge;\n\
+            return 1.0 - smoothstep(-band, band, d);\n\
+        }\n\
         void main() {\n\
+            vec2 p = vec2(v_uv.x * u_aspect, v_uv.y);\n\
             float inside = 0.0;\n\
             for (int i = 0; i < MAX_REGIONS; i++) {\n\
                 if (i >= u_region_count) break;\n\
-                vec4 r = u_regions[i];\n\
-                float hit = step(r.x, v_uv.x) * step(v_uv.x, r.z)\n\
-                          * step(r.y, v_uv.y) * step(v_uv.y, r.w);\n\
+                float hit = rounded_rect_hit(u_regions[i], u_region_radii[i], p);\n\
                 inside = max(inside, hit);\n\
             }\n\
             vec4 blurred = texture2D(u_tex, v_uv);\n\
@@ -425,7 +485,10 @@ unsafe fn build_gpu_state(
         let u_darken_loc = gl::GetUniformLocation(program, c"u_darken".as_ptr());
         // Array uniforms are queried by the [0] element's name.
         let u_regions_loc = gl::GetUniformLocation(program, c"u_regions[0]".as_ptr());
+        let u_region_radii_loc = gl::GetUniformLocation(program, c"u_region_radii[0]".as_ptr());
         let u_region_count_loc = gl::GetUniformLocation(program, c"u_region_count".as_ptr());
+        let u_aspect_loc = gl::GetUniformLocation(program, c"u_aspect".as_ptr());
+        let u_edge_loc = gl::GetUniformLocation(program, c"u_edge".as_ptr());
 
         let fbos = if passes > 0 {
             let built = build_fbos(w, h);
@@ -437,13 +500,21 @@ unsafe fn build_gpu_state(
             None
         };
 
+        // aspect keeps the rounded corners circular; edge is ~1.5px in
+        // UV-height units for a cheap anti-aliased rounded edge.
+        let aspect = w as f32 / h as f32;
+        let edge = 1.5 / h as f32;
+
         Ok(GpuState {
             program,
             u_tex_loc,
             u_sharp_loc,
             u_darken_loc,
             u_regions_loc,
+            u_region_radii_loc,
             u_region_count_loc,
+            u_aspect_loc,
+            u_edge_loc,
             blur_program,
             u_blur_tex_loc,
             u_dir_loc,
@@ -452,7 +523,10 @@ unsafe fn build_gpu_state(
             passes,
             darken,
             region_uvs,
+            region_radii,
             region_count,
+            aspect,
+            edge,
         })
     }
 }
@@ -597,8 +671,14 @@ fn run() -> Result<(), PluginError> {
             [x0, y0, x1, y1]
         })
         .collect();
+    // Per-region radii, kept in lock-step with region_uvs (one per rect).
+    // radius is a height-fraction; the shader clamps it to the region's
+    // half-size, so we only guard against negatives here. Non-negative
+    // radius <= 0.5 is the sane range (0 = hard corners).
+    let mut region_radii: Vec<f32> = regions.iter().map(|r| r.radius.max(0.0)).collect();
     if region_uvs.is_empty() {
         region_uvs.extend_from_slice(&[0.0, 0.0, 1.0, 1.0]);
+        region_radii.push(0.0);
     }
     let region_count = (region_uvs.len() / 4) as i32;
     let mut gpu = unsafe {
@@ -606,6 +686,7 @@ fn run() -> Result<(), PluginError> {
             passes,
             darken,
             region_uvs,
+            region_radii,
             region_count,
             dma.width(),
             dma.height(),
@@ -629,6 +710,13 @@ fn run() -> Result<(), PluginError> {
             }
             Frame::Reconfigure(c) => {
                 dma.resize_or_keep(&gbm_egl, c.region_w, c.region_h, PLUGIN_NAME);
+                // Refresh the cached aspect/edge on every reconfigure (not
+                // just the blur path below): the rounded-corner SDF reads
+                // them, and they must track the new dmabuf size even when
+                // blur is off, or corners go elliptical after a resolution
+                // change.
+                gpu.aspect = dma.width() as f32 / dma.height() as f32;
+                gpu.edge = 1.5 / dma.height() as f32;
                 // The FBOs must match the dmabuf size or the blur samples a
                 // stale-sized target. Rebuild only on an actual size change;
                 // on failure, fall back to the unblurred direct path. Copy
@@ -759,7 +847,14 @@ fn render_and_send(
                 gl::Uniform1i(gpu.u_sharp_loc, 1);
                 gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
                 gl::Uniform4fv(gpu.u_regions_loc, gpu.region_count, gpu.region_uvs.as_ptr());
+                gl::Uniform1fv(
+                    gpu.u_region_radii_loc,
+                    gpu.region_count,
+                    gpu.region_radii.as_ptr(),
+                );
                 gl::Uniform1i(gpu.u_region_count_loc, gpu.region_count);
+                gl::Uniform1f(gpu.u_aspect_loc, gpu.aspect);
+                gl::Uniform1f(gpu.u_edge_loc, gpu.edge);
                 dma.bind_for_rendering()?;
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::ActiveTexture(gl::TEXTURE0);
@@ -779,6 +874,9 @@ fn render_and_send(
             // stays valid for the glUniform4fv read.
             (Some(tex), None) => {
                 const WHOLE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+                // radius 0: no blur to round, and both samplers are the
+                // sharp wallpaper anyway, so the mask shape is immaterial.
+                const WHOLE_RADIUS: f32 = 0.0;
                 gl::ClearColor(0.0, 0.0, 0.0, 1.0);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::UseProgram(gpu.program);
@@ -786,7 +884,10 @@ fn render_and_send(
                 gl::Uniform1i(gpu.u_sharp_loc, 1);
                 gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
                 gl::Uniform4fv(gpu.u_regions_loc, 1, WHOLE.as_ptr());
+                gl::Uniform1fv(gpu.u_region_radii_loc, 1, &WHOLE_RADIUS);
                 gl::Uniform1i(gpu.u_region_count_loc, 1);
+                gl::Uniform1f(gpu.u_aspect_loc, gpu.aspect);
+                gl::Uniform1f(gpu.u_edge_loc, gpu.edge);
                 gl::ActiveTexture(gl::TEXTURE0);
                 gl::BindTexture(gl::TEXTURE_2D, tex);
                 gl::ActiveTexture(gl::TEXTURE1);

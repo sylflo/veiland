@@ -11,11 +11,13 @@ z_index = 0
 
 [plugin.config]
 path = "docs/examples/assets/sakura-dusk.jpg"
-# Two treated zones: a left strip and a small block, to show that blur
-# regions compose (blur+darken inside each, sharp outside).
+# Two treated zones: a full-height left strip and a small rounded block,
+# to show that blur regions compose (blur+darken inside each, sharp
+# outside) and that corners can be rounded per-region. radius is a
+# fraction of surface height; 0 (or omitted) gives hard corners.
 blur_regions = [
-  { x = 0.0,  y = 0.0, w = 0.3, h = 1.0 },
-  { x = 0.65, y = 0.6, w = 0.3, h = 0.3 },
+  { x = 0.05, y = 0.1, w = 0.25, h = 0.8, radius = 0.01 },
+  { x = 0.65, y = 0.6, w = 0.3,  h = 0.3, radius = 0.04 },
 ]
 blur = 8
 darken = 0.3
