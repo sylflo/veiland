@@ -758,11 +758,7 @@ fn render_and_send(
                 gl::Uniform1i(gpu.u_tex_loc, 0);
                 gl::Uniform1i(gpu.u_sharp_loc, 1);
                 gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
-                gl::Uniform4fv(
-                    gpu.u_regions_loc,
-                    gpu.region_count,
-                    gpu.region_uvs.as_ptr(),
-                );
+                gl::Uniform4fv(gpu.u_regions_loc, gpu.region_count, gpu.region_uvs.as_ptr());
                 gl::Uniform1i(gpu.u_region_count_loc, gpu.region_count);
                 dma.bind_for_rendering()?;
                 gl::Clear(gl::COLOR_BUFFER_BIT);
