@@ -11,3 +11,6 @@ z_index = 0
 
 [plugin.config]
 path = "docs/examples/assets/sakura-dusk.jpg"
+blur_region = { x=0, y=0, w=0.3, h=1 }
+blur = 8
+darken = 0.3
