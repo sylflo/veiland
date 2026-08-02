@@ -18,10 +18,16 @@
 # placeholders. Placeholders are substituted str.replace-style -- NEVER
 # str.format: the template is untrusted config, and a stray "{" must mis-render
 # at worst, never raise. Supported: {user} ($USER), {name} (GECOS full name,
-# the same resolution avatar.py uses), {host} (hostname), {time:STRFTIME},
-# {date:STRFTIME}. A bad strftime spec substitutes the literal placeholder and
-# logs one line. Malformed <span> markup falls back to plain text + one line.
-# Neither ever takes down the locker (the untrusted-input rule; see CLAUDE.md).
+# the same resolution avatar.py uses), {host} (hostname), {uptime} (uptime
+# human-style, e.g. "2d 3h 47m", from /proc/uptime), {loadavg} (1/5/15-min load
+# from /proc/loadavg), {kernel} (os.uname release), {distro} (PRETTY_NAME from
+# /etc/os-release, e.g. "Ubuntu 24.04.1 LTS"), {distro_version} (VERSION_ID),
+# {time:STRFTIME}, {date:STRFTIME}. These cover the common hyprlock cmd[...]
+# recipes with zero shell -- fixed /proc + /etc/os-release reads, not
+# subprocesses. A bad strftime spec substitutes
+# the literal placeholder and logs one line; a failed /proc read substitutes ""
+# and logs. Malformed <span> markup falls back to plain text + one line. None
+# ever takes down the locker (the untrusted-input rule; see CLAUDE.md).
 #
 # The base font comes from veiland_text.font_from_config (markup is its first
 # consumer) -- the uniform font_family/font_size/font_weight/italic keys, same
@@ -137,6 +143,61 @@ def resolve_name() -> str:
     return os.environ.get("USER") or "there"
 
 
+def read_uptime() -> str:
+    # /proc/uptime's first field is seconds-since-boot as a float. Render it
+    # human-style ("2d 3h 47m"), dropping zero-value leading units. A fixed
+    # /proc read -- NOT hyprlock's cmd[uptime -p]: no shell, no subprocess. On
+    # any read error return "" (the placeholder resolves to empty) and log one
+    # line; a system oddity is not a user typo to keep visible, unlike a bad
+    # {time} format. Never raises (the untrusted-input rule).
+    try:
+        with open("/proc/uptime") as f:
+            secs = int(float(f.read().split()[0]))
+    except (OSError, ValueError, IndexError) as e:
+        log(f"{{uptime}}: could not read /proc/uptime ({e})")
+        return ""
+    days, secs = divmod(secs, 86400)
+    hours, secs = divmod(secs, 3600)
+    mins = secs // 60
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    parts.append(f"{mins}m")
+    return " ".join(parts)
+
+
+def read_loadavg() -> str:
+    # The 1/5/15-minute load averages from /proc/loadavg (its first three
+    # fields), each two decimals -- what `uptime` prints. "" + one log line on
+    # any read error, same graceful-degrade as read_uptime.
+    try:
+        with open("/proc/loadavg") as f:
+            one, five, fifteen = f.read().split()[:3]
+        return f"{float(one):.2f} {float(five):.2f} {float(fifteen):.2f}"
+    except (OSError, ValueError) as e:
+        log(f"{{loadavg}}: could not read /proc/loadavg ({e})")
+        return ""
+
+
+def read_os_release(key: str) -> str:
+    # A single field from /etc/os-release (the systemd standard, present on
+    # ~every modern distro incl. NixOS). Lines are KEY=VALUE with the value
+    # optionally double-quoted; strip one layer of quotes. "" + one log line if
+    # the file or key is absent -- a fixed read, no shell, never raises.
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                k, sep, v = line.partition("=")
+                if sep and k == key:
+                    return v.strip().strip('"')
+    except OSError as e:
+        log(f"{{{key.lower()}}}: could not read /etc/os-release ({e})")
+        return ""
+    return ""
+
+
 def resolve_text(cfg: dict[str, Any]) -> str:
     raw = cfg.get("text", DEFAULT_TEXT)
     if not isinstance(raw, str):
@@ -196,6 +257,16 @@ def substitute(template: str, name: str) -> str:
             return name
         if key == "host":
             return socket.gethostname()
+        if key == "uptime":
+            return read_uptime()
+        if key == "loadavg":
+            return read_loadavg()
+        if key == "kernel":
+            return os.uname().release
+        if key == "distro":
+            return read_os_release("PRETTY_NAME")
+        if key == "distro_version":
+            return read_os_release("VERSION_ID")
         if key in ("time", "date"):
             spec = fmt if fmt is not None else ("%H:%M" if key == "time" else "%x")
             try:

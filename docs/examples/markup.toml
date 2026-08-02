@@ -10,10 +10,14 @@
 #
 # The `text` string may contain BOTH Pango <span> tags (inline size/weight/color,
 # no config DSL to learn) AND {placeholders}: {user}, {name} (your GECOS full
-# name), {host}, {time:STRFTIME}, {date:STRFTIME}. A {time:%H:%M} line redraws
-# once a minute; a static line never redraws after the first frame. A bad
-# strftime spec shows the literal "{time:...}" so you can fix it; malformed
-# markup falls back to plain text -- neither ever crashes the locker.
+# name), {host}, {uptime} (e.g. "2d 3h 47m"), {loadavg} (1/5/15-min load),
+# {kernel}, {distro} (e.g. "Ubuntu 24.04.1 LTS"), {distro_version}, {time:STRFTIME},
+# {date:STRFTIME}. The system tokens are fixed /proc + /etc/os-release reads, NOT
+# shell commands -- they cover the common hyprlock cmd[...] uptime/host/distro
+# recipes with zero subprocess. A {time:%H:%M} line redraws once a minute;
+# a static line never redraws after the first frame. A bad strftime spec shows
+# the literal "{time:...}" so you can fix it; a failed /proc read shows nothing;
+# malformed markup falls back to plain text -- none ever crashes the locker.
 #
 # This needs the gi stack: pygobject3 + Pango/PangoCairo typelibs on
 # GI_TYPELIB_PATH (the flake's dev shell wires them; run from `nix develop`).
@@ -105,4 +109,27 @@ text = 'Good evening, <span foreground="#8ab4f8">{name}</span>'
 font_family = "Dancing Script"
 content_valign = "center"
 bg_color = [0.427, 0.027, 0.102, 1.0]   # the frosted greeting chip
-font_size   = 0.50 
+font_size   = 0.50
+
+# A THIRD region: the system-info line, parked bottom-left. This is the
+# hyprlock-cmd[...]-parity showcase done as pure config -- {uptime}, {loadavg},
+# {kernel}, {distro} and {host} are fixed /proc / uname / os-release reads (no
+# shell, no subprocess), where hyprlock would need `cmd[update:1000] uptime -p
+# | sed ...`. The <span> tags dim the labels so the values read first; {uptime}
+# redraws once a minute, {loadavg} when the load shifts, {distro}/{kernel}/{host}
+# never after the first frame.
+[[plugin]]
+name = "markup-sysinfo"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "bottom", width = 0.4, height = 0.18, margin_x = 0.02, margin_y = 0.04 }
+
+[plugin.config]
+text = '''<span foreground="#8a8f98">up</span> {uptime}
+<span foreground="#8a8f98">load</span> {loadavg}
+<span foreground="#8a8f98">{host}</span> · {kernel}
+{distro}'''
+content_halign = "left"
+font_size = 0.18
+bg_color = [0.059, 0.071, 0.110, 0.69]   # the family glass chip
+bg_padding = 0.8
