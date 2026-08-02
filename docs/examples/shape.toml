@@ -1,0 +1,93 @@
+# Test config for the shape example (python/examples/shape.py): the backdrop /
+# card primitive -- ONE rounded, colored, alpha-blended rectangle filling its
+# region. It is the veiland answer to hyprlock's `shape` block: a static tinted
+# panel that other widgets sit ON TOP OF. It draws once and never changes, has no
+# data source, and no keystroke ever reaches it.
+#
+# There is no grouping primitive. You stack a shape UNDER a content widget by
+# giving them the SAME region and the content plugin a HIGHER z_index -- paint
+# order does the layering, exactly as hyprlock stacks label-over-shape by zindex.
+# WHERE the panel sits and HOW BIG it is are the host's job ([plugin.region]);
+# the plugin only paints its assigned box.
+#
+# It does NOT blur (a frosted-glass card is the wallpaper's blur_region, OpenGL)
+# and draws no text or icon (put a markup/label/svg widget on top for that). One
+# solid rounded fill.
+#
+# The binary path is relative, so run veiland from the repo root; the script must
+# be chmod +x or the host spawn fails with os error 13. shape needs only cairo
+# (no D-Bus, no SVG/Pango stack), but running from inside `nix develop` is still
+# the simplest way to have cairo on the path.
+#
+# This scene shows two uses of the same plugin:
+#   1. A large translucent CARD behind a markup time+date block (the hyprlock
+#      "clock card" look).
+#   2. A small tan PILL as the backdrop of the wifi status glyph (the tan
+#      connectivity chip). Same plugin, different color/size/z_index.
+
+# --------------------------------------------------------------------- 1. a card
+#
+# A dark translucent panel, centered, filling a generous box. radius is a
+# fraction of the region HEIGHT (identical meaning to the wallpaper's
+# blur_region.radius, so one value reads the same in both) -- 0.06 gives the
+# gently-rounded card corner. color's fourth channel IS the opacity: 0.3 lets the
+# wallpaper show faintly through, like the reference layout's cards.
+[[plugin]]
+name = "veiland-shape"
+binary = "./python/examples/shape.py"
+z_index = 1
+region = { halign = "center", valign = "center", width = 0.24, height = 0.16, margin_x = 0, margin_y = 0 }
+[plugin.config]
+color = [0.0, 0.0, 0.0, 0.3]
+radius = 0.06
+
+# The content that sits ON the card: a markup label at the SAME region, HIGHER
+# z_index so it paints over the panel. markup is chosen deliberately over the
+# clock plugin here: the clock sizes and PLACES itself by its own
+# time_position/font_size (fractions of the whole SURFACE), ignoring
+# [plugin.region] -- so it would NOT land on the card without hand-matching two
+# coordinate systems. markup instead sizes and anchors by ITS region, so sharing
+# the card's region makes the text fill the card automatically. It renders the
+# time+date as one styled block -- the clock look as a region-aware string.
+#
+# The newline MUST be a real line break in a TOML multi-line literal ('''...'''),
+# NOT a "\n" escape: markup substitutes variables str.replace-style and does not
+# interpret escapes, so a literal "\n" would show on screen. (Same form as
+# markup.toml's default block.)
+[[plugin]]
+name = "veiland-markup"
+binary = "./python/examples/markup.py"
+z_index = 2
+region = { halign = "center", valign = "center", width = 0.24, height = 0.16, margin_x = 0, margin_y = 0 }
+[plugin.config]
+text = '''<span size="xx-large" weight="bold">{time:%H:%M}</span>
+{date:%A %d %B}'''
+content_halign = "center"
+content_valign = "center"
+
+# --------------------------------------------------------------------- 2. a pill
+#
+# The tan connectivity chip: a small rounded panel inset from the top-right, the
+# backdrop the wifi glyph draws over. radius 0.5 of the (short) height makes it a
+# full capsule; the tan is 204/164/124 fully opaque. z_index 10 sits under the
+# wifi widget's own z_index 11.
+[[plugin]]
+name = "veiland-shape-pill"
+binary = "./python/examples/shape.py"
+z_index = 10
+region = { halign = "right", valign = "top", width = 0.08, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
+[plugin.config]
+color = [0.8, 0.643, 0.486, 1.0]
+radius = 0.5
+
+# The wifi glyph ON the pill: SAME region box, HIGHER z_index. pill_color is set
+# to fully transparent ([0,0,0,0]) so wifi draws NO chip of its own -- the shape
+# below IS the chip -- and the glyph is tinted dark to read on the light tan.
+[[plugin]]
+name = "veiland-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 11
+region = { halign = "right", valign = "top", width = 0.08, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
+[plugin.config]
+pill_color = [0.0, 0.0, 0.0, 0.0]
+icon_color = [0.1, 0.08, 0.08, 1.0]
