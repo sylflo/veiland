@@ -26,29 +26,45 @@ const PLUGIN_NAME: &str = "wallpaper";
 struct Config {
     #[serde(default)]
     path: String,
-    /// Blur strength. 0 = off (default), and 0 is a HARD no-op: the
-    /// FBO/ping-pong path is only taken when blur > 0, so a plain
-    /// wallpaper pays nothing.
+    /// Blur strength, applied to the WHOLE surface. 0 = off (default), and
+    /// 0 is a HARD no-op: the FBO/ping-pong path is only taken when
+    /// blur > 0, so a plain wallpaper pays nothing.
     #[serde(default)]
     blur: f32,
-    /// Optional dim applied after blur (frosted-glass look), 0..1.
-    /// Multiplies RGB in the final pass. 0 = no dimming (default)
+    /// Base darken (0..1) applied everywhere, on top of the (possibly
+    /// blurred) wallpaper. 0 = no dimming (default). Also the default
+    /// per-region darken for any `blur_regions` entry that omits its own.
     #[serde(default)]
     darken: f32,
-    /// Optional "treated zones": inside any of these rects the wallpaper
-    /// is blurred AND dimmed, outside them all it stays sharp and
-    /// full-brightness. Empty (default) = blur+darken apply to the whole
-    /// surface. Up to `MAX_REGIONS`; extras are dropped with a log. Only
-    /// meaningful when blur > 0; with blur = 0 it is ignored.
+    /// The frosted "cards": rounded rectangles that get an extra darken on
+    /// top of the (globally blurred) base. blur is NOT gated by these --
+    /// the whole surface is blurred when blur > 0; regions only add the
+    /// per-card tint. Empty (default) = just the global blur/darken, no
+    /// cards. Up to `MAX_REGIONS`; extras are dropped with a log.
     #[serde(default)]
     blur_regions: Vec<BlurRegion>,
 }
 
-/// Shader-side cap on treated zones. GLES2 loop bounds must be a
+/// Shader-side cap on frosting zones. GLES2 loop bounds must be a
 /// compile-time constant, so the copy shader always loops `MAX_REGIONS`
 /// times and early-outs past the live count. Kept in sync with the
 /// `const int MAX_REGIONS` in the copy fragment shader.
 const MAX_REGIONS: usize = 10;
+
+/// Resolved frosting zones ready for upload: parallel flat arrays that the
+/// copy shader indexes by region, all in lock-step (entry `i` of each
+/// belongs to the same rect). `count` is how many are live. Bundled so the
+/// four values travel together instead of as four separate arguments.
+struct Regions {
+    /// Flattened UV rects: [x0,y0,x1,y1, x0,y0,x1,y1, ..], `count` of them.
+    uvs: Vec<f32>,
+    /// Per-region corner radii (height-fraction), one per rect.
+    radii: Vec<f32>,
+    /// Per-region frosting darken (0..1), one per rect.
+    darkens: Vec<f32>,
+    /// Number of live rects (0..=MAX_REGIONS).
+    count: i32,
+}
 
 /// A fraction-of-surface rectangle. `x`/`y` are the top-left corner and
 /// `w`/`h` the size, all in [0, 1]; `y` is measured from the TOP (the
@@ -71,6 +87,12 @@ struct BlurRegion {
     /// rather than an inverted mask.
     #[serde(default)]
     radius: f32,
+    /// Per-region darken (0..1), the "frosted card" tint layered on top of
+    /// the (globally blurred) base inside this rect. When omitted, the
+    /// region inherits the global `darken`. This is what makes a card read
+    /// as a card over a blur that already covers the whole surface.
+    #[serde(default)]
+    darken: Option<f32>,
 }
 
 /// CPU-side decoded image. Held only between `decode_image` and the
@@ -176,16 +198,18 @@ struct Fbo {
 /// blur-off / blur-failed fallback.
 struct GpuState {
     program: gl::types::GLuint,
+    // Base sampler for the copy pass: the globally-blurred image (or, when
+    // blur is off, the sharp wallpaper bound here host-side).
     u_tex_loc: gl::types::GLint,
-    // Sharp-wallpaper sampler for the copy pass (outside the region).
-    u_sharp_loc: gl::types::GLint,
-    // Post-blur dim applied in the copy pass; 0..1, 0 = unchanged.
+    // Base (outside-card) dim applied in the copy pass; 0..1, 0 = unchanged.
     u_darken_loc: gl::types::GLint,
-    // Treated-zone rects (u_regions[MAX_REGIONS], each x0,y0,x1,y1 in UV),
-    // their per-region corner radii (u_region_radii, height-fraction), and
-    // how many are live (u_region_count, 0..MAX_REGIONS).
+    // Frosting-zone rects (u_regions[MAX_REGIONS], each x0,y0,x1,y1 in UV),
+    // their per-region corner radii (u_region_radii, height-fraction),
+    // per-region darken (u_region_darkens, the card frosting on top of the
+    // base), and how many are live (u_region_count, 0..MAX_REGIONS).
     u_regions_loc: gl::types::GLint,
     u_region_radii_loc: gl::types::GLint,
+    u_region_darkens_loc: gl::types::GLint,
     u_region_count_loc: gl::types::GLint,
     // width/height, so the rounded-corner SDF stays circular not elliptical.
     u_aspect_loc: gl::types::GLint,
@@ -203,16 +227,11 @@ struct GpuState {
     // Clamped blur pass count driving the ping-pong loop. `> 0` exactly
     // when `fbos` is `Some` (both keyed off the same resolved value).
     passes: u32,
-    // Clamped 0..1 dim, applied in the copy pass independently of blur.
+    // Base (outside-card) darken applied in the copy pass, 0..1.
     darken: f32,
-    // Treated-zone rects in UV, flattened as [x0,y0,x1,y1, x0,y0,x1,y1, ..]
-    // for glUniform4fv. Always holds `region_count` rects (>= 1: the
-    // resolve step substitutes the whole surface (0,0,1,1) when the user
-    // set no blur_regions). No y flip: this pipeline's v_uv runs top-down.
-    region_uvs: Vec<f32>,
-    // Per-region corner radii (height-fraction), one per rect, same order.
-    region_radii: Vec<f32>,
-    region_count: i32,
+    // Resolved frosting zones (flat UV rects + per-region radii/darkens +
+    // count). No y flip: this pipeline's v_uv runs top-down.
+    regions: Regions,
     // Cached aspect (width/height) and AA band, refreshed on resize.
     aspect: f32,
     edge: f32,
@@ -309,9 +328,7 @@ unsafe fn build_fbos(w: u32, h: u32) -> Option<[Fbo; 2]> {
 unsafe fn build_gpu_state(
     passes: u32,
     darken: f32,
-    region_uvs: Vec<f32>,
-    region_radii: Vec<f32>,
-    region_count: i32,
+    regions: Regions,
     w: u32,
     h: u32,
 ) -> Result<GpuState, String> {
@@ -323,20 +340,20 @@ unsafe fn build_gpu_state(
             gl_Position = vec4(a_pos, 0.0, 1.0);\n\
         }\n\0";
 
-    // Copy/composite pass. u_tex is the blurred image, u_tex_sharp the
-    // original wallpaper. u_regions[] (each x0,y0,x1,y1 in UV) are the
-    // treated zones: inside ANY of them -> blurred + dimmed, outside them
-    // all -> sharp, full bright. u_region_count says how many entries are
-    // live (0..MAX_REGIONS). The resolve step always supplies at least one
-    // rect -- the whole surface (0,0,1,1) when the user set no regions --
-    // so "no regions" stays blurred+dimmed everywhere, as before.
-    // The loop bound is the compile-time const MAX_REGIONS (GLES2 requires
-    // a constant bound); the `i >= u_region_count` break skips unused
-    // slots. `inside = max(...)` is the union: overlapping rects just stay
-    // inside (they don't stack darken, since inside saturates at 1.0 and
-    // drives a single mix).
+    // Copy/composite pass. u_tex is the BASE image -- the globally-blurred
+    // wallpaper when blur > 0, or the sharp wallpaper bound here host-side
+    // when blur is off. Blur is now a whole-surface effect; the regions no
+    // longer gate blur, they add a per-card DARKEN (the frosted-glass tint)
+    // on top of the base. u_darken is the base darken outside every card;
+    // u_region_darkens[i] is the extra darken inside region i, feathered by
+    // the region's anti-aliased rounded-rect hit and combined with max() so
+    // overlapping cards don't stack. u_region_count says how many entries
+    // are live (0..MAX_REGIONS); the loop bound is the compile-time const
+    // MAX_REGIONS (GLES2 requires a constant bound) and `i >= count` skips
+    // unused slots. When the user sets no regions the resolve step supplies
+    // zero rects, so darken == u_darken everywhere.
     // Dim RGB only; alpha stays as sampled (wallpaper is opaque, so
-    // premultiplied == straight and rgb<=a holds). u_darken 0 = off.
+    // premultiplied == straight and rgb<=a holds).
     // Each region's `inside` mask is a rounded-rectangle signed-distance
     // test, not a plain step-box, so corners can be rounded (radius 0 gives
     // back a hard rect). The math, in words, to keep the GLSL readable:
@@ -364,10 +381,10 @@ unsafe fn build_gpu_state(
         const int MAX_REGIONS = 10;\n\
         varying vec2 v_uv;\n\
         uniform sampler2D u_tex;\n\
-        uniform sampler2D u_tex_sharp;\n\
         uniform float u_darken;\n\
         uniform vec4 u_regions[MAX_REGIONS];\n\
         uniform float u_region_radii[MAX_REGIONS];\n\
+        uniform float u_region_darkens[MAX_REGIONS];\n\
         uniform int u_region_count;\n\
         uniform float u_aspect;\n\
         uniform float u_edge;\n\
@@ -390,16 +407,21 @@ unsafe fn build_gpu_state(
         }\n\
         void main() {\n\
             vec2 p = vec2(v_uv.x * u_aspect, v_uv.y);\n\
-            float inside = 0.0;\n\
+            // Base is the (globally) blurred image; blur now covers the\n\
+            // whole surface, so u_tex is the base everywhere. u_darken is\n\
+            // the base darken outside every card. Each region adds its own\n\
+            // frosting darken INSIDE its rect, feathered by the AA hit and\n\
+            // combined with max() so overlapping cards don't stack. The\n\
+            // no-blur case binds the sharp wallpaper to u_tex host-side, so\n\
+            // this same path yields sharp+darken with nothing else changed.\n\
+            float darken = u_darken;\n\
             for (int i = 0; i < MAX_REGIONS; i++) {\n\
                 if (i >= u_region_count) break;\n\
                 float hit = rounded_rect_hit(u_regions[i], u_region_radii[i], p);\n\
-                inside = max(inside, hit);\n\
+                darken = max(darken, u_region_darkens[i] * hit);\n\
             }\n\
-            vec4 blurred = texture2D(u_tex, v_uv);\n\
-            vec4 sharp = texture2D(u_tex_sharp, v_uv);\n\
-            vec4 treated = vec4(blurred.rgb * (1.0 - u_darken), blurred.a);\n\
-            gl_FragColor = mix(sharp, treated, inside);\n\
+            vec4 base = texture2D(u_tex, v_uv);\n\
+            gl_FragColor = vec4(base.rgb * (1.0 - darken), base.a);\n\
         }\n\0";
 
     // Separable Gaussian blur. u_dir is the texel step in the blur
@@ -481,11 +503,11 @@ unsafe fn build_gpu_state(
         gl::VertexAttribPointer(a_pos as u32, 2, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
 
         let u_tex_loc = gl::GetUniformLocation(program, c"u_tex".as_ptr());
-        let u_sharp_loc = gl::GetUniformLocation(program, c"u_tex_sharp".as_ptr());
         let u_darken_loc = gl::GetUniformLocation(program, c"u_darken".as_ptr());
         // Array uniforms are queried by the [0] element's name.
         let u_regions_loc = gl::GetUniformLocation(program, c"u_regions[0]".as_ptr());
         let u_region_radii_loc = gl::GetUniformLocation(program, c"u_region_radii[0]".as_ptr());
+        let u_region_darkens_loc = gl::GetUniformLocation(program, c"u_region_darkens[0]".as_ptr());
         let u_region_count_loc = gl::GetUniformLocation(program, c"u_region_count".as_ptr());
         let u_aspect_loc = gl::GetUniformLocation(program, c"u_aspect".as_ptr());
         let u_edge_loc = gl::GetUniformLocation(program, c"u_edge".as_ptr());
@@ -508,10 +530,10 @@ unsafe fn build_gpu_state(
         Ok(GpuState {
             program,
             u_tex_loc,
-            u_sharp_loc,
             u_darken_loc,
             u_regions_loc,
             u_region_radii_loc,
+            u_region_darkens_loc,
             u_region_count_loc,
             u_aspect_loc,
             u_edge_loc,
@@ -522,9 +544,7 @@ unsafe fn build_gpu_state(
             fbos,
             passes,
             darken,
-            region_uvs,
-            region_radii,
-            region_count,
+            regions,
             aspect,
             edge,
         })
@@ -649,9 +669,9 @@ fn run() -> Result<(), PluginError> {
     // (the FBO round-trip leaves the image upright without a flip, see the
     // copy pass), so config y maps straight to UV y with no inversion.
     // Over MAX_REGIONS -> drop the extras and log (untrusted config, must
-    // not exceed the shader's fixed array). No regions -> substitute the
-    // whole surface (0,0,1,1) so the copy pass treats everything
-    // (blurred+dimmed), matching prior behavior with a single code path.
+    // not exceed the shader's fixed array). Empty is a legitimate config
+    // (blur globally, no cards): region_count = 0 and the shader's darken
+    // stays at the global u_darken everywhere.
     let mut regions = config.blur_regions.clone();
     if regions.len() > MAX_REGIONS {
         eprintln!(
@@ -661,7 +681,7 @@ fn run() -> Result<(), PluginError> {
         );
         regions.truncate(MAX_REGIONS);
     }
-    let mut region_uvs: Vec<f32> = regions
+    let region_uvs: Vec<f32> = regions
         .iter()
         .flat_map(|r| {
             let x0 = r.x.clamp(0.0, 1.0);
@@ -675,27 +695,25 @@ fn run() -> Result<(), PluginError> {
     // radius is a height-fraction; the shader clamps it to the region's
     // half-size, so we only guard against negatives here. Non-negative
     // radius <= 0.5 is the sane range (0 = hard corners).
-    let mut region_radii: Vec<f32> = regions.iter().map(|r| r.radius.max(0.0)).collect();
-    if region_uvs.is_empty() {
-        region_uvs.extend_from_slice(&[0.0, 0.0, 1.0, 1.0]);
-        region_radii.push(0.0);
-    }
+    let region_radii: Vec<f32> = regions.iter().map(|r| r.radius.max(0.0)).collect();
+    // Per-region frosting darken, same order. A region that omits `darken`
+    // inherits the global `darken`; both are clamped to 0..1.
+    let region_darkens: Vec<f32> = regions
+        .iter()
+        .map(|r| r.darken.unwrap_or(darken).clamp(0.0, 1.0))
+        .collect();
     let region_count = (region_uvs.len() / 4) as i32;
-    let mut gpu = unsafe {
-        build_gpu_state(
-            passes,
-            darken,
-            region_uvs,
-            region_radii,
-            region_count,
-            dma.width(),
-            dma.height(),
-        )
-    }
-    .map_err(|e| {
-        eprintln!("veiland-{PLUGIN_NAME}: {e}");
-        PluginError::Render("shader build failed")
-    })?;
+    let regions = Regions {
+        uvs: region_uvs,
+        radii: region_radii,
+        darkens: region_darkens,
+        count: region_count,
+    };
+    let mut gpu = unsafe { build_gpu_state(passes, darken, regions, dma.width(), dma.height()) }
+        .map_err(|e| {
+            eprintln!("veiland-{PLUGIN_NAME}: {e}");
+            PluginError::Render("shader build failed")
+        })?;
     let mut decode_rx: Option<Receiver<Option<DecodedImage>>> = Some(decode_rx);
 
     // On-demand: the wallpaper redraws only when the host asks (and once
@@ -751,6 +769,25 @@ fn run() -> Result<(), PluginError> {
                 return Ok(());
             }
         }
+    }
+}
+
+/// Set the copy/composite program's uniforms. Both render paths (blurred
+/// base and sharp base) use identical uniforms -- only the base texture
+/// bound to unit 0 differs -- so the shared setup lives here. Requires the
+/// copy program to be current (`glUseProgram(gpu.program)`), the base on
+/// texture unit 0, and a current EGL context.
+unsafe fn composite_uniforms(gpu: &GpuState) {
+    unsafe {
+        let r = &gpu.regions;
+        gl::Uniform1i(gpu.u_tex_loc, 0);
+        gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
+        gl::Uniform4fv(gpu.u_regions_loc, r.count, r.uvs.as_ptr());
+        gl::Uniform1fv(gpu.u_region_radii_loc, r.count, r.radii.as_ptr());
+        gl::Uniform1fv(gpu.u_region_darkens_loc, r.count, r.darkens.as_ptr());
+        gl::Uniform1i(gpu.u_region_count_loc, r.count);
+        gl::Uniform1f(gpu.u_aspect_loc, gpu.aspect);
+        gl::Uniform1f(gpu.u_edge_loc, gpu.edge);
     }
 }
 
@@ -837,63 +874,31 @@ fn render_and_send(
                     src = b.tex;
                 }
 
-                // Composite to dmabuf: blurred (FBO B, unit 0) vs sharp
-                // wallpaper (unit 1), picked per fragment by u_region;
-                // inside also gets darken. The dmabuf is itself an FBO
-                // (buffer.rs), NOT framebuffer 0, so rebind via the SDK;
-                // this also restores the viewport the blur passes clobbered.
+                // Composite to dmabuf: the blurred image (FBO B) is the base
+                // on unit 0; the copy shader darkens it per-region for the
+                // frosted cards. The dmabuf is itself an FBO (buffer.rs),
+                // NOT framebuffer 0, so rebind via the SDK; this also
+                // restores the viewport the blur passes clobbered.
                 gl::UseProgram(gpu.program);
-                gl::Uniform1i(gpu.u_tex_loc, 0);
-                gl::Uniform1i(gpu.u_sharp_loc, 1);
-                gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
-                gl::Uniform4fv(gpu.u_regions_loc, gpu.region_count, gpu.region_uvs.as_ptr());
-                gl::Uniform1fv(
-                    gpu.u_region_radii_loc,
-                    gpu.region_count,
-                    gpu.region_radii.as_ptr(),
-                );
-                gl::Uniform1i(gpu.u_region_count_loc, gpu.region_count);
-                gl::Uniform1f(gpu.u_aspect_loc, gpu.aspect);
-                gl::Uniform1f(gpu.u_edge_loc, gpu.edge);
+                composite_uniforms(gpu);
                 dma.bind_for_rendering()?;
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::ActiveTexture(gl::TEXTURE0);
                 gl::BindTexture(gl::TEXTURE_2D, b.tex);
-                gl::ActiveTexture(gl::TEXTURE1);
-                gl::BindTexture(gl::TEXTURE_2D, tex);
                 gl::DrawArrays(gl::TRIANGLES, 0, 6);
-                // Leave unit 0 active so the next frame's blur passes
-                // (which assume TEXTURE0) aren't surprised by unit 1.
-                gl::ActiveTexture(gl::TEXTURE0);
             }
-            // No blur (or FBOs absent): sharp wallpaper, global darken.
-            // blur_regions are meaningless without a blurred image, so force
-            // a single whole-surface treated rect and bind the sharp
-            // wallpaper to both samplers -> the mix is sharp+darken
-            // everywhere. WHOLE is a persistent [x0,y0,x1,y1] so its pointer
-            // stays valid for the glUniform4fv read.
+            // No blur (or FBOs absent): the base is the SHARP wallpaper on
+            // unit 0. Same copy shader and same regions as the blur path --
+            // cards still frost (darken) over the sharp base -- just with no
+            // blur applied. blur = 0 => sharp everywhere, exactly as wanted.
             (Some(tex), None) => {
-                const WHOLE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
-                // radius 0: no blur to round, and both samplers are the
-                // sharp wallpaper anyway, so the mask shape is immaterial.
-                const WHOLE_RADIUS: f32 = 0.0;
                 gl::ClearColor(0.0, 0.0, 0.0, 1.0);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::UseProgram(gpu.program);
-                gl::Uniform1i(gpu.u_tex_loc, 0);
-                gl::Uniform1i(gpu.u_sharp_loc, 1);
-                gl::Uniform1f(gpu.u_darken_loc, gpu.darken);
-                gl::Uniform4fv(gpu.u_regions_loc, 1, WHOLE.as_ptr());
-                gl::Uniform1fv(gpu.u_region_radii_loc, 1, &WHOLE_RADIUS);
-                gl::Uniform1i(gpu.u_region_count_loc, 1);
-                gl::Uniform1f(gpu.u_aspect_loc, gpu.aspect);
-                gl::Uniform1f(gpu.u_edge_loc, gpu.edge);
+                composite_uniforms(gpu);
                 gl::ActiveTexture(gl::TEXTURE0);
-                gl::BindTexture(gl::TEXTURE_2D, tex);
-                gl::ActiveTexture(gl::TEXTURE1);
                 gl::BindTexture(gl::TEXTURE_2D, tex);
                 gl::DrawArrays(gl::TRIANGLES, 0, 6);
-                gl::ActiveTexture(gl::TEXTURE0);
             }
             // No texture yet: black, exactly as before (both blur and no-blur).
             (None, _) => {
