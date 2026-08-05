@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # A wifi status widget: a monochrome signal-strength glyph in a small pill,
-# inset from the top-right corner alongside the battery chip. Clone of the
+# inset from the top-right corner alongside the battery chip, with an OPTIONAL
+# SSID label under the glyph (show_label, off by default). Clone of the
 # battery_svg.py template -- an if/else buckets a reading to an icon file and
 # veiland_svg blits it -- with the reading coming from NetworkManager over D-Bus
-# (the SYSTEM bus) instead of /sys. READ-ONLY: it displays signal, it never
-# connects/disconnects (no click protocol exists, and the roadmap keeps v1
-# display-only).
+# (the SYSTEM bus) instead of /sys. Unlike hyprlock's fixed nerd-font wifi glyph,
+# the icon is state-driven (bars rise/fall with signal, off when the radio is),
+# and the SSID -- when shown -- is read from NetworkManager event-driven, not
+# polled from a shell. READ-ONLY: it displays signal, it never connects/
+# disconnects (no click protocol exists, and the roadmap keeps v1 display-only).
 #
 # Data: NetworkManager on the SYSTEM bus (org.freedesktop.NetworkManager). We
 # find the wifi device, read its State (activated?) and its active access point's
@@ -42,6 +45,7 @@ import veiland_dbus as vd  # noqa: E402
 import veiland_layout as vl  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
+import veiland_text as vt  # noqa: E402
 
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 ICON_FILES = [
@@ -105,31 +109,35 @@ class WifiSource:
                 return str(path)
         return None
 
-    def read(self) -> tuple[bool, bool, int]:
-        # Return (has_device, connected, strength). has_device False -> radio off
-        # or no wifi hardware (-> wifi-off). connected False with a device ->
-        # disconnected (-> empty bars). strength is 0..100, only meaningful when
-        # connected. Any D-Bus failure collapses to (False, False, 0) == "off".
+    def read(self) -> tuple[bool, bool, int, str]:
+        # Return (has_device, connected, strength, ssid). has_device False ->
+        # radio off or no wifi hardware (-> wifi-off). connected False with a
+        # device -> disconnected (-> empty bars). strength is 0..100, only
+        # meaningful when connected. ssid is the network name (""; only non-empty
+        # when connected to a named AP) -- read from the SAME AccessPoint object
+        # Strength lives on, so the optional label and the glyph never disagree.
+        # Any D-Bus failure collapses to (False, False, 0, "") == "off".
         dev = self._wifi_device()
         if dev is None:
-            return (False, False, 0)
+            return (False, False, 0, "")
         state = self.bus.get_prop(dev, DEV_IFACE, "State", bus_name=NM)
         connected = state == NM_STATE_ACTIVATED
         if not connected:
-            return (True, False, 0)
+            return (True, False, 0, "")
         ap = self.bus.get_prop(dev, WIRELESS_IFACE, "ActiveAccessPoint", bus_name=NM)
         # "/" is NetworkManager's null object path (activated but no AP object
         # yet, e.g. a mid-handshake window); treat as connected-but-unknown.
         if not ap or ap == "/":
-            return (True, True, 0)
+            return (True, True, 0, "")
+        ssid = _decode_ssid(self.bus.get_prop(ap, AP_IFACE, "Ssid", bus_name=NM))
         strength = self.bus.get_prop(ap, AP_IFACE, "Strength", bus_name=NM)
         if strength is None:
-            return (True, True, 0)
+            return (True, True, 0, ssid)
         try:
-            return (True, True, int(strength))
+            return (True, True, int(strength), ssid)
         except (TypeError, ValueError):
             # Strength absent/garbage -> connected but unknown strength (0).
-            return (True, True, 0)
+            return (True, True, 0, ssid)
 
     def fileno(self) -> int:
         return self.bus.fileno()
@@ -139,6 +147,44 @@ class WifiSource:
 
     def close(self) -> None:
         self.bus.close()
+
+
+LABEL_POSITIONS = ("top", "bottom", "left", "right")
+
+
+def _label_pos_from(cfg: dict[str, Any]) -> str:
+    # Where the SSID label sits relative to the glyph: top | bottom | left |
+    # right, all WITHIN this one region (the label is attached to the icon, not
+    # placed elsewhere on screen -- that would be a second region). Default
+    # "bottom" (the stacked chip look). An unknown value logs one line and falls
+    # back, never crashes (the untrusted-input rule, as parse_color does).
+    raw = cfg.get("label_pos", "bottom")
+    if isinstance(raw, str) and raw in LABEL_POSITIONS:
+        return raw
+    print(
+        f"wifi: label_pos: expected one of {LABEL_POSITIONS}, got {raw!r}; "
+        "using 'bottom'",
+        file=sys.stderr,
+    )
+    return "bottom"
+
+
+def _decode_ssid(raw: Any) -> str:
+    # NetworkManager types AccessPoint.Ssid as `ay` (a byte array), NOT a string
+    # -- an SSID is arbitrary bytes and need not be valid UTF-8. jeepney hands it
+    # over as bytes/bytearray (or a list of ints on some paths); decode
+    # best-effort, replacing undecodable bytes and trimming a stray trailing NUL,
+    # so a weird SSID mis-renders at worst and never raises (the untrusted-input
+    # rule -- an access point's advertised name is external data like any other
+    # D-Bus field). Anything unexpected collapses to "" == no label.
+    if raw is None:
+        return ""
+    try:
+        if isinstance(raw, (bytes, bytearray, list, tuple)):
+            return bytes(raw).decode("utf-8", "replace").rstrip("\x00")
+    except (TypeError, ValueError):
+        return ""
+    return ""
 
 
 def pick_icon(has_device: bool, connected: bool, strength: int) -> str:
@@ -184,10 +230,21 @@ def load_icons() -> dict[str, Any]:
 # pill_color (see main).
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
+# Default color of the optional SSID label under the glyph -- near-white, legible
+# on the dark pill, matching the icon. Overridable via label_color. RGBA (alpha
+# is honoured by clamping, but draw_ellipsized_centered takes RGB, so only the
+# first three channels reach the text; alpha 0 is NOT how you hide the label --
+# show_label = false is).
+LABEL_FG = (0.95, 0.95, 0.95, 1.0)
+
 
 def draw_into(
     buf: vp.LinearBuffer,
     handle: Any,
+    ssid: str,
+    font: vt.FontSpec,
+    label_color: vs.RGBA,
+    label_pos: str,
     pill_color: vs.RGBA,
     icon_color: vs.RGBA | None,
     halign: str,
@@ -196,8 +253,8 @@ def draw_into(
     border_color: vs.RGBA,
 ) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
-    # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
-    # buf.stride. Identical structure to battery_svg.py's draw_into.
+    # SVG + optional label) straight into GPU-visible memory. cairo needs the MAP
+    # stride, not buf.stride. Structure follows battery_svg.py's draw_into.
     with buf.map() as (mem, map_stride):
         surface = cairo.ImageSurface.create_for_data(
             mem, cairo.FORMAT_ARGB32, buf.width, buf.height, map_stride
@@ -207,19 +264,104 @@ def draw_into(
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        # The buffer IS our region; the content-anchor convention (veiland_layout)
-        # parks the pill's 2*radius bounding square at content_halign/content_valign
-        # in it. WHERE the region sits on screen is the host's job (config anchor).
-        # Default center/center is a no-op: (w - 2r)/2 + r == w/2 (the old cx).
+        # The buffer IS our region. Glyph + label form ONE unit placed by
+        # label_pos: text below (bottom), above (top), or beside (left/right) the
+        # glyph, hugging it across `gap`. The label stays ATTACHED to the icon
+        # (both inside this one region) -- a free-floating "icon here, text
+        # elsewhere" would be two regions, which one plugin cannot do. An empty
+        # ssid draws the glyph alone, centered, byte-identical to the icon-only
+        # widget: main() passes "" only when show_label is off; a disconnected
+        # state passes the label_disconnected placeholder ("N/A" by default), so
+        # the chip keeps its shape and shows offline text, not a blank column.
         w, h = float(buf.width), float(buf.height)
-        radius = min(w, h) / 2 - 4
-        block = 2 * radius
-        x, y = vl.anchor_offset(halign, valign, w, h, block, block)
-        cx, cy = x + radius, y + radius
+        px = font.size * h
+
+        # Draw the glyph and (optional) label as ONE tightly-stacked unit,
+        # measured then placed by hand -- NOT via sub-boxes. Note vt's
+        # "draw_ellipsized_centered" centers only VERTICALLY (on cy) and draws the
+        # text's LEFT edge at x; it does NOT horizontally center. So we measure the
+        # label width ourselves and set its x to sit centered on / beside the
+        # glyph. gap is the glyph<->text breathing room.
+        gap = px * 0.35
+
+        # Measure the label once (0 width when there is none) so both the glyph
+        # sizing and the label placement can use its real extent.
+        label_w = label_h = 0.0
+        if ssid:
+            probe = vt.line_layout(cr, ssid, w, px, font.weight, font)
+            _, logical = probe.get_pixel_extents()
+            label_w, label_h = float(logical.width), float(logical.height)
+
+        # Size the glyph and lay out the unit's bounding box (uw x uh), then anchor
+        # that box in the region via content_halign/valign (default center = a
+        # centered chip). Everything below is expressed relative to the box's
+        # top-left (ox, oy), so the anchor is applied in exactly one place.
+        #
+        # pad is inset from the region edge, so the centered unit keeps EQUAL
+        # breathing room all round instead of the label pressing the bottom edge
+        # (fraction of the shorter side, so it scales with the card). The glyph is
+        # also capped at glyph_max of the shorter side so a tall card does not grow
+        # a huge disc that shoves the label to the rim.
+        pad = min(w, h) * 0.14
+        glyph_max = min(w, h) * 0.62
+        if not ssid:
+            diameter = min(w, h) - 2 * pad
+            uw = uh = diameter
+        elif label_pos in ("left", "right"):
+            diameter = min(glyph_max, h - 2 * pad, w - label_w - gap - 2 * pad)
+            uw = diameter + gap + label_w
+            uh = max(diameter, label_h)
+        else:  # top / bottom
+            diameter = min(glyph_max, w - 2 * pad, h - label_h - gap - 2 * pad)
+            uw = max(diameter, label_w)
+            uh = diameter + gap + label_h
+        diameter = max(0.0, diameter)
+        radius = diameter / 2
+
+        ox, oy = vl.anchor_offset(halign, valign, w, h, uw, uh)
+
+        # Glyph center (cx, cy) and label top-left (tlx, tly), placed inside the
+        # unit box so glyph and label always share an axis and hug across `gap`.
+        if not ssid:
+            cx, cy = ox + uw / 2, oy + uh / 2
+            tlx = tly = 0.0
+        elif label_pos == "left":
+            cx = ox + uw - radius
+            cy = oy + uh / 2
+            tlx, tly = ox, oy + (uh - label_h) / 2
+        elif label_pos == "right":
+            cx = ox + radius
+            cy = oy + uh / 2
+            tlx, tly = ox + diameter + gap, oy + (uh - label_h) / 2
+        elif label_pos == "top":
+            cx = ox + uw / 2
+            cy = oy + uh - radius
+            tlx, tly = ox + (uw - label_w) / 2, oy
+        else:  # bottom (the default)
+            cx = ox + uw / 2
+            cy = oy + radius
+            tlx, tly = ox + (uw - label_w) / 2, oy + diameter + gap
 
         vs.draw_pill(cr, cx, cy, radius, pill_color)
         if handle is not None:
             vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6, tint=icon_color)
+
+        # The SSID label at its measured top-left. draw_ellipsized (top-left form)
+        # takes RGB (text edges anti-alias via the glyph mask, not a color alpha);
+        # max_w = label_w + 1 never truncates (we sized the box to the text), and
+        # tly is the text's TOP because this variant draws downward from y.
+        if ssid:
+            vt.draw_ellipsized(
+                cr,
+                ssid,
+                tlx,
+                tly,
+                label_w + 1.0,
+                px,
+                label_color[:3],
+                weight=font.weight,
+                spec=font,
+            )
 
         # Debug border: trace the region box (= buffer edge) when debug_border is
         # set. Off by default (untrusted-input rule).
@@ -249,6 +391,30 @@ def main() -> None:
     halign, valign = vl.anchor_from_config(plugin_cfg, tag="wifi")
     border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="wifi")
 
+    # Optional SSID label beside the glyph. OFF by default -> the widget is
+    # byte-identical to the icon-only pill unless the user opts in. When on, the
+    # font uses the uniform font_family/font_size keys (a fraction of the region
+    # height, like every text widget), label_color themes the text, and label_pos
+    # (top|bottom|left|right) places it relative to the glyph inside this region.
+    show_label = bool(plugin_cfg.get("show_label", False))
+    font = vt.font_from_config(plugin_cfg, tag="wifi")
+    label_color = vs.parse_color(plugin_cfg, "label_color", LABEL_FG, tag="wifi")
+    label_pos = _label_pos_from(plugin_cfg)
+    # What the label shows when there is no SSID (disconnected / radio off / no
+    # device). Defaults to "N/A" rather than "" because with label_pos left/right
+    # the chip is a FIXED width -- a blank name column reads as a bug, not as
+    # "offline", so the empty state must show SOMETHING. Set label_disconnected =
+    # "" to opt into the clean glyph-only vanish (fine for top/bottom, where the
+    # strip just disappears). A non-string logs one line and falls back to "N/A".
+    raw_disc = plugin_cfg.get("label_disconnected", "N/A")
+    label_disconnected = raw_disc if isinstance(raw_disc, str) else "N/A"
+    if not isinstance(raw_disc, str):
+        print(
+            f"wifi: label_disconnected: expected a string, got {raw_disc!r}; "
+            "using 'N/A'",
+            file=sys.stderr,
+        )
+
     icons = load_icons()
 
     # The D-Bus connection is best-effort: if the SYSTEM bus is unreachable, run
@@ -268,10 +434,21 @@ def main() -> None:
     # host is not showing. (Same rationale as battery_svg.py.)
     chain = vp.BufferChain(dev, cfg.region_w, cfg.region_h)
 
-    def current_icon() -> Any:
+    def current_state() -> tuple[Any, str]:
+        # ONE D-Bus read feeds both the glyph and the label, so they can never
+        # disagree. First resolve the icon + raw SSID, then decide the label:
+        #   show_label off  -> "" (no label at all; icon-only geometry)
+        #   connected       -> the SSID
+        #   disconnected    -> the label_disconnected placeholder ("N/A" default)
+        # so a fixed-width chip never shows a blank name column that reads as a bug.
         if source is None:
-            return icons.get("wifi-off.svg")
-        return icons.get(pick_icon(*source.read()))
+            icon, ssid = icons.get("wifi-off.svg"), ""
+        else:
+            has_device, connected, strength, ssid = source.read()
+            icon = icons.get(pick_icon(has_device, connected, strength))
+        if not show_label:
+            return icon, ""
+        return icon, (ssid if ssid else label_disconnected)
 
     pacer = vp.FramePacer.on_demand()
     # NetworkManager's socket (when present) is an extra fd: a PropertiesChanged
@@ -281,9 +458,14 @@ def main() -> None:
     extra = [source.fileno()] if source is not None else []
     for ev in pacer.events(conn, timeout=30.0, extra_fds=extra):
         if ev.kind is vp.Event.RENDER:
+            icon, ssid = current_state()
             draw_into(
                 chain.acquire(),
-                current_icon(),
+                icon,
+                ssid,
+                font,
+                label_color,
+                label_pos,
                 pill_color,
                 icon_color,
                 halign,
