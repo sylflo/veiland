@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Scene: "Deep Field" -- the FLAGSHIP hero. A JWST nebula fills the whole surface;
+# a drifting starfield adds depth on top; one big thin clock floats over the calm
+# dark sky. See assets/deepfield.png for the rendered result (once captured).
+#
+# THE LEAD IDEA: the backdrop is a real deep-space image AND it is ALIVE -- the
+# particle starfield drifts slowly over the still nebula, so even a screenshot has
+# depth and the live lock breathes. Minimal widgets on purpose: the star is the
+# cosmic depth, not a widget cluster. This is the atmospheric/depth camp.
+#
+# LAYER STACK (back -> front):
+#   0    wallpaper   Webb "Pillars of Creation" (PD-NASA), blurred a touch +
+#                    darkened so white text reads over the bright pillars
+#   20   particles   a STARFIELD drifting over the nebula: high count, tiny radius,
+#                    faint white + a few brighter -> extra depth + the "alive" motion
+#   30   clock        one big thin clock + date, the hero, over the dark sky
+#   40   weather      one faint temp pill, bottom-left corner (optional; drop the
+#                     block for a pure clock-over-nebula scene with no Python)
+#   100  [password]   core pill, bottom-center
+#
+# ASSET + LICENSE: assets/webb-pillars.jpg is Public Domain (PD-NASA); see
+# assets/CREDITS for the source URL, the required credit line
+# ("NASA, ESA, CSA, STScI"), and the crop/resize derivation. The scene runs with
+# only the core + wallpaper + particles (pure Rust); the weather pill adds the
+# Python/Pango/librsvg stack, so drop it to run without `nix develop`.
+
+# --- Backdrop: the JWST nebula (full surface, blurred + darkened) --------------
+# blur is light (2): the pillars stay recognizable, just softened so they don't
+# fight the clock. darken 0.70 pushes the whole (blurred) image well down so its
+# bright gold AND its own hundreds of stars recede -- giving the drifting particle
+# starfield (and the clock) a dark canvas to stand out against. This is the
+# two-for-one that makes our stars pop AND the clock read AND the scene feel like
+# the deep-field void: on a bright nebula nothing has room; a darker frame is
+# points-of-light on black, which is what deep space actually looks like. Lower it
+# toward 0.45 if you want the pillars more vivid (at the cost of star/clock contrast).
+[[plugin]]
+name = "wallpaper"
+binary = "veiland-wallpaper"
+z_index = 0
+
+[plugin.config]
+path = "docs/examples/assets/webb-pillars.jpg"
+blur = 2
+darken = 0.70
+
+# --- Starfield: the drifting depth layer (the "alive" motion) ------------------
+# particles ON TOP of the nebula -- pinpricks that drift slowly, adding a second,
+# MOVING star layer over the still image. This is the whole "backdrop is alive"
+# lead: the nebula is fixed, these breathe. The nebula ALREADY has hundreds of its
+# own (static) stars, so these are tuned a touch brighter + bigger than a bare-sky
+# starfield would be -- otherwise they camouflage among the image's stars and the
+# drift is invisible. Fewer + brighter so each one reads as it moves, without
+# turning into a snowstorm over an already-busy image.
+[[plugin]]
+name = "particles"
+binary = "veiland-particles"
+z_index = 20
+
+[plugin.config]
+count = 90
+# near-white and bright so our drifting stars clearly win against the (darkened
+# 0.45) nebula and its own fixed stars. This is near the top of the range -- if
+# they tip into a snowstorm, dial alpha back toward 0.7 and/or drop count.
+color = [0.97, 0.98, 1.0, 0.92]
+radius_px = 1.4
+# Twinkle: a per-particle brightness shimmer (out of sync), so the stars blink as
+# they drift -- the "alive" backdrop. Opt-in; off by default in the plugin.
+#   twinkle_depth is the MAIN noticeability lever: how far each star dims at its
+#     trough (0..1). 0.9 = nearly to black, so the blinking is obvious across the
+#     whole scene (0.6 is a subtle breathe you have to look for).
+#   twinkle_speed is the pulse rate (rad/s): 3.5 is a lively sparkle; drop toward
+#     1.4 for a slow breathe.
+twinkle = true
+twinkle_depth = 0.9
+twinkle_speed = 3.5
+
+# --- HERO: one big thin clock + date, over the dark sky ------------------------
+# Centered-ish but parked a little high-left where the nebula is darkest (the calm
+# indigo above the pillars), so the white glyphs read without fighting the gold.
+# font_weight 400 (NOT thin -- "Sans" ExtraLight drops digits; see the deferred
+# veiland-text fix noted in aurora-minimal.toml). A soft shadow lifts the glyphs
+# off any bright patch.
+[[plugin]]
+name = "clock"
+binary = "veiland-clock"
+z_index = 30
+
+[plugin.config]
+time_format = "%H:%M"
+date_format = "%A, %B %d"
+font_family = "Sans"
+font_weight = 400
+time_font_size = 0.10          # big hero clock (~108px on 1080p)
+date_font_size = 0.020
+time_letter_spacing = 0.03
+date_letter_spacing = 0.12
+time_color = [0.96, 0.97, 1.0, 0.96]
+date_color = [0.82, 0.86, 0.95, 0.75]
+time_position = [0.5, 0.40]    # upper-middle; the calm dark sky above the pillars
+date_position = [0.5, 0.48]
+halign = "center"
+valign = "middle"
+shadow_offset = [0.0, 0.0018]
+shadow_color = [0.0, 0.0, 0.03, 0.6]
+shadow_blur = 0.005
+
+# --- One faint accessory: a weather pill, bottom-left --------------------------
+# The single corner accessory -- a small temp + condition glyph, bottom-left,
+# quiet so it never competes with the nebula. Transparent pill (no chip) so the
+# glyph + temp float bare. Drop this block for a pure clock-over-nebula scene that
+# needs no Python.
+[[plugin]]
+name = "veiland-weather"
+binary = "./python/examples/weather.py"
+z_index = 40
+region = { halign = "left", valign = "bottom", width = 0.09, height = 0.05, margin = 0.03 }
+
+[plugin.config]
+layout = "pill"
+location = "Reykjavik"        # a city string, geocoded once; swap for your own
+units = "celsius"
+pill_color = [0.0, 0.0, 0.0, 0.0]      # transparent -> no chip, bare glyph + temp
+icon_color = [0.85, 0.89, 0.98, 0.6]   # dim the condition glyph into the sky
+font_family = "Sans"
+
+# --- Password: quiet, bottom-center --------------------------------------------
+# The core draws this last, on top. Low-contrast, centered (x unset), sitting just
+# above the bottom edge over the darkest lower nebula. Cool indigo tints echo the
+# backdrop. CSS rgba() strings (the [password] section, not float arrays).
+[password]
+y_percent = 78
+box_width = 300
+box_height = 54
+outline_thickness = 2
+rounding = -1
+inner_color = "rgba(14, 18, 36, 0.50)"
+outer_color = "rgba(150, 168, 220, 0.38)"
+dot_color = "rgba(238, 242, 250, 0.95)"
+dot_diameter = 9
+dot_spacing = 20
+placeholder_text = "password"
+placeholder_color = "rgba(210, 218, 236, 0.52)"
+placeholder_font_size = 15

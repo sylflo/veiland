@@ -1,0 +1,32 @@
+Bundled media in this directory — provenance and licensing
+===========================================================
+
+The veiland source is licensed GPL-3.0-or-later. The image assets below are
+NOT covered by that license; each carries its own license, recorded here so
+provenance stays auditable. Keep this file in sync when adding or removing a
+bundled image.
+
+
+webb-pillars.jpg
+----------------
+  Subject:  "Pillars of Creation" (Eagle Nebula, M16), JWST NIRCam image.
+  License:  Public Domain (PD-NASA). NASA/ESA/CSA/STScI content is not
+            copyrighted and may be used freely.
+  Credit:   NASA, ESA, CSA, STScI. (Image processing: J. DePasquale, A. Pagan,
+            A. Koekemoer, STScI.)
+  Source:   https://commons.wikimedia.org/wiki/File:Pillars_of_Creation_(NIRCam_Image).jpg
+            (Wikimedia Commons; the PD-NASA original, not the CC-BY esawebb.org copy.)
+  Derived:  Cropped a 16:9 landscape band from the vertical center of the
+            8423x14589 original and resized to 2560x1440 (ffmpeg lanczos, q3)
+            to keep the bundle small. The crop is a trivial derivative; the
+            public-domain grant is on the pixels, so it ships freely — credit
+            NASA as above.
+  Used by:  deepfield.toml (the "Deep Field" hero scene).
+
+
+sakura-dusk.jpg
+---------------
+  License:  Unsplash License (https://unsplash.com/license) — free to use,
+            no permission needed, may be used commercially and modified.
+  Credit:   Photo via Unsplash.
+  Used by:  sakura.toml, shinkai.toml, aurora-dashboard.toml.
