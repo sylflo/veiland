@@ -8,6 +8,11 @@
 # that writes into buf.map(). Clone this for wifi/bluetooth/etc: swap the data
 # source and the icon set, keep the loop.
 #
+# It also carries the OPTIONAL label the sibling status widgets share (show_label,
+# off by default; label_pos = top|bottom|left|right): the percent + charging
+# state ("64% Discharging"), read from the same /sys read that picks the glyph, so
+# text and icon never disagree. Off -> byte-identical to the icon-only pill.
+#
 # The glyph sits in a small circular translucent pill inset from the top-right
 # corner, matching the reference lockscreen's status cluster. (The keyboard
 # badge that sits beside it there needs a core change to forward the layout, so
@@ -39,6 +44,7 @@ import cairo  # noqa: E402
 import veiland_layout as vl  # noqa: E402
 import veiland_plugin as vp  # noqa: E402
 import veiland_svg as vs  # noqa: E402
+import veiland_text as vt  # noqa: E402
 
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 ICON_FILES = [
@@ -94,6 +100,35 @@ def pick_icon(pct: int | None, charging: bool) -> str:
     return "battery-25.svg"
 
 
+def battery_label(pct: int | None, charging: bool) -> str:
+    # The optional label text: percent + state on one line, e.g. "64% Discharging"
+    # or "80% Charging". No battery file (desktop / AC only) -> "AC". Built from
+    # the SAME read that picks the icon, so text and glyph never disagree. Kept a
+    # single line (the widget draws one ellipsized line, like wifi/bluetooth).
+    if pct is None:
+        return "AC"
+    return f"{pct}% {'Charging' if charging else 'Discharging'}"
+
+
+LABEL_POSITIONS = ("top", "bottom", "left", "right")
+
+
+def _label_pos_from(cfg: dict[str, Any]) -> str:
+    # Where the label sits relative to the glyph: top | bottom | left | right,
+    # all WITHIN this one region. Default "bottom" (the stacked chip look). An
+    # unknown value logs one line and falls back, never crashes (the untrusted-
+    # input rule). Same knob as wifi.py / bluetooth.py.
+    raw = cfg.get("label_pos", "bottom")
+    if isinstance(raw, str) and raw in LABEL_POSITIONS:
+        return raw
+    print(
+        f"battery-svg: label_pos: expected one of {LABEL_POSITIONS}, got {raw!r}; "
+        "using 'bottom'",
+        file=sys.stderr,
+    )
+    return "bottom"
+
+
 def load_icons() -> dict[str, Any]:
     # Parse every icon once at startup (draw_svg is called many times per icon).
     # The values are Rsvg.Handle-or-None; gi ships no types, so the handle is
@@ -119,10 +154,20 @@ def load_icons() -> dict[str, Any]:
 # overridable per config via pill_color (see main).
 PILL_BG = (15 / 255, 18 / 255, 28 / 255, 175 / 255)
 
+# Default color of the optional label -- near-white, legible on the dark pill.
+# Overridable via label_color; draw_ellipsized takes RGB, so only the first three
+# channels reach the text (show_label = false, not alpha 0, hides the label).
+# Matches wifi.py / bluetooth.py's LABEL_FG.
+LABEL_FG = (0.95, 0.95, 0.95, 1.0)
+
 
 def draw_into(
     buf: vp.LinearBuffer,
     handle: Any,
+    label: str,
+    font: vt.FontSpec,
+    label_color: vs.RGBA,
+    label_pos: str,
     pill_color: vs.RGBA,
     icon_color: vs.RGBA | None,
     halign: str,
@@ -131,8 +176,9 @@ def draw_into(
     border_color: vs.RGBA,
 ) -> None:
     # Zero-copy: wrap buf.map()'s memoryview in a cairo surface and draw (pill +
-    # SVG) straight into GPU-visible memory. cairo needs the MAP stride, not
-    # buf.stride -- map() hands back the one it wants.
+    # SVG + optional label) straight into GPU-visible memory. cairo needs the MAP
+    # stride, not buf.stride. The glyph+label geometry mirrors wifi.py/bluetooth.py
+    # (a shared veiland_layout helper is the natural next step: this is copy #3).
     with buf.map() as (mem, map_stride):
         surface = cairo.ImageSurface.create_for_data(
             mem, cairo.FORMAT_ARGB32, buf.width, buf.height, map_stride
@@ -145,24 +191,80 @@ def draw_into(
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        # Layer 2 -- content inside the region: the pill is a circle of diameter
-        # 2*radius; the content-anchor convention (veiland_layout) parks that
-        # bounding square at content_halign/content_valign within our own box. The
-        # 4px inset keeps the chip off the region edge. Default center/center is a
-        # true no-op: (w - 2r)/2 + r == w/2, exactly the old cx = w/2.
+        # Glyph + optional label as ONE measured, padded, centered unit. An empty
+        # label (show_label off) draws the glyph alone, centered -- byte-identical
+        # to the old icon-only widget.
         w, h = float(buf.width), float(buf.height)
-        radius = min(w, h) / 2 - 4
-        block = 2 * radius
-        x, y = vl.anchor_offset(halign, valign, w, h, block, block)
-        cx, cy = x + radius, y + radius
+        px = font.size * h
+        gap = px * 0.35
 
-        # Two calls do the whole widget: the translucent chip, then the glyph
-        # centered on it at 80% of the pill so it breathes. draw_svg_centered is
-        # skipped when the icon failed to load, leaving just the pill. A None
-        # icon_color means "as authored" (the shipped icons are white).
+        label_w = label_h = 0.0
+        if label:
+            probe = vt.line_layout(cr, label, w, px, font.weight, font)
+            _, logical = probe.get_pixel_extents()
+            label_w, label_h = float(logical.width), float(logical.height)
+
+        # pad insets the unit from the region edge so the centered glyph+label
+        # keeps EQUAL breathing room; glyph_max caps the disc. (As wifi.py.)
+        pad = min(w, h) * 0.14
+        glyph_max = min(w, h) * 0.62
+        if not label:
+            diameter = min(w, h) - 2 * pad
+            uw = uh = diameter
+        elif label_pos in ("left", "right"):
+            diameter = min(glyph_max, h - 2 * pad, w - label_w - gap - 2 * pad)
+            uw = diameter + gap + label_w
+            uh = max(diameter, label_h)
+        else:  # top / bottom
+            diameter = min(glyph_max, w - 2 * pad, h - label_h - gap - 2 * pad)
+            uw = max(diameter, label_w)
+            uh = diameter + gap + label_h
+        diameter = max(0.0, diameter)
+        radius = diameter / 2
+
+        ox, oy = vl.anchor_offset(halign, valign, w, h, uw, uh)
+
+        if not label:
+            cx, cy = ox + uw / 2, oy + uh / 2
+            tlx = tly = 0.0
+        elif label_pos == "left":
+            cx = ox + uw - radius
+            cy = oy + uh / 2
+            tlx, tly = ox, oy + (uh - label_h) / 2
+        elif label_pos == "right":
+            cx = ox + radius
+            cy = oy + uh / 2
+            tlx, tly = ox + diameter + gap, oy + (uh - label_h) / 2
+        elif label_pos == "top":
+            cx = ox + uw / 2
+            cy = oy + uh - radius
+            tlx, tly = ox + (uw - label_w) / 2, oy
+        else:  # bottom (the default)
+            cx = ox + uw / 2
+            cy = oy + radius
+            tlx, tly = ox + (uw - label_w) / 2, oy + diameter + gap
+
+        # The translucent chip, then the glyph. draw_svg_centered is skipped when
+        # the icon failed to load, leaving just the pill. A None icon_color means
+        # "as authored" (the shipped icons are white).
         vs.draw_pill(cr, cx, cy, radius, pill_color)
         if handle is not None:
             vs.draw_svg_centered(cr, handle, cx, cy, radius * 1.6, tint=icon_color)
+
+        # The label at its measured top-left (draw_ellipsized draws downward from
+        # y; max_w = label_w + 1 never truncates since the box is sized to fit).
+        if label:
+            vt.draw_ellipsized(
+                cr,
+                label,
+                tlx,
+                tly,
+                label_w + 1.0,
+                px,
+                label_color[:3],
+                weight=font.weight,
+                spec=font,
+            )
 
         # Debug border: trace the region box (= buffer edge) when debug_border is
         # set, so you can see where the host placed the region relative to the
@@ -194,6 +296,15 @@ def main() -> None:
     halign, valign = vl.anchor_from_config(plugin_cfg, tag="battery-svg")
     border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="battery-svg")
 
+    # Optional label beside the glyph: percent + charging state ("64% Charging").
+    # OFF by default -> byte-identical to the icon-only pill unless opted in. Same
+    # knobs as wifi.py / bluetooth.py: font_* theme the text, label_color colors
+    # it, label_pos (top|bottom|left|right) places it inside this region.
+    show_label = bool(plugin_cfg.get("show_label", False))
+    font = vt.font_from_config(plugin_cfg, tag="battery-svg")
+    label_color = vs.parse_color(plugin_cfg, "label_color", LABEL_FG, tag="battery-svg")
+    label_pos = _label_pos_from(plugin_cfg)
+
     icons = load_icons()
     dev = vp.GbmDevice()
     # BufferChain, not a single LinearBuffer: this widget REDRAWS (the icon
@@ -208,9 +319,15 @@ def main() -> None:
         if ev.kind is vp.Event.RENDER:
             pct, charging = read_battery_state()
             handle = icons.get(pick_icon(pct, charging))
+            # "" when show_label is off -> icon-only geometry, as before.
+            label = battery_label(pct, charging) if show_label else ""
             draw_into(
                 chain.acquire(),
                 handle,
+                label,
+                font,
+                label_color,
+                label_pos,
                 pill_color,
                 icon_color,
                 halign,
