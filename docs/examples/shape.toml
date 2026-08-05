@@ -22,8 +22,9 @@
 # This scene shows two uses of the same plugin:
 #   1. A large translucent CARD behind a markup time+date block (the hyprlock
 #      "clock card" look).
-#   2. A small tan PILL as the backdrop of the wifi status glyph (the tan
-#      connectivity chip). Same plugin, different color/size/z_index.
+#   2. A small tan PILL as the backdrop of the wifi status glyph + live SSID
+#      label (the tan connectivity chip). Same plugin, different color/size/
+#      z_index.
 
 # --------------------------------------------------------------------- 1. a card
 #
@@ -67,27 +68,47 @@ content_valign = "center"
 
 # --------------------------------------------------------------------- 2. a pill
 #
-# The tan connectivity chip: a small rounded panel inset from the top-right, the
-# backdrop the wifi glyph draws over. radius 0.5 of the (short) height makes it a
-# full capsule; the tan is 204/164/124 fully opaque. z_index 10 sits under the
-# wifi widget's own z_index 11.
+# The tan connectivity chip (the reference layout's wifi button): a rounded
+# square inset from the top-right, the backdrop the wifi glyph + SSID draw over.
+# Its region MATCHES the wifi widget's below so the tan card frames glyph and
+# name together. Because the label sits BELOW the glyph (label_pos = "bottom"),
+# the box is a rounded SQUARE (0.1 x 0.09), not a wide capsule; radius 0.15 of
+# the height gives the reference layout's soft-cornered card, not a full capsule.
+# The tan is 204/164/124 fully opaque. z_index 10 sits under the wifi widget's 11.
 [[plugin]]
 name = "veiland-shape-pill"
 binary = "./python/examples/shape.py"
 z_index = 10
-region = { halign = "right", valign = "top", width = 0.08, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
+region = { halign = "right", valign = "top", width = 0.1, height = 0.09, margin_x = 0.013, margin_y = 0.013 }
 [plugin.config]
 color = [0.8, 0.643, 0.486, 1.0]
-radius = 0.5
+radius = 0.15
 
 # The wifi glyph ON the pill: SAME region box, HIGHER z_index. pill_color is set
 # to fully transparent ([0,0,0,0]) so wifi draws NO chip of its own -- the shape
 # below IS the chip -- and the glyph is tinted dark to read on the light tan.
+#
+# show_label turns on the live SSID under the glyph (the connectivity-chip look
+# from the reference layout). Unlike hyprlock's `cmd[update:1000] iw dev ...`, the
+# name is read from NetworkManager event-driven -- it updates the instant the
+# connection changes and spawns no shell. The name only shows when connected; a
+# disconnected/off state draws the glyph alone.
+#
+# GEOMETRY: label_pos = "bottom" stacks the glyph over the SSID (the reference
+# layout's wifi button), so the box is a rounded SQUARE (0.1 x 0.09), matching the
+# shape pill above so the tan card frames glyph + name together. font_size is a
+# fraction of the region height; label_color reads dark on the tan, like the
+# glyph. When disconnected the label shows "N/A" (label_disconnected) so the chip
+# never looks half-empty.
 [[plugin]]
 name = "veiland-wifi"
 binary = "./python/examples/wifi.py"
 z_index = 11
-region = { halign = "right", valign = "top", width = 0.08, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
+region = { halign = "right", valign = "top", width = 0.1, height = 0.09, margin_x = 0.013, margin_y = 0.013 }
 [plugin.config]
 pill_color = [0.0, 0.0, 0.0, 0.0]
 icon_color = [0.1, 0.08, 0.08, 1.0]
+show_label = true
+font_size = 0.16
+label_color = [0.1, 0.08, 0.08, 1.0]
+label_pos = "bottom"         # top | bottom | left | right
