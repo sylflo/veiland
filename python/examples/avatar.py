@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The avatar widget: JUST the round user disc -- a picture cover-cropped into a
-# circle, or a tinted initials disc, with a thin rim -- the "this is MY
-# lockscreen" ingredient. Pure config: no D-Bus, no network, no polling. It draws
-# once at Configure and then idles (static plugins idling is legal).
+# The avatar widget: JUST the user disc -- a picture cover-cropped into the
+# avatar shape (a circle by default, or a rounded square via shape = "rounded" to
+# rhyme with rounded-rect scenes), or a tinted initials disc, with a thin rim --
+# the "this is MY lockscreen" ingredient. Pure config: no D-Bus, no network, no
+# polling. It draws once at Configure and then idles (static plugins idling is
+# legal).
 #
 # It is disc-ONLY by design. The greeting that used to live here is now a markup
 # region (python/examples/markup.py, which gained an optional background chip):
@@ -178,6 +180,26 @@ def disc_colors(name: str) -> tuple[vs.RGBA, vs.RGBA]:
 # ------------------------------------------------------------------- drawing
 
 
+def _avatar_path(
+    cr: cairo.Context[cairo.ImageSurface], cx: float, cy: float, d: float, shape: str
+) -> None:
+    # Trace the avatar outline as the current path: a full circle, or a rounded
+    # square (corner radius a fraction of the side, rhyming with the scene's other
+    # rounded cards). Callers clip/fill/stroke it. new_path first so a leftover
+    # current point (e.g. from show_layout) can't add a stray segment.
+    cr.new_path()
+    if shape == "rounded":
+        r = d * 0.22  # corner radius as a fraction of the side; matches shape cards
+        x, y = cx - d / 2, cy - d / 2
+        cr.arc(x + d - r, y + r, r, -math.pi / 2, 0)
+        cr.arc(x + d - r, y + d - r, r, 0, math.pi / 2)
+        cr.arc(x + r, y + d - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+    else:  # circle (the default)
+        cr.arc(cx, cy, d / 2, 0, 2 * math.pi)
+
+
 def draw_avatar_disc(
     cr: cairo.Context[cairo.ImageSurface],
     surface: cairo.ImageSurface | None,
@@ -187,17 +209,18 @@ def draw_avatar_disc(
     d: float,
     ring: vs.RGBA,
     font: vt.FontSpec,
+    shape: str,
 ) -> None:
-    # The picture cover-cropped into a circle, or the initials disc; then the
-    # ring stroked on the rim. Everything derives from the diameter, so the disc
-    # renders at any region size.
+    # The picture cover-cropped into the avatar shape (circle or rounded square),
+    # or the initials disc; then the ring stroked on the rim. Everything derives
+    # from the diameter/side d, so it renders at any region size.
     radius = d / 2
     if surface is not None:
         cr.save()
-        cr.arc(cx, cy, radius, 0, 2 * math.pi)
+        _avatar_path(cr, cx, cy, d, shape)
         cr.clip()
         sw, sh = surface.get_width(), surface.get_height()
-        scale = d / min(sw, sh)  # cover-crop: fill the circle, clip the excess
+        scale = d / min(sw, sh)  # cover-crop: fill the shape, clip the excess
         cr.translate(cx - sw * scale / 2, cy - sh * scale / 2)
         cr.scale(scale, scale)
         cr.set_source_surface(surface, 0, 0)
@@ -209,7 +232,7 @@ def draw_avatar_disc(
         grad.add_color_stop_rgba(0.0, *top)
         grad.add_color_stop_rgba(1.0, *bottom)
         cr.save()
-        cr.arc(cx, cy, radius, 0, 2 * math.pi)
+        _avatar_path(cr, cx, cy, d, shape)
         cr.set_source(grad)
         cr.fill()
         cr.restore()
@@ -222,11 +245,10 @@ def draw_avatar_disc(
 
     if ring[3] > 0:
         cr.save()
-        # new_path first: show_layout leaves a current point, and arc would
-        # draw a stray line from it to the rim (save/restore keeps graphics
-        # state, NOT the path -- same guard as veiland_svg.draw_pill).
-        cr.new_path()
-        cr.arc(cx, cy, radius, 0, 2 * math.pi)
+        # _avatar_path does new_path first, so show_layout's leftover current
+        # point can't add a stray segment (save/restore keeps graphics state, NOT
+        # the path -- same guard as veiland_svg.draw_pill).
+        _avatar_path(cr, cx, cy, d, shape)
         cr.set_line_width(max(1.0, d * 0.028))
         cr.set_source_rgba(*ring)
         cr.stroke()
@@ -239,6 +261,7 @@ class Style:
     name: str
     font: vt.FontSpec  # family/italic for the initials letter (font_from_config)
     ring: vs.RGBA
+    shape: str  # "circle" (default) | "rounded" -- outline of the avatar
     halign: str  # content_halign: anchor the d x d disc within its region box
     valign: str  # content_valign
     border_on: bool  # debug_border: stroke the region-box edge to see placement
@@ -273,6 +296,7 @@ def draw_into(buf: vp.LinearBuffer, style: Style) -> None:
             d,
             style.ring,
             style.font,
+            style.shape,
         )
 
         # Debug border: trace the region box (= buffer edge) when debug_border is
@@ -297,6 +321,15 @@ def main() -> None:
     )
     content_halign, content_valign = vl.anchor_from_config(plugin_cfg, tag="avatar")
     border_on, border_color = vl.debug_border_from_config(plugin_cfg, tag="avatar")
+    # Avatar outline: "circle" (default) or "rounded" (a rounded square, to rhyme
+    # with rounded-rect scenes). An unknown value logs one line and falls back to
+    # circle -- the untrusted-input rule, never a crash.
+    shape_raw = plugin_cfg.get("shape", "circle")
+    if shape_raw in ("circle", "rounded"):
+        shape = shape_raw
+    else:
+        log(f"shape: expected 'circle' or 'rounded', got {shape_raw!r}; using circle")
+        shape = "circle"
     style = Style(
         avatar=load_avatar(plugin_cfg),
         name=resolve_name(plugin_cfg),
@@ -305,6 +338,7 @@ def main() -> None:
         # the family/italic fields of this FontSpec are consulted.
         font=vt.font_from_config(plugin_cfg, tag="avatar"),
         ring=vs.parse_color(plugin_cfg, "ring_color", RING, tag="avatar"),
+        shape=shape,
         halign=content_halign,
         valign=content_valign,
         border_on=border_on,
