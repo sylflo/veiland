@@ -499,7 +499,30 @@ pub(crate) fn render_label(
                 // across that.
                 let image = match swash_cache.get_image(font_system, physical.cache_key) {
                     Some(img) => img,
-                    None => continue, // font/glyph not available; skip
+                    None => {
+                        // swash could not rasterize this glyph — it is dropped
+                        // from the output (the text degrades to a gap, not a
+                        // crash). This is NOT rare-and-harmless: the known
+                        // trigger is a hairline weight (e.g. font_weight <= 300
+                        // -> DejaVu Sans ExtraLight), whose digit glyphs swash
+                        // returns None for, so the clock loses its numbers with
+                        // no other sign. Warn ONCE per process (this is a
+                        // per-glyph, per-frame loop — an unguarded log spams) so
+                        // the failure is visible and diagnosable instead of
+                        // silent. Fix for the caller: use a heavier font_weight.
+                        static WARNED: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            eprintln!(
+                                "veiland-text: a glyph (id {}, weight {}) could not be \
+                                 rasterized and was dropped; text may be missing characters. \
+                                 A hairline font_weight (<=300) is the usual cause — use a \
+                                 heavier weight or a font with a solid light face.",
+                                physical.cache_key.glyph_id, physical.cache_key.font_weight.0,
+                            );
+                        }
+                        continue;
+                    }
                 };
                 // Skip colour bitmaps (emoji); M10 mask-only path.
                 if image.content != SwashContent::Mask {
