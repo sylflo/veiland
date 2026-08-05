@@ -253,8 +253,15 @@ impl Atlas {
     /// `None` if the glyph won't fit on any existing shelf and there's
     /// no room for a new one. Pure CPU work — no GL state touched.
     fn try_pack(&mut self, w: u32, h: u32) -> Option<PackedRect> {
-        // Try to fit on an existing shelf: must be at least as tall as
-        // the glyph, and have at least `w` pixels free at the right edge.
+        // 1px gutter between packed glyphs. The rect stays w x h, but the
+        // packing cursor advances by w+PAD / h+PAD so a glyph's right/bottom
+        // edge never touches its neighbour's pixels. Without it, a glyph's UV
+        // boundary samples straight into the adjacent glyph and bilinear
+        // filtering (or half-texel rounding at some scales) bleeds a faint row
+        // of the neighbour in — a thin bar across the glyph edge. The gutter
+        // leaves an empty margin so the boundary samples only background.
+        const PAD: u32 = 1;
+        // Try to fit on an existing shelf: tall enough, and w (+ gutter) free.
         for shelf in &mut self.shelves {
             if shelf.height >= h && shelf.next_free_x + w <= self.size {
                 let rect = PackedRect {
@@ -263,7 +270,7 @@ impl Atlas {
                     w,
                     h,
                 };
-                shelf.next_free_x += w;
+                shelf.next_free_x += w + PAD;
                 return Some(rect);
             }
         }
@@ -275,7 +282,7 @@ impl Atlas {
             let shelf = Shelf {
                 y_top: self.next_shelf_y,
                 height: h,
-                next_free_x: w,
+                next_free_x: w + PAD,
             };
             let rect = PackedRect {
                 x: 0,
@@ -284,7 +291,7 @@ impl Atlas {
                 h,
             };
             self.shelves.push(shelf);
-            self.next_shelf_y += h;
+            self.next_shelf_y += h + PAD;
             return Some(rect);
         }
         None
@@ -350,6 +357,11 @@ mod tests {
         }
     }
 
+    // NOTE: these packing tests assert the cursor positions AFTER each pack,
+    // which include the 1px inter-glyph gutter (PAD=1 in try_pack): the packed
+    // rect stays w x h, but next_free_x / next_shelf_y advance by w+1 / h+1 so
+    // no glyph's edge touches its neighbour (prevents atlas bleed). The rect
+    // origins (r.x / r.y) are unaffected; only the advance carries the gutter.
     #[test]
     fn pack_first_glyph_opens_a_shelf() {
         let mut a = fake_atlas();
@@ -358,8 +370,8 @@ mod tests {
         assert_eq!(a.shelves.len(), 1);
         assert_eq!(a.shelves[0].y_top, 0);
         assert_eq!(a.shelves[0].height, 50);
-        assert_eq!(a.shelves[0].next_free_x, 40);
-        assert_eq!(a.next_shelf_y, 50);
+        assert_eq!(a.shelves[0].next_free_x, 41); // 40 + 1px gutter
+        assert_eq!(a.next_shelf_y, 51); // 50 + 1px gutter
     }
 
     #[test]
@@ -367,10 +379,10 @@ mod tests {
         let mut a = fake_atlas();
         a.try_pack(40, 50).unwrap();
         let r = a.try_pack(30, 40).expect("shorter glyph must fit on shelf");
-        assert_eq!(r.x, 40);
+        assert_eq!(r.x, 41); // starts after the first glyph + its gutter
         assert_eq!(r.y, 0);
         assert_eq!(a.shelves.len(), 1);
-        assert_eq!(a.shelves[0].next_free_x, 70);
+        assert_eq!(a.shelves[0].next_free_x, 72); // 41 + 30 + 1px gutter
     }
 
     #[test]
@@ -380,9 +392,9 @@ mod tests {
         let r = a
             .try_pack(20, 80)
             .expect("taller glyph must open new shelf");
-        assert_eq!(r.y, 50);
+        assert_eq!(r.y, 51); // first shelf height 50 + 1px gutter
         assert_eq!(a.shelves.len(), 2);
-        assert_eq!(a.next_shelf_y, 130);
+        assert_eq!(a.next_shelf_y, 131); // 51 + 80 + 1px gutter
     }
 
     #[test]
@@ -391,11 +403,12 @@ mod tests {
         // Open one shelf that occupies the full height. Subsequent
         // glyphs either fit on it (if narrow enough) or fail.
         a.try_pack(1, ATLAS_SIZE).unwrap(); // one tall sliver, height = ATLAS_SIZE
-        // shelf is ATLAS_SIZE tall, next_free_x = 1, so width-1023 still fits.
-        a.try_pack(ATLAS_SIZE - 1, 10).unwrap();
-        // Now shelf is full at x; and no room for another shelf below
-        // (next_shelf_y = ATLAS_SIZE). A new glyph that won't fit
-        // on the existing shelf must fail.
+        // After it: next_free_x = 1 + 1px gutter = 2, and next_shelf_y =
+        // ATLAS_SIZE + 1 (so no new shelf can open). Fill the shelf's width to
+        // the edge: 2 + (ATLAS_SIZE - 2) = ATLAS_SIZE, which just fits.
+        a.try_pack(ATLAS_SIZE - 2, 10).unwrap();
+        // Now the shelf has no free x and there's no room for another shelf
+        // below. Any further glyph must fail.
         assert!(a.try_pack(2, 1).is_none());
     }
 
