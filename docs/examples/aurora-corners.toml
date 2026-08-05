@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Scene: "Aurora Corners" -- the CORNER-ANCHORED calm scene. See
+# assets/aurora-corners.png for the rendered result. Companion to aurora-card.toml
+# (the centered-glass-card archetype): SAME cool drifting-aurora backdrop, two
+# different silhouettes.
+#
+# THE PRINCIPLE: a calm scene is NOT bare-with-ghosted-whispers. Anchor ALL FOUR
+# CORNERS with small, crisp, FULL-CONTRAST icons, float ONE big hero (the clock) in
+# the framed center, and keep the backdrop atmospheric. The icons are the FRAME, not
+# decoration -- that is what makes even a plain-gradient scene read as finished, not
+# empty. Calm comes from small + cornered + few, not from ghosted + absent.
+#
+# THE FOUR ANCHORED ZONES:
+#   top-CENTER   big clock + date (the hero)
+#   top-RIGHT    battery + wifi + bluetooth chips (crisp, not ghosted). A keyboard-
+#                layout pill would sit here too, but the core does not forward layout
+#                state to plugins yet, so that slot is skipped for now.
+#   bottom-LEFT  weather with its CONDITION ICON + temp + place
+#   bottom-RIGHT now-playing with ALBUM ART thumbnail
+#   center       password (core, drawn last)
+#
+# The corner icons are at NORMAL contrast, not dimmed -- small and cornered, so they
+# frame without shouting. That framing is what keeps the open backdrop from reading
+# as cold/empty: the negative space is deliberate, not missing.
+#
+# Needs the Python/Pango/librsvg GI stack for the icon widgets (weather, wifi,
+# now_playing): run veiland from the repo root inside `nix develop`. The D-Bus
+# widgets draw a graceful empty state with no player / NetworkManager present.
+
+# --- Backdrop: the living cool aurora (opaque, zero asset) ---------------------
+[[plugin]]
+name = "blobs"
+binary = "veiland-blobs"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.10, 0.18, 0.48],   # deep indigo
+    [0.28, 0.14, 0.52],   # violet
+    [0.06, 0.34, 0.44],   # teal
+    [0.20, 0.16, 0.30],   # dim warm ember
+]
+background = [0.02, 0.03, 0.07]
+count = 5
+size = 0.30
+softness = 0.72
+speed = 0.35          # glacial drift; the only motion. Composition is frozen.
+seed = 40503
+
+# --- HERO GROUP: clock + date, LOWER-CENTER (tight above the password) ----------
+# clock + date + password read as ONE tight vertical cluster in the lower third,
+# NOT three floating things. The top ~55% stays open aurora (where the glacial
+# drift is most visible); the group sits low, interactive stuff in reach. The
+# gaps are sized to the elements: clock is big so ~0.07 to the date; date is
+# small so the password (y_percent 76 below) sits just under it. Move all three
+# y's together to reposition the whole group without breaking the rhythm.
+[[plugin]]
+name = "clock"
+binary = "veiland-clock"
+z_index = 30
+[plugin.config]
+time_format = "%H:%M"
+date_format = "%A, %B %d"
+font_family = "Sans"
+font_weight = 400          # NOT thin -- see the aurora-minimal WEIGHT NOTE (thin
+                           # "Sans" drops digits; deferred veiland-text fix).
+time_font_size = 0.085     # ~92px on 1080p, the group's hero line
+date_font_size = 0.018
+time_letter_spacing = 0.02
+date_letter_spacing = 0.10
+time_color = [0.95, 0.96, 0.99, 0.95]
+date_color = [0.80, 0.84, 0.92, 0.7]
+time_position = [0.5, 0.50]   # lower-middle; top of the tight group
+date_position = [0.5, 0.57]   # tight under the clock
+halign = "center"
+valign = "middle"
+shadow_offset = [0.0, 0.0015]
+shadow_color = [0.0, 0.0, 0.05, 0.5]
+shadow_blur = 0.004
+
+# --- TOP-RIGHT cluster: battery + wifi + bluetooth (crisp chips) ---------------
+# All anchor top-right, share width/height/margin_y, step margin_x leftward.
+# rightmost (battery) smallest margin_x; each chip to its left adds ~0.040.
+# Full-contrast glyphs -- crisp top-right chips, not ghosted.
+[[plugin]]
+name = "cluster-battery"
+binary = "./python/examples/battery_svg.py"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.020, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]     # crisp near-white glyph (not ghosted)
+
+[[plugin]]
+name = "cluster-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.060, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+[[plugin]]
+name = "cluster-bluetooth"
+binary = "./python/examples/bluetooth.py"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.100, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+# --- BOTTOM-LEFT: weather with its CONDITION ICON + temp + place ----------------
+# The card layout draws the condition glyph + temperature + place name. This is the
+# icon-forward bottom-left corner.
+[[plugin]]
+name = "corner-weather"
+binary = "./python/examples/weather.py"
+z_index = 20
+region = { halign = "left", valign = "bottom", width = 0.15, height = 0.10, margin = 0.03 }
+[plugin.config]
+layout = "card"
+location = "Reykjavik"
+units = "celsius"
+show_location = true
+pill_color = [0.0, 0.0, 0.0, 0.0]        # no chip; the glyph + text float bare
+icon_color = [0.90, 0.93, 0.98, 0.95]    # crisp condition glyph
+font_family = "Sans"
+
+# --- BOTTOM-RIGHT: now-playing with ALBUM ART thumbnail ------------------------
+[[plugin]]
+name = "corner-nowplaying"
+binary = "./python/examples/now_playing.py"
+z_index = 20
+region = { halign = "right", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
+[plugin.config]
+layout = "compact"
+fetch_remote_art = true
+
+# --- Password: bottom of the hero group, tight under the date ------------------
+# y_percent 66 sits it just below the date (0.57) so clock -> date -> password
+# read as one tight cluster, resting in the lower-middle (balanced air above and
+# below). x unset -> core centers it.
+[password]
+y_percent = 66
+box_width = 300
+box_height = 54
+outline_thickness = 2
+rounding = -1
+inner_color = "rgba(18, 22, 40, 0.45)"
+outer_color = "rgba(150, 170, 220, 0.35)"
+dot_color = "rgba(236, 240, 248, 0.95)"
+dot_diameter = 9
+dot_spacing = 20
+placeholder_text = "password"
+placeholder_color = "rgba(210, 216, 232, 0.50)"
+placeholder_font_size = 15

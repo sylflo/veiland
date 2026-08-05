@@ -1,0 +1,180 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Scene: "Aurora Card" -- the CENTERED-GLASS-CARD calm scene. See
+# assets/aurora-card.png for the rendered result. Companion to aurora-corners.toml
+# (the corner-anchored archetype): SAME cool drifting-aurora backdrop, different
+# silhouette.
+#
+# THE IDEA: ONE frosted card in the center holds avatar -> name -> clock -> date ->
+# password, stacked. The card IS the composition. The corner icons (battery + wifi +
+# bluetooth top-right, weather bottom-left, now-playing bottom-right) frame all four
+# corners AROUND the card -- same icon-frame discipline as aurora-corners.toml, but
+# the hero is a contained card, not a floating clock. The more "contained /
+# photo-forward" look.
+#
+# HOW THE CARD IS DRAWN: blobs is the backdrop (not a wallpaper image), so we can't
+# use the wallpaper plugin's blur_regions for the card. Instead a `shape.py` rounded
+# rect draws the card (lower z_index), and the stacked widgets sit ON it (higher z,
+# matching regions) -- the same "shape-under-content" trick aurora-dashboard uses.
+# The card and every widget region use the SAME center column so they stay aligned
+# at any resolution.
+#
+# ---- shared card geometry (fractions of surface) --------------------------
+#   CARD: x 0.40  y 0.20  w 0.20  h 0.56   (centered column, x 0.40..0.60)
+#   widgets stack down the card's center line (x 0.50).
+#
+# Needs the Python/Pango/librsvg GI stack (avatar, markup, weather, wifi, bluetooth,
+# now_playing): run from the repo root inside `nix develop`.
+
+# --- Backdrop: the living cool aurora (opaque, zero asset) ---------------------
+[[plugin]]
+name = "blobs"
+binary = "veiland-blobs"
+z_index = -100
+[plugin.config]
+colors = [
+    [0.10, 0.18, 0.48],
+    [0.28, 0.14, 0.52],
+    [0.06, 0.34, 0.44],
+    [0.20, 0.16, 0.30],
+]
+background = [0.02, 0.03, 0.07]
+count = 5
+size = 0.30
+softness = 0.72
+speed = 0.35
+seed = 40503
+
+# --- THE CARD: a frosted rounded rect (drawn first, under the stack) -----------
+# shape.py draws a translucent rounded rectangle; the widgets below sit on it.
+[[plugin]]
+name = "center-card"
+binary = "./python/examples/shape.py"
+z_index = 5
+region = { halign = "left", valign = "top", width = 0.20, height = 0.56, margin_x = 0.40, margin_y = 0.20 }
+[plugin.config]
+color = [0.06, 0.08, 0.14, 0.55]   # translucent dark card (RGBA); the aurora shows through
+radius = 0.04                       # fraction of card height -> soft rounded corners
+
+# --- AVATAR disc, top of the card ----------------------------------------------
+# 0.09 square centered on the card's mid-line (x 0.50): margin_x = 0.50 - 0.09/2.
+[[plugin]]
+name = "card-avatar"
+binary = "./python/examples/avatar.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.09, height = 0.09, margin_x = 0.455, margin_y = 0.235 }
+[plugin.config]
+shape = "circle"
+
+# --- NAME / greeting line, under the avatar ------------------------------------
+[[plugin]]
+name = "card-name"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.20, height = 0.05, margin_x = 0.40, margin_y = 0.345 }
+[plugin.config]
+text = '<span foreground="#eef1f7">{name}</span>'
+content_halign = "center"
+content_valign = "center"
+font_size = 0.45
+shadow_color = [0.0, 0.0, 0.0, 0.0]
+
+# --- CLOCK, middle of the card -------------------------------------------------
+# markup.py for the clock so it lives cleanly inside the card column (and could go
+# two-tone later); {time:%H}:{time:%M} tokens, one line.
+[[plugin]]
+name = "card-clock"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.20, height = 0.12, margin_x = 0.40, margin_y = 0.42 }
+[plugin.config]
+text = '<span foreground="#f4f7fb" weight="bold">{time:%H}:{time:%M}</span>'
+content_halign = "center"
+content_valign = "center"
+font_size = 0.55
+shadow_color = [0.0, 0.0, 0.0, 0.0]
+
+# --- DATE line, under the clock ------------------------------------------------
+[[plugin]]
+name = "card-date"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.20, height = 0.04, margin_x = 0.40, margin_y = 0.55 }
+[plugin.config]
+text = '<span foreground="#aab4d0" size="small">{date:%A, %B %d}</span>'
+content_halign = "center"
+content_valign = "center"
+font_size = 0.5
+shadow_color = [0.0, 0.0, 0.0, 0.0]
+
+# --- TOP-RIGHT cluster: battery + wifi + bluetooth (OUTSIDE the card) -----------
+[[plugin]]
+name = "cluster-battery"
+binary = "./python/examples/battery_svg.py"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.020, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+[[plugin]]
+name = "cluster-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.060, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+[[plugin]]
+name = "cluster-bluetooth"
+binary = "./python/examples/bluetooth.py"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.100, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+# --- BOTTOM-LEFT: weather with its condition icon (OUTSIDE the card) ------------
+[[plugin]]
+name = "corner-weather"
+binary = "./python/examples/weather.py"
+z_index = 20
+region = { halign = "left", valign = "bottom", width = 0.15, height = 0.10, margin = 0.03 }
+[plugin.config]
+layout = "card"
+location = "Reykjavik"
+units = "celsius"
+show_location = true
+pill_color = [0.0, 0.0, 0.0, 0.0]
+icon_color = [0.90, 0.93, 0.98, 0.95]
+font_family = "Sans"
+
+# --- BOTTOM-RIGHT: now-playing with ALBUM ART thumbnail (OUTSIDE the card) ------
+# Completes the icon frame: chips top-right, weather bottom-left, music bottom-
+# right -- all four corners around the card anchored. compact layout = album art +
+# title/artist chip; a graceful "nothing playing" state with no player.
+[[plugin]]
+name = "corner-nowplaying"
+binary = "./python/examples/now_playing.py"
+z_index = 20
+region = { halign = "right", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
+[plugin.config]
+layout = "compact"
+fetch_remote_art = true
+
+# --- Password: INSIDE the card, bottom (core, drawn last) ----------------------
+# The card center is surface-fraction x ~0.50; at 1920 wide that is ~960 px (the
+# core centers it when x is unset, which lands on the card here). y_percent ~68
+# sits it in the card's lower third, under the date.
+[password]
+y_percent = 68
+box_width = 260
+box_height = 50
+outline_thickness = 2
+rounding = -1
+inner_color = "rgba(12, 16, 30, 0.55)"
+outer_color = "rgba(150, 170, 220, 0.40)"
+dot_color = "rgba(236, 240, 248, 0.95)"
+dot_diameter = 8
+dot_spacing = 18
+placeholder_text = "password"
+placeholder_color = "rgba(210, 216, 232, 0.55)"
+placeholder_font_size = 14
