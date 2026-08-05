@@ -1,0 +1,319 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Scene: "Aurora Dashboard" -- a grouped, card-based lockscreen (see
+# assets/aurora-dashboard.png for the rendered result). THREE frosted glass cards:
+# a login card (distro name + heading + password) and a clock card (clock +
+# uptime) on the left, and one tall card on the right grouping the avatar, date,
+# now-playing, two tan wifi/bluetooth chips (live SSID + device name) and the
+# battery. A polished, feature-complete static scene built entirely from shipped
+# plugins -- no new code.
+#
+# HOW THE PANELS ARE MADE (the key idea): veiland has no "container" plugin, so
+# the frosted cards are drawn by the WALLPAPER plugin's `blur_regions` -- each
+# rounded, blurred+darkened rectangle over the wallpaper IS a card. The widgets
+# are then placed with matching fraction-of-surface regions so they land ON the
+# cards. Panels (wallpaper) and content (widgets) share the same coordinate
+# space, so they stay aligned at any resolution (1080p / 1440p / 4K).
+#
+# The two panel rects below and every widget region use the SAME numbers, kept
+# in sync by hand. If you move a card, move its widgets by the same amounts.
+#
+# Backdrop image: this uses the in-repo sakura-dusk.jpg so the scene runs with
+# zero extra assets. Swap `path` for your own wallpaper; anything works, and the
+# blur/darken keep the cards readable over any image.
+#
+# Runs from the repo ROOT inside `nix develop` (the Python widgets need the
+# Pango/PangoCairo + librsvg GI stack; binary paths are repo-relative). D-Bus
+# widgets (now_playing/wifi/bluetooth) draw a graceful empty state with no
+# player / NetworkManager / adapter present.
+#
+# ---- shared card geometry (fractions of surface) --------------------------
+#   LEFT-TOP    (login):  x 0.30  y 0.28  w 0.18  h 0.22
+#   LEFT-BOTTOM (clock):  x 0.30  y 0.54  w 0.18  h 0.18
+#   RIGHT       (stack):  x 0.52  y 0.20  w 0.18  h 0.60
+# Widget regions below are derived from these.
+
+# --- Backdrop + the two frosted PANELS -------------------------------------
+[[plugin]]
+name = "wallpaper"
+binary = "veiland-wallpaper"
+z_index = 0
+
+[plugin.config]
+path = "docs/examples/assets/sakura-dusk.jpg"
+blur = 10
+# Base darken applied to the WHOLE (blurred) surface. Kept light (0.20) so the
+# cards below can read as DARKER panels against it -- with the whole surface
+# blurred (since a3cc4ca), a card is visible only by its EXTRA darken, not by the
+# blur. If base and card darken are equal there is zero contrast and the cards
+# vanish (they are still drawn, just indistinguishable from the background).
+darken = 0.20
+# The frosted cards: each adds its OWN darken (0.45) ON TOP of the blurred base,
+# so they sit as distinctly darker panels over the lighter blurred wallpaper.
+# Omitting a region's `darken` would inherit the global 0.20 -> no contrast ->
+# invisible card, which is exactly the trap to avoid here.
+blur_regions = [
+  { x = 0.30, y = 0.28, w = 0.18, h = 0.22, radius = 0.03, darken = 0.45 },   # LEFT-TOP: login card
+  { x = 0.30, y = 0.54, w = 0.18, h = 0.18, radius = 0.03, darken = 0.45 },   # LEFT-BOTTOM: clock card
+  { x = 0.52, y = 0.20, w = 0.18, h = 0.60, radius = 0.03, darken = 0.45 },   # RIGHT card
+]
+
+# ===========================================================================
+# LEFT SIDE -- TWO cards (like the reference layout):
+#   LOGIN card  (x 0.30..0.48, y 0.28..0.50): heading + password
+#   CLOCK card  (x 0.30..0.48, y 0.54..0.72): clock + uptime, with a 0.04 gap
+# ===========================================================================
+
+# -- LOGIN card --
+# The heading is TWO separate widgets so each can be placed independently: the
+# distro name pinned at the card top, and a bigger "Log in" sitting just ABOVE
+# the password field (rather than glued under the distro with a dead gap below).
+# distro: small, quiet, top of the card (0.28..).
+[[plugin]]
+name = "left-distro"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.18, height = 0.05, margin_x = 0.30, margin_y = 0.30 }
+
+[plugin.config]
+text = '<span foreground="#9aa4c8">{distro}</span>'
+content_halign = "center"
+content_valign = "top"
+font_size = 0.5   # of the 0.05-tall region -> a small line
+shadow_color = [0.0, 0.0, 0.0, 0.0]
+
+# "Log in" -- bigger, vertically CENTRED in the gap between the distro line
+# (~0.33) and the password field top (~0.42), so it has equal air above and
+# below instead of hugging the input. Its 0.07-tall region spans 0.335..0.405 and
+# content_valign = center parks the text at ~0.37, the midpoint of that gap.
+[[plugin]]
+name = "left-heading"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.18, height = 0.07, margin_x = 0.30, margin_y = 0.335 }
+
+[plugin.config]
+text = '<span foreground="#eef1f7" weight="bold">Log in</span>'
+content_halign = "center"
+content_valign = "center"
+font_size = 0.55   # of the 0.07-tall region -> a larger heading
+shadow_color = [0.0, 0.0, 0.0, 0.0]   # off: the px*0.04 shadow ghosts on big text
+
+# -- CLOCK card --
+# Big mono clock, upper part of the clock card. Two-tone HH:MM -- each is its
+# own {time:...} token (a bare "%M" would print literally), coloured by a span.
+[[plugin]]
+name = "left-clock"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.18, height = 0.14, margin_x = 0.30, margin_y = 0.55 }
+
+[plugin.config]
+text = '<span foreground="#f5a9d0" weight="bold">{time:%H}</span><span foreground="#eef1f7" weight="bold">:</span><span foreground="#cbd5f5" weight="bold">{time:%M}</span>'
+content_halign = "center"
+content_valign = "center"
+font_size = 0.62
+shadow_color = [0.0, 0.0, 0.0, 0.0]   # off: the px*0.04 shadow ghosts on big text
+
+# Uptime line, bottom of the clock card.
+[[plugin]]
+name = "left-uptime"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.18, height = 0.06, margin_x = 0.30, margin_y = 0.665 }
+
+[plugin.config]
+text = '<span foreground="#9aa4c8" size="small">UPTIME {uptime}</span>'
+content_halign = "center"
+content_valign = "center"
+font_size = 0.3
+shadow_color = [0.0, 0.0, 0.0, 0.0]
+
+# ===========================================================================
+# RIGHT CARD  (x 0.52..0.70, y 0.20..0.80)
+# ===========================================================================
+
+# Avatar, top of the right card. shape = "rounded" makes it a rounded square (not
+# a circle) so it rhymes with the album-art thumbnail and the tan cards below --
+# the whole panel is rounded rectangles, so a lone circle read as out of place.
+# 0.085 square, centred on the panel mid-line (x 0.61): margin_x = 0.61 - 0.085/2.
+[[plugin]]
+name = "right-avatar"
+binary = "./python/examples/avatar.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.085, height = 0.085, margin_x = 0.5675, margin_y = 0.215 }
+
+[plugin.config]
+shape = "rounded"
+
+# Big day + date, under the avatar.
+[[plugin]]
+name = "right-date"
+binary = "./python/examples/markup.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.18, height = 0.10, margin_x = 0.52, margin_y = 0.31 }
+
+[plugin.config]
+# Weekday UPPERCASE via Pango's text_transform (span attribute, passes straight
+# through markup's set_markup); the date line under it is x-small so it reads as a
+# quieter subtitle beneath the bigger bold weekday.
+text = '''<span foreground="#eef1f7" weight="bold" text_transform="uppercase">{date:%a}</span>
+<span foreground="#9aa4c8" size="x-small">{date:%d %B, %Y}</span>'''
+content_halign = "center"
+content_valign = "center"
+font_family = "JetBrainsMono Nerd Font"   # match the panel's mono theme (chips + clock)
+font_size = 0.24
+shadow_color = [0.0, 0.0, 0.0, 0.0]
+
+# Now-playing, middle of the right card.
+# Spans the SAME 0.5267..0.6934 as the wifi/bluetooth/battery cards below, so the
+# whole right column shares one left edge and one right edge (the music card used
+# to be narrower + inset differently, which read as misaligned). width 0.1667.
+[[plugin]]
+name = "right-now-playing"
+binary = "./python/examples/now_playing.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.1667, height = 0.12, margin_x = 0.5267, margin_y = 0.44 }
+
+[plugin.config]
+layout = "compact"
+fetch_remote_art = true
+
+# Wifi + bluetooth, a ROW OF TWO tan CARDS (matching the reference layout): each
+# is a filled tan rounded rectangle with the GLYPH ON TOP and the live label
+# BELOW it. The tan card is drawn by a veiland-shape UNDER each widget (same
+# region, lower z_index -- the same shape-under-content trick shape.toml uses),
+# and the widget's own pill_color is TRANSPARENT so the shape IS the card. wifi
+# shows its SSID, bluetooth its connected-device name; the name only shows when
+# connected/paired, otherwise the label_disconnected placeholder ("N/A") keeps
+# the card from looking half-empty. Unlike hyprlock's cmd[update:1000] shelling
+# out to iw/bluetoothctl each second, both names are read event-driven from
+# NetworkManager / bluez -- instant on a connection change, no subprocess.
+#
+# GEOMETRY: the two cards sit side-by-side, EVENLY spaced in the 0.18-wide right
+# card (x 0.52..0.70). Two 0.08-wide cards + three equal ~0.0067 gaps (left edge,
+# gutter, right edge) => wifi 0.5267..0.6067, bluetooth 0.6134..0.6934. Each shape
+# shares its widget's region exactly.
+
+# -- the two tan cards (drawn first, under the widgets) --
+[[plugin]]
+name = "right-wifi-card"
+binary = "./python/examples/shape.py"
+z_index = 9
+region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.5267, margin_y = 0.59 }
+[plugin.config]
+color = [0.8, 0.643, 0.486, 1.0]   # tan (204/164/124), fully opaque
+radius = 0.22                       # fraction of card height -> soft rounded corners
+
+[[plugin]]
+name = "right-bluetooth-card"
+binary = "./python/examples/shape.py"
+z_index = 9
+region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.6134, margin_y = 0.59 }
+[plugin.config]
+color = [0.8, 0.643, 0.486, 1.0]
+radius = 0.22
+
+# -- the wifi + bluetooth widgets, ON the tan cards (transparent pill_color) --
+[[plugin]]
+name = "right-wifi"
+binary = "./python/examples/wifi.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.5267, margin_y = 0.59 }
+
+[plugin.config]
+pill_color = [0.0, 0.0, 0.0, 0.0]   # transparent -- the shape below IS the card
+icon_color = [0.12, 0.10, 0.10, 1.0]
+show_label = true
+label_pos = "bottom"
+# The label's font is the SAME uniform key set every veiland text widget takes
+# (font_family / font_size / font_weight / italic). font_family picks any
+# fontconfig family (here the reference layout's mono nerd font); font_size is a
+# fraction of the region height; label_color is the text color, [r,g,b,a] 0..1.
+font_family = "JetBrainsMono Nerd Font"
+font_size = 0.18
+font_weight = 500
+label_color = [0.12, 0.10, 0.10, 1.0]
+
+[[plugin]]
+name = "right-bluetooth"
+binary = "./python/examples/bluetooth.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.6134, margin_y = 0.59 }
+
+[plugin.config]
+pill_color = [0.0, 0.0, 0.0, 0.0]   # transparent -- the shape below IS the card
+icon_color = [0.12, 0.10, 0.10, 1.0]
+show_label = true
+label_pos = "bottom"
+font_family = "JetBrainsMono Nerd Font"
+font_size = 0.18
+font_weight = 500
+label_color = [0.12, 0.10, 0.10, 1.0]
+
+# Battery, a WIDE tan card under the wifi/bluetooth row -- same tan family so the
+# whole bottom of the panel reads as one set (not a lone red slab). Like the two
+# chips above, a veiland-shape draws the tan card and the widget's pill is
+# transparent. show_label turns on the percent + charging state ("64%
+# Discharging"), read from the same /sys read that picks the glyph; label_pos
+# "right" puts that text beside the icon, which suits this wide card.
+#
+# ALIGNMENT: the card spans EXACTLY from the wifi card's left edge (0.5267) to the
+# bluetooth card's right edge (0.6934), so it sits flush under the pair -- width
+# 0.1667. (The two chips above: wifi 0.5267..0.6067, bluetooth 0.6134..0.6934.)
+[[plugin]]
+name = "right-battery-card"
+binary = "./python/examples/shape.py"
+z_index = 9
+region = { halign = "left", valign = "top", width = 0.1667, height = 0.08, margin_x = 0.5267, margin_y = 0.695 }
+[plugin.config]
+color = [0.8, 0.643, 0.486, 1.0]   # tan, matching the wifi/bluetooth cards
+radius = 0.22
+
+[[plugin]]
+name = "right-battery"
+binary = "./python/examples/battery_svg.py"
+z_index = 10
+region = { halign = "left", valign = "top", width = 0.1667, height = 0.08, margin_x = 0.5267, margin_y = 0.695 }
+
+[plugin.config]
+pill_color = [0.0, 0.0, 0.0, 0.0]   # transparent -- the shape below IS the card
+icon_color = [0.12, 0.10, 0.10, 1.0]
+show_label = true
+label_pos = "right"                 # icon left, "64% Discharging" beside it
+font_family = "JetBrainsMono Nerd Font"
+font_size = 0.30
+font_weight = 500
+label_color = [0.12, 0.10, 0.10, 1.0]
+
+# ===========================================================================
+# Password: core pill, placed INSIDE the left card, under "Log in" (layout20's
+# field position). The core draws this last, on top of everything.
+#
+# `x` is the box CENTRE in surface PIXELS (not a fraction). The left card centre
+# is surface-fraction ~0.39; at 1920 wide that is ~749 px. `y_percent` is the
+# centre as a % of surface height; ~45 sits just under the heading, above the
+# clock.
+#
+# RESOLUTION CAVEAT: because `x` is absolute pixels, this value is tuned for a
+# 1920-wide output. The widget cards scale (they are fractions of the surface),
+# but the password box does NOT track them -- on a wider/narrower monitor set
+# `x` to (surface_width * 0.39). This is a core limitation (the password box
+# has no fraction-of-surface x); bottom-CENTRE (x unset, y_percent ~88) is the
+# resolution-independent fallback if you prefer.
+# ===========================================================================
+[password]
+x = 749
+y_percent = 45
+box_width = 300
+box_height = 56
+outline_thickness = 2
+rounding = -1
+inner_color = "rgba(20, 24, 38, 0.55)"
+outer_color = "rgba(150, 170, 220, 0.45)"
+dot_color = "rgba(235, 238, 245, 1.0)"
+dot_diameter = 9
+dot_spacing = 20
+placeholder_text = "password"
+placeholder_color = "rgba(210, 216, 232, 0.55)"
+placeholder_font_size = 15
