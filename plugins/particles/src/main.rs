@@ -58,6 +58,23 @@ struct Config {
     /// same visual size on 1× and 2× displays.
     #[serde(default = "default_radius_px")]
     radius_px: f32,
+    /// Opt-in per-particle brightness shimmer. `false` (default) keeps every
+    /// existing scene pixel-identical; `true` pulses each dot's opacity on a
+    /// sine (out of sync via its wobble phase), dimming toward the trough and
+    /// never brightening past the configured peak — a twinkling starfield.
+    #[serde(default)]
+    twinkle: bool,
+    /// Twinkle pulse rate in radians/sec (only used when `twinkle`). Higher =
+    /// faster shimmer. ~1.4 is a slow breathe (~4.5s/cycle); ~4-6 reads as a
+    /// lively sparkle.
+    #[serde(default = "default_twinkle_speed")]
+    twinkle_speed: f32,
+    /// How far the twinkle dims a particle below its peak, 0..1 (only used when
+    /// `twinkle`). This is the MAIN "how noticeable" lever: 0.6 is a subtle
+    /// breathe you have to look for; ~0.9 dims stars almost to black at the
+    /// trough, so the blinking is obvious across the whole scene. Clamped 0..1.
+    #[serde(default = "default_twinkle_depth")]
+    twinkle_depth: f32,
 }
 
 fn default_count() -> u32 {
@@ -65,6 +82,12 @@ fn default_count() -> u32 {
 }
 fn default_color() -> [f32; 4] {
     [1.0, 1.0, 1.0, 0.5]
+}
+fn default_twinkle_speed() -> f32 {
+    1.4
+}
+fn default_twinkle_depth() -> f32 {
+    0.6
 }
 fn default_radius_px() -> f32 {
     // Small, delicate core — the glow halo (GLOW_SCALE + the FS falloff)
@@ -79,6 +102,9 @@ impl Default for Config {
             count: default_count(),
             color: default_color(),
             radius_px: default_radius_px(),
+            twinkle: false,
+            twinkle_speed: default_twinkle_speed(),
+            twinkle_depth: default_twinkle_depth(),
         }
     }
 }
@@ -255,7 +281,18 @@ fn update_vertices(state: &mut State, surface_w: u32, surface_h: u32) {
         } else {
             1.0
         };
-        let alpha = fade.clamp(0.0, 1.0) * PEAK_OPACITY;
+        // Optional twinkle: a sine on opacity, offset per particle by its
+        // wobble_phase so dots shimmer out of sync. `t` in 0..1; the mapping
+        // 1 - depth*(1-t) only DIMS below peak (never overshoots the color).
+        // depth is clamped 0..1 (a plugin config value — never trust it raw).
+        let twinkle = if state.config.twinkle {
+            let depth = state.config.twinkle_depth.clamp(0.0, 1.0);
+            let t = ((now * state.config.twinkle_speed) + p.wobble_phase).sin() * 0.5 + 0.5;
+            1.0 - depth * (1.0 - t)
+        } else {
+            1.0
+        };
+        let alpha = fade.clamp(0.0, 1.0) * PEAK_OPACITY * twinkle;
 
         // Four corners in pixel space (quad is r = core * GLOW_SCALE).
         let (x0, y0) = (cx_px - r, cy_px - r);
