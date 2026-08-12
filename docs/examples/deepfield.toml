@@ -112,7 +112,7 @@ shadow_blur = 0.005
 # needs no Python.
 [[plugin]]
 name = "veiland-weather"
-binary = "./python/examples/weather.py"
+binary = "veiland-weather"
 z_index = 40
 region = { halign = "left", valign = "bottom", width = 0.09, height = 0.05, margin = 0.03 }
 

@@ -35,7 +35,7 @@
 # wallpaper show faintly through, like the reference layout's cards.
 [[plugin]]
 name = "veiland-shape"
-binary = "./python/examples/shape.py"
+binary = "veiland-shape"
 z_index = 1
 region = { halign = "center", valign = "center", width = 0.24, height = 0.16, margin_x = 0, margin_y = 0 }
 [plugin.config]
@@ -57,7 +57,7 @@ radius = 0.06
 # markup.toml's default block.)
 [[plugin]]
 name = "veiland-markup"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 2
 region = { halign = "center", valign = "center", width = 0.24, height = 0.16, margin_x = 0, margin_y = 0 }
 [plugin.config]
@@ -77,7 +77,7 @@ content_valign = "center"
 # The tan is 204/164/124 fully opaque. z_index 10 sits under the wifi widget's 11.
 [[plugin]]
 name = "veiland-shape-pill"
-binary = "./python/examples/shape.py"
+binary = "veiland-shape"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.1, height = 0.09, margin_x = 0.013, margin_y = 0.013 }
 [plugin.config]
@@ -102,7 +102,7 @@ radius = 0.15
 # never looks half-empty.
 [[plugin]]
 name = "veiland-wifi"
-binary = "./python/examples/wifi.py"
+binary = "veiland-wifi"
 z_index = 11
 region = { halign = "right", valign = "top", width = 0.1, height = 0.09, margin_x = 0.013, margin_y = 0.013 }
 [plugin.config]

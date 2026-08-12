@@ -49,7 +49,7 @@ seed = 40503
 # shape.py draws a translucent rounded rectangle; the widgets below sit on it.
 [[plugin]]
 name = "center-card"
-binary = "./python/examples/shape.py"
+binary = "veiland-shape"
 z_index = 5
 region = { halign = "left", valign = "top", width = 0.20, height = 0.56, margin_x = 0.40, margin_y = 0.20 }
 [plugin.config]
@@ -60,7 +60,7 @@ radius = 0.04                       # fraction of card height -> soft rounded co
 # 0.09 square centered on the card's mid-line (x 0.50): margin_x = 0.50 - 0.09/2.
 [[plugin]]
 name = "card-avatar"
-binary = "./python/examples/avatar.py"
+binary = "veiland-avatar"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.09, height = 0.09, margin_x = 0.455, margin_y = 0.235 }
 [plugin.config]
@@ -69,7 +69,7 @@ shape = "circle"
 # --- NAME / greeting line, under the avatar ------------------------------------
 [[plugin]]
 name = "card-name"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.20, height = 0.05, margin_x = 0.40, margin_y = 0.345 }
 [plugin.config]
@@ -84,7 +84,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]
 # two-tone later); {time:%H}:{time:%M} tokens, one line.
 [[plugin]]
 name = "card-clock"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.20, height = 0.12, margin_x = 0.40, margin_y = 0.42 }
 [plugin.config]
@@ -97,7 +97,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]
 # --- DATE line, under the clock ------------------------------------------------
 [[plugin]]
 name = "card-date"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.20, height = 0.04, margin_x = 0.40, margin_y = 0.55 }
 [plugin.config]
@@ -110,7 +110,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]
 # --- TOP-RIGHT cluster: battery + wifi + bluetooth (OUTSIDE the card) -----------
 [[plugin]]
 name = "cluster-battery"
-binary = "./python/examples/battery_svg.py"
+binary = "veiland-battery"
 z_index = 20
 region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.020, margin_y = 0.030 }
 [plugin.config]
@@ -118,7 +118,7 @@ icon_color = [0.93, 0.95, 1.0, 0.95]
 
 [[plugin]]
 name = "cluster-wifi"
-binary = "./python/examples/wifi.py"
+binary = "veiland-wifi"
 z_index = 20
 region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.060, margin_y = 0.030 }
 [plugin.config]
@@ -126,7 +126,7 @@ icon_color = [0.93, 0.95, 1.0, 0.95]
 
 [[plugin]]
 name = "cluster-bluetooth"
-binary = "./python/examples/bluetooth.py"
+binary = "veiland-bluetooth"
 z_index = 20
 region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.100, margin_y = 0.030 }
 [plugin.config]
@@ -135,7 +135,7 @@ icon_color = [0.93, 0.95, 1.0, 0.95]
 # --- BOTTOM-LEFT: weather with its condition icon (OUTSIDE the card) ------------
 [[plugin]]
 name = "corner-weather"
-binary = "./python/examples/weather.py"
+binary = "veiland-weather"
 z_index = 20
 region = { halign = "left", valign = "bottom", width = 0.15, height = 0.10, margin = 0.03 }
 [plugin.config]
@@ -153,7 +153,7 @@ font_family = "Sans"
 # title/artist chip; a graceful "nothing playing" state with no player.
 [[plugin]]
 name = "corner-nowplaying"
-binary = "./python/examples/now_playing.py"
+binary = "veiland-now-playing"
 z_index = 20
 region = { halign = "right", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
 [plugin.config]

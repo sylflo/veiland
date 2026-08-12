@@ -29,7 +29,7 @@
 # docs/config.md.
 [[plugin]]
 name = "markup-clock"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 # Region pinned to the screen's TOP-LEFT corner (halign/valign = left/top with
 # zero margins) so the box's corner IS the display corner. Combined with the
@@ -100,7 +100,7 @@ debug_border = true
 # look, from the generic markup widget.
 [[plugin]]
 name = "markup-greeting"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "center", valign = "bottom", width = 0.6, height = 0.1, margin_y = 0.1 }
 
@@ -120,7 +120,7 @@ font_size   = 0.50
 # never after the first frame.
 [[plugin]]
 name = "markup-sysinfo"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "bottom", width = 0.4, height = 0.18, margin_x = 0.02, margin_y = 0.04 }
 

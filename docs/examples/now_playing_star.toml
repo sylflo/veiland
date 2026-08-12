@@ -28,7 +28,7 @@ speed = 0.6
 
 [[plugin]]
 name = "veiland-now-playing"
-binary = "./python/examples/now_playing.py"
+binary = "veiland-now-playing"
 z_index = 10
 
 [plugin.config]

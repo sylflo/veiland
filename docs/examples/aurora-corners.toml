@@ -84,7 +84,7 @@ shadow_blur = 0.004
 # Full-contrast glyphs -- crisp top-right chips, not ghosted.
 [[plugin]]
 name = "cluster-battery"
-binary = "./python/examples/battery_svg.py"
+binary = "veiland-battery"
 z_index = 20
 region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.020, margin_y = 0.030 }
 [plugin.config]
@@ -92,7 +92,7 @@ icon_color = [0.93, 0.95, 1.0, 0.95]     # crisp near-white glyph (not ghosted)
 
 [[plugin]]
 name = "cluster-wifi"
-binary = "./python/examples/wifi.py"
+binary = "veiland-wifi"
 z_index = 20
 region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.060, margin_y = 0.030 }
 [plugin.config]
@@ -100,7 +100,7 @@ icon_color = [0.93, 0.95, 1.0, 0.95]
 
 [[plugin]]
 name = "cluster-bluetooth"
-binary = "./python/examples/bluetooth.py"
+binary = "veiland-bluetooth"
 z_index = 20
 region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.100, margin_y = 0.030 }
 [plugin.config]
@@ -111,7 +111,7 @@ icon_color = [0.93, 0.95, 1.0, 0.95]
 # icon-forward bottom-left corner.
 [[plugin]]
 name = "corner-weather"
-binary = "./python/examples/weather.py"
+binary = "veiland-weather"
 z_index = 20
 region = { halign = "left", valign = "bottom", width = 0.15, height = 0.10, margin = 0.03 }
 [plugin.config]
@@ -126,7 +126,7 @@ font_family = "Sans"
 # --- BOTTOM-RIGHT: now-playing with ALBUM ART thumbnail ------------------------
 [[plugin]]
 name = "corner-nowplaying"
-binary = "./python/examples/now_playing.py"
+binary = "veiland-now-playing"
 z_index = 20
 region = { halign = "right", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
 [plugin.config]

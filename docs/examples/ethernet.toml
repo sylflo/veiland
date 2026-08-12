@@ -25,7 +25,7 @@
 # the pills in a row).
 [[plugin]]
 name = "veiland-ethernet"
-binary = "./python/examples/ethernet.py"
+binary = "veiland-ethernet"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
 

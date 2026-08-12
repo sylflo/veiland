@@ -51,7 +51,7 @@ speed = 0.6
 
 [[plugin]]
 name = "veiland-weather"
-binary = "./python/examples/weather.py"
+binary = "veiland-weather"
 z_index = 10
 region = { halign = "left", valign = "bottom", width = 0.16, height = 0.10, margin = 0.03 }
 

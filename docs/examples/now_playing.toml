@@ -49,7 +49,7 @@ speed = 0.6
 
 [[plugin]]
 name = "veiland-now-playing"
-binary = "./python/examples/now_playing.py"
+binary = "veiland-now-playing"
 z_index = 10
 region = { halign = "left", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
 

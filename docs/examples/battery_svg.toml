@@ -31,7 +31,7 @@
 # on the one resolution it was tuned for.) See docs/config.md.
 [[plugin]]
 name = "veiland-battery-svg"
-binary = "./python/examples/battery_svg.py"
+binary = "veiland-battery"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
 

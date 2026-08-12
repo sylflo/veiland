@@ -26,7 +26,7 @@
 # sibling) and status_cluster.toml (both pills in a row).
 [[plugin]]
 name = "veiland-wifi"
-binary = "./python/examples/wifi.py"
+binary = "veiland-wifi"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
 

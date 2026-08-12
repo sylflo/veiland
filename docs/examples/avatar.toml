@@ -32,7 +32,7 @@
 # centre, so the disc sits dead-centre in it.
 [[plugin]]
 name = "veiland-avatar"
-binary = "./python/examples/avatar.py"
+binary = "veiland-avatar"
 z_index = 10
 region = { halign = "center", valign = "top", width = 0.12, height = 0.12, margin_y = 0.42 }
 
@@ -63,7 +63,7 @@ region = { halign = "center", valign = "top", width = 0.12, height = 0.12, margi
 # greeting pill -- text on a translucent capsule.
 [[plugin]]
 name = "avatar-greeting"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "center", valign = "top", width = 0.5, height = 0.07, margin_y = 0.55 }
 

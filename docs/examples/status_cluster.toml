@@ -63,7 +63,7 @@ speed = 0.6
 # Battery: rightmost chip, smallest margin_x (hugs the corner).
 [[plugin]]
 name = "veiland-battery-svg"
-binary = "./python/examples/battery_svg.py"
+binary = "veiland-battery"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.013, margin_y = 0.013 }
 
@@ -71,7 +71,7 @@ region = { halign = "right", valign = "top", width = 0.031, height = 0.056, marg
 # NetworkManager over the SYSTEM bus; wifi-off when the radio is disabled.
 [[plugin]]
 name = "veiland-wifi"
-binary = "./python/examples/wifi.py"
+binary = "veiland-wifi"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.055, margin_y = 0.013 }
 
@@ -79,7 +79,7 @@ region = { halign = "right", valign = "top", width = 0.031, height = 0.056, marg
 # network-wired glyph shows up vs down (unplugged / no device / no bus -> down).
 [[plugin]]
 name = "veiland-ethernet"
-binary = "./python/examples/ethernet.py"
+binary = "veiland-ethernet"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.097, margin_y = 0.013 }
 
@@ -87,7 +87,7 @@ region = { halign = "right", valign = "top", width = 0.031, height = 0.056, marg
 # on / connected (adapter powered + any device connected).
 [[plugin]]
 name = "veiland-bluetooth"
-binary = "./python/examples/bluetooth.py"
+binary = "veiland-bluetooth"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin_x = 0.139, margin_y = 0.013 }
 

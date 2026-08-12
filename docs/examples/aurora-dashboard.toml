@@ -71,7 +71,7 @@ blur_regions = [
 # distro: small, quiet, top of the card (0.28..).
 [[plugin]]
 name = "left-distro"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.18, height = 0.05, margin_x = 0.30, margin_y = 0.30 }
 
@@ -88,7 +88,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]
 # content_valign = center parks the text at ~0.37, the midpoint of that gap.
 [[plugin]]
 name = "left-heading"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.18, height = 0.07, margin_x = 0.30, margin_y = 0.335 }
 
@@ -104,7 +104,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]   # off: the px*0.04 shadow ghosts on big te
 # own {time:...} token (a bare "%M" would print literally), coloured by a span.
 [[plugin]]
 name = "left-clock"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.18, height = 0.14, margin_x = 0.30, margin_y = 0.55 }
 
@@ -118,7 +118,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]   # off: the px*0.04 shadow ghosts on big te
 # Uptime line, bottom of the clock card.
 [[plugin]]
 name = "left-uptime"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.18, height = 0.06, margin_x = 0.30, margin_y = 0.665 }
 
@@ -139,7 +139,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]
 # 0.085 square, centred on the panel mid-line (x 0.61): margin_x = 0.61 - 0.085/2.
 [[plugin]]
 name = "right-avatar"
-binary = "./python/examples/avatar.py"
+binary = "veiland-avatar"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.085, height = 0.085, margin_x = 0.5675, margin_y = 0.215 }
 
@@ -149,7 +149,7 @@ shape = "rounded"
 # Big day + date, under the avatar.
 [[plugin]]
 name = "right-date"
-binary = "./python/examples/markup.py"
+binary = "veiland-markup"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.18, height = 0.10, margin_x = 0.52, margin_y = 0.31 }
 
@@ -171,7 +171,7 @@ shadow_color = [0.0, 0.0, 0.0, 0.0]
 # to be narrower + inset differently, which read as misaligned). width 0.1667.
 [[plugin]]
 name = "right-now-playing"
-binary = "./python/examples/now_playing.py"
+binary = "veiland-now-playing"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.1667, height = 0.12, margin_x = 0.5267, margin_y = 0.44 }
 
@@ -198,7 +198,7 @@ fetch_remote_art = true
 # -- the two tan cards (drawn first, under the widgets) --
 [[plugin]]
 name = "right-wifi-card"
-binary = "./python/examples/shape.py"
+binary = "veiland-shape"
 z_index = 9
 region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.5267, margin_y = 0.59 }
 [plugin.config]
@@ -207,7 +207,7 @@ radius = 0.22                       # fraction of card height -> soft rounded co
 
 [[plugin]]
 name = "right-bluetooth-card"
-binary = "./python/examples/shape.py"
+binary = "veiland-shape"
 z_index = 9
 region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.6134, margin_y = 0.59 }
 [plugin.config]
@@ -217,7 +217,7 @@ radius = 0.22
 # -- the wifi + bluetooth widgets, ON the tan cards (transparent pill_color) --
 [[plugin]]
 name = "right-wifi"
-binary = "./python/examples/wifi.py"
+binary = "veiland-wifi"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.5267, margin_y = 0.59 }
 
@@ -237,7 +237,7 @@ label_color = [0.12, 0.10, 0.10, 1.0]
 
 [[plugin]]
 name = "right-bluetooth"
-binary = "./python/examples/bluetooth.py"
+binary = "veiland-bluetooth"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.08, height = 0.075, margin_x = 0.6134, margin_y = 0.59 }
 
@@ -263,7 +263,7 @@ label_color = [0.12, 0.10, 0.10, 1.0]
 # 0.1667. (The two chips above: wifi 0.5267..0.6067, bluetooth 0.6134..0.6934.)
 [[plugin]]
 name = "right-battery-card"
-binary = "./python/examples/shape.py"
+binary = "veiland-shape"
 z_index = 9
 region = { halign = "left", valign = "top", width = 0.1667, height = 0.08, margin_x = 0.5267, margin_y = 0.695 }
 [plugin.config]
@@ -272,7 +272,7 @@ radius = 0.22
 
 [[plugin]]
 name = "right-battery"
-binary = "./python/examples/battery_svg.py"
+binary = "veiland-battery"
 z_index = 10
 region = { halign = "left", valign = "top", width = 0.1667, height = 0.08, margin_x = 0.5267, margin_y = 0.695 }
 

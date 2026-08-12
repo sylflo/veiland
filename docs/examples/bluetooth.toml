@@ -24,7 +24,7 @@
 # status_cluster.toml (all four pills in a row).
 [[plugin]]
 name = "veiland-bluetooth"
-binary = "./python/examples/bluetooth.py"
+binary = "veiland-bluetooth"
 z_index = 10
 region = { halign = "right", valign = "top", width = 0.031, height = 0.056, margin = 0.013 }
 

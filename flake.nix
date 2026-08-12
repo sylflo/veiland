@@ -268,21 +268,14 @@
             '')
             pythonWidgets
           + ''
-            # Point the installed scenes at the packaged widget names: an
-            # installed scene references `binary = "veiland-weather"`, never a
-            # repo path (the in-repo copies keep the path form so they run
-            # from a checkout). The two demo scenes reference widgets that are
-            # NOT installed (battery.py / battery_cairo.py), so drop them like
-            # hotplug-repro.toml above rather than leave a dangling binary.
+            # The example scenes already reference every widget by its bare
+            # veiland-<name> (Rust and Python alike), so no binary-line rewrite
+            # is needed here — only drop the two teaching-demo scenes, whose
+            # widgets (battery.py / battery_cairo.py) are intentionally NOT
+            # installed as veiland-* commands (same as hotplug-repro.toml above).
             rm -f "$out/share/veiland/examples/battery_python.toml" \
                   "$out/share/veiland/examples/battery_cairo.toml"
-          ''
-          + pkgs.lib.concatMapStrings
-            (w: ''
-              sed -i "s|binary = \"\\./python/examples/${w.src}\"|binary = \"${w.name}\"|" \
-                "$out/share/veiland/examples/"*.toml
-            '')
-            pythonWidgets;
+          '';
 
           meta = {
             description = "Wayland screen locker with process-isolated GPU plugins";
