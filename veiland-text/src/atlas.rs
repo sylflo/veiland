@@ -394,7 +394,7 @@ mod tests {
             .expect("taller glyph must open new shelf");
         assert_eq!(r.y, 51); // first shelf height 50 + 1px gutter
         assert_eq!(a.shelves.len(), 2);
-        assert_eq!(a.next_shelf_y, 131); // 51 + 80 + 1px gutter
+        assert_eq!(a.next_shelf_y, 132); // 51 + 80 + 1px gutter
     }
 
     #[test]
