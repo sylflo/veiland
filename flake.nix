@@ -73,6 +73,63 @@
       ];
       testCrateFlags =
         nixpkgs.lib.concatMap (c: [ "-p" c ]) (realCrates ++ libCrates);
+
+      # The nine PRODUCTION Python widgets, as (installed-name, source-
+      # basename) pairs. Installed as `veiland-<name>` executables on PATH so a
+      # scene references them by bare name exactly like a compiled Rust plugin
+      # (binary = "veiland-weather"); veiland-core execs them off PATH with no
+      # idea they are Python. NOT the two battery TEACHING demos (battery.py,
+      # battery_cairo.py) — those stay in-tree examples, never installed. See
+      # docs/plans/python-distribution.md and project_python_examples_prod_status.
+      pythonWidgets = [
+        { name = "veiland-now-playing"; src = "now_playing.py"; }
+        { name = "veiland-weather"; src = "weather.py"; }
+        { name = "veiland-wifi"; src = "wifi.py"; }
+        { name = "veiland-ethernet"; src = "ethernet.py"; }
+        { name = "veiland-bluetooth"; src = "bluetooth.py"; }
+        { name = "veiland-avatar"; src = "avatar.py"; }
+        { name = "veiland-markup"; src = "markup.py"; }
+        { name = "veiland-shape"; src = "shape.py"; }
+        { name = "veiland-battery"; src = "battery_svg.py"; }
+      ];
+
+      # The GObject-introspection + drawing stack the installed widgets need at
+      # RUNTIME, and the dev shell / python-check need for import parity. These
+      # are C libraries + typelibs that `pip` CANNOT supply (librsvg, Pango,
+      # HarfBuzz, glib) — the concrete reason the widgets ship as distro
+      # packages, not on PyPI (docs/plans/python-distribution.md). Defined once
+      # here, consumed by the package's wrappers, the dev shell, and the check.
+      # .out explicitly: several of these are multi-output, and their DEFAULT
+      # output is NOT the one carrying lib/ or the typelib. pango in particular
+      # defaults to its `-bin` output, whose lib/girepository-1.0 is EMPTY — so
+      # a bare `pkgs.pango` in a wrapper path silently drops Pango-1.0.typelib
+      # and the widget dies with "Namespace Pango not available". Pin `.out`
+      # (the typelib + .so live there) on every entry so the wrapper env is
+      # correct regardless of a package's default-output choice.
+      # gdk-pixbuf is here because librsvg's typelib TRANSITIVELY requires
+      # GdkPixbuf-2.0 (Rsvg pulls it in): without it the SVG widgets die with
+      # "Typelib file for namespace 'GdkPixbuf' not found". The dev shell masks
+      # this via propagation; an isolated wrapper does not, so it must be
+      # listed explicitly on both paths.
+      pythonWidgetLibs = pkgs: [
+        pkgs.librsvg.out
+        pkgs.gdk-pixbuf.out
+        pkgs.glib.out
+        pkgs.pango.out
+        pkgs.harfbuzz.out
+      ];
+      pythonWidgetTypelibs = pkgs: [
+        pkgs.librsvg.out
+        pkgs.gdk-pixbuf.out
+        pkgs.gobject-introspection.out
+        pkgs.pango.out
+        pkgs.harfbuzz.out
+      ];
+      # The interpreter the installed widgets run under: stdlib + the four
+      # example/companion deps (the SDK itself is stdlib+ctypes and needs none
+      # of these; they back the drawing companions + the D-Bus widgets).
+      pythonWidgetInterpreter = pkgs:
+        pkgs.python3.withPackages (ps: [ ps.pillow ps.pycairo ps.pygobject3 ps.jeepney ]);
     in
     {
       packages = forAllSystems (pkgs: {
@@ -123,8 +180,11 @@
           checkFlags = [ "--skip=plugin::spawn::tests::spawn_true_exits_zero" ];
 
           # pkg-config lets the -sys crates' build scripts locate the
-          # system libraries below.
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          # system libraries below; makeWrapper generates the Python widget
+          # launchers in postInstall (it bakes GI_TYPELIB_PATH / LD_LIBRARY_PATH
+          # into each veiland-<name> so the installed widget finds its typelibs
+          # the way the dev shell arranges — the wiring pip cannot do).
+          nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
 
           # Linked libraries. Maps 1:1 to the -sys crates:
           #   linux-pam    -> pam-sys2
@@ -170,7 +230,59 @@
             rm "$out/share/veiland/examples/hotplug-repro.toml"
             sed -i "s|docs/examples/assets/|$out/share/veiland/|" \
               "$out/share/veiland/examples/"*.toml
-          '';
+
+            # --- Python widgets --------------------------------------------
+            # Stash the SDK + companions + widget scripts + icons under
+            # libexec, PRESERVING the python/examples/ layout: each installed
+            # widget script keeps working unmodified, because its own
+            # sys.path shim (os.path.dirname(os.path.dirname(__file__)))
+            # still resolves to the SDK dir and its ICON_DIR
+            # (<script dir>/icons) still resolves to the icons — so no .py
+            # source edit is needed. (battery.py / battery_cairo.py are the
+            # teaching demos, not shipped: copy only what the widgets import.)
+            # (postInstall is one concatenated script, so pydst set here is
+            # visible in the per-widget fragments below — no `local`, which is
+            # a function-only builtin and errors at top level.)
+            pydst="$out/libexec/veiland/python"
+            install -dm0755 "$pydst" "$pydst/examples"
+            install -Dm0644 -t "$pydst" python/veiland_plugin.py \
+              python/veiland_svg.py python/veiland_text.py \
+              python/veiland_layout.py python/veiland_dbus.py
+            cp -r python/examples/icons "$pydst/examples/icons"
+
+            # Each veiland-<name> is a makeWrapper launcher: it bakes the GI
+            # typelib + library paths and the right interpreter, then execs
+            # the stashed widget script. The script is installed under its
+            # veiland- name (so `ps`/`/proc` and the host's log show the
+            # packaged name), inside examples/ so both path shims still fire.
+          ''
+          + pkgs.lib.concatMapStrings
+            (w: ''
+              install -Dm0755 "python/examples/${w.src}" \
+                "$pydst/examples/${w.name}"
+              makeWrapper "${pythonWidgetInterpreter pkgs}/bin/python3" \
+                "$out/bin/${w.name}" \
+                --add-flags "$pydst/examples/${w.name}" \
+                --prefix GI_TYPELIB_PATH : "${pkgs.lib.makeSearchPath "lib/girepository-1.0" (pythonWidgetTypelibs pkgs)}" \
+                --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (pythonWidgetLibs pkgs)}"
+            '')
+            pythonWidgets
+          + ''
+            # Point the installed scenes at the packaged widget names: an
+            # installed scene references `binary = "veiland-weather"`, never a
+            # repo path (the in-repo copies keep the path form so they run
+            # from a checkout). The two demo scenes reference widgets that are
+            # NOT installed (battery.py / battery_cairo.py), so drop them like
+            # hotplug-repro.toml above rather than leave a dangling binary.
+            rm -f "$out/share/veiland/examples/battery_python.toml" \
+                  "$out/share/veiland/examples/battery_cairo.toml"
+          ''
+          + pkgs.lib.concatMapStrings
+            (w: ''
+              sed -i "s|binary = \"\\./python/examples/${w.src}\"|binary = \"${w.name}\"|" \
+                "$out/share/veiland/examples/"*.toml
+            '')
+            pythonWidgets;
 
           meta = {
             description = "Wayland screen locker with process-isolated GPU plugins";
