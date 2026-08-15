@@ -85,18 +85,14 @@ Copy one, set your wallpaper path, and lock.
 | <!-- gallery-rain.gif : wind-slanted motion-blur rain over a moody wallpaper. 5-8s loop, ~600px. Config: docs/examples/rain.toml --> ![Rain scene](docs/assets/readme/gallery-rain.gif)<br>**[rain](docs/examples/rain.toml)**<br>slanted streaks | <!-- gallery-embers.gif : rising sparks + bottom glow over a dark wallpaper. 5-8s loop, ~600px. Config: docs/examples/embers.toml --> ![Embers scene](docs/assets/readme/gallery-embers.gif)<br>**[embers](docs/examples/embers.toml)**<br>rising sparks | <!-- gallery-fireflies.gif : softly glowing wandering lights over a dark wallpaper. 5-8s loop, ~600px. Config: docs/examples/fireflies.toml --> ![Fireflies scene](docs/assets/readme/gallery-fireflies.gif)<br>**[fireflies](docs/examples/fireflies.toml)**<br>wandering glow |
 | <!-- gallery-gradient.gif : slow looping color ramp. 5-8s loop, ~600px. Config: docs/examples/gradient.toml --> ![Gradient scene](docs/assets/readme/gallery-gradient.gif)<br>**[gradient](docs/examples/gradient.toml)**<br>flowing color ramp | <!-- gallery-blobs.gif : drifting metaball / lava-lamp field. 5-8s loop, ~600px. Config: docs/examples/blobs.toml --> ![Blobs scene](docs/assets/readme/gallery-blobs.gif)<br>**[blobs](docs/examples/blobs.toml)**<br>lava-lamp metaballs | <!-- gallery-parallax.gif : three bokeh layers drifting over a gradient. 5-8s loop, ~600px. Config: docs/examples/parallax.toml --> ![Parallax scene](docs/assets/readme/gallery-parallax.gif)<br>**[parallax](docs/examples/parallax.toml)**<br>layered bokeh depth |
 
-**The full lineup:** wallpaper, clock, label, vignette, particles, sakura,
-snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher.
+**The full lineup.** Backgrounds and text (Rust): wallpaper, clock, label,
+vignette, particles, sakura, snow, rain, embers, fireflies, gradient, blobs,
+parallax, raymarcher. Widgets (Python): now-playing, weather, avatar, markup,
+shape, and a status cluster (battery, wifi, ethernet, bluetooth).
 
-**Planned** (roughly in order, not promises):
-
-- **now-playing** — current track, artist, and album art from your media
-  player.
-- **status** — glanceable battery, keyboard layout, and caps-lock state.
-- **weather** — current conditions and temperature for your location.
-- **avatar** — profile picture and username, shown on the lock screen.
-
-Writing one of those plugins is the same job as the shipped ones; see
+Backgrounds, text, and the shader plugin are Rust; the widgets ship as Python
+programs (`veiland-avatar`, `veiland-weather`, `veiland-now-playing`, ...) that speak
+the same protocol. Writing your own is the same job in either language; see
 [Plugin development](#plugin-development).
 
 ## Quick start
@@ -389,8 +385,10 @@ surface; `shinkai.toml` composes ten plugin instances across two monitors.
 ## Plugin development
 
 Plugins are standalone programs that speak the veiland protocol over a Unix
-socket. The reference SDK is `veiland-plugin` (Rust), but the wire format is
-documented in `docs/protocol.md` and isn't tied to Rust.
+socket. There are two first-party SDKs — `veiland-plugin` (Rust) and a Python
+SDK (`python/veiland_plugin.py`) — and because the wire format is documented in
+`docs/protocol.md`, any language that can speak it works. The reference
+backgrounds are Rust; the reference widgets are Python.
 
 A minimal plugin:
 
@@ -475,10 +473,10 @@ session locked even if veiland itself crashes (see
 
 Veiland locks reliably today, with a growing set of first-party plugins
 (clocks, wallpapers, particle backgrounds, a status cluster, now-playing,
-avatar, and freeform markup text). Where it's heading, roughly in order:
+weather, avatar, and freeform markup text), wallpaper blur, and polished
+"hero" presets that compose the widgets into one scene. Where it's heading,
+roughly in order:
 
-- **A richer at-rest picture** — a weather widget, wallpaper blur, and a
-  polished default "hero" preset that composes the widgets into one scene.
 - **A richer lock experience** — a more responsive password field
   (caps-lock indicator, failure feedback, familiar editing keys) and
   **fingerprint unlock** via fprintd.
