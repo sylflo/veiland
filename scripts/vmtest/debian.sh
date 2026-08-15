@@ -203,6 +203,17 @@ runcmd:
   - [ sh, -c, "apt-get install -y /tmp/$DEB_NAME" ]
   # A breadcrumb to read from the host: did it install, and does it run?
   - [ sh, -c, "veiland --version > /var/log/veiland-install.log 2>&1 || echo 'veiland failed to run' > /var/log/veiland-install.log" ]
+  # Python-widget breadcrumb: the veiland-* widget shims are on PATH, and one
+  # actually imports its full GI stack. Run with no socket -- a widget that
+  # imports cleanly stops at "VEILAND_PLUGIN_SOCKET is not set", so that string
+  # in the output means every dependency (python3-gi, the Rsvg/Pango/GdkPixbuf
+  # typelibs, pycairo, jeepney) resolved; an ImportError / "not available"
+  # means a declared Depends is missing or wrong -- exactly what this VM exists
+  # to catch, and what a dev-shell run cannot (the typelibs must come from the
+  # package's own declared deps, not a pre-seeded path). weather exercises the
+  # SVG + Pango + GdkPixbuf path; markup adds nothing SVG but confirms a
+  # non-icon widget too.
+  - [ sh, -c, "{ command -v veiland-weather && veiland-weather; veiland-markup; } > /var/log/veiland-widgets.log 2>&1; grep -q 'VEILAND_PLUGIN_SOCKET' /var/log/veiland-widgets.log && echo WIDGETS_OK >> /var/log/veiland-widgets.log || echo WIDGETS_FAIL >> /var/log/veiland-widgets.log" ]
 EOF
 
 echo "instance-id: veiland-debian" > "$VM_DIR/meta-data"
@@ -227,6 +238,7 @@ fi
 echo ">> booting; ssh -p $SSH_PORT debian@localhost (console: debian / veiland)"
 echo ">> when it settles:"
 echo ">>   ssh -p $SSH_PORT debian@localhost 'cat /var/log/veiland-install.log'"
+echo ">>   ssh -p $SSH_PORT debian@localhost 'cat /var/log/veiland-widgets.log'  # expect WIDGETS_OK"
 
 # virtio-vga-gl + gl=on is the virgl path: guest GL is forwarded to the host GPU
 # rather than software-rasterized. On a single-GPU host this is as close to a

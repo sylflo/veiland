@@ -22,9 +22,31 @@ Rules-Requires-Root: no
 
 Package: veiland
 Architecture: linux-any
+# The Python group is the veiland-* widget tier: the interpreter, the gi
+# bindings + drawing libs (pycairo, Pillow), the D-Bus client, and the GI
+# typelib packages the widgets load through gi -- gir1.2-rsvg-2.0 (SVG icons),
+# gir1.2-pango-1.0 (shaped text), gir1.2-gdkpixbuf-2.0 (pulled in transitively
+# by librsvg's typelib). ${shlibs:Depends} only covers the Rust binaries' ELF
+# NEEDED; a .py has none, so the Python stack is listed explicitly. On Debian
+# the typelibs land in the default GI path and resolve with no wrapper.
+#
+# python3-gi-cairo is the gi<->pycairo foreign-type bridge, split into its own
+# package on Debian (Arch bundles it into python-gobject). Without it every
+# PangoCairo/Rsvg call that takes a cairo.Context dies with "could not find
+# foreign type context" -- so it is a hard dep here even though python3-gi and
+# python3-cairo are both already listed. Caught by the Debian install VM.
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
+ python3,
+ python3-gi,
+ python3-gi-cairo,
+ python3-cairo,
+ python3-pil,
+ python3-jeepney,
+ gir1.2-rsvg-2.0,
+ gir1.2-pango-1.0,
+ gir1.2-gdkpixbuf-2.0,
 Description: Wayland screen locker with process-isolated GPU plugins
  Veiland is a Wayland screen locker whose visual layers (wallpaper,
  clock, animations, widgets) run as separate, process-isolated plugins

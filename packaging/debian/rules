@@ -57,9 +57,45 @@ execute_after_dh_install:
 	# CI install-check asserts.
 	mv debian/veiland/usr/share/veiland/veiland.example.toml \
 	   debian/veiland/usr/share/veiland/config.example.toml
-	# The hotplug repro config is a dev tool, not a scene. The remaining
-	# examples' asset paths are repo-relative (so they run in place from
-	# a checkout); point the installed copies at the installed wallpaper.
-	rm debian/veiland/usr/share/veiland/examples/hotplug-repro.toml
+	# The hotplug repro config is a dev tool, and the two battery demo scenes
+	# reference widgets not installed as commands (battery.py / battery_cairo.py)
+	# -- drop all three. The scenes already reference every plugin by its bare
+	# veiland-<name> (Rust and Python alike), so only the repo-relative asset
+	# paths need rewriting to the installed wallpaper.
+	rm debian/veiland/usr/share/veiland/examples/hotplug-repro.toml \
+	   debian/veiland/usr/share/veiland/examples/battery_python.toml \
+	   debian/veiland/usr/share/veiland/examples/battery_cairo.toml
 	sed -i 's|docs/examples/assets/|/usr/share/veiland/|' \
 	   debian/veiland/usr/share/veiland/examples/*.toml
+	# Python widgets. dh_install can't rename or generate, so stage them here:
+	# the SDK + companions + renamed widget scripts + icons under
+	# /usr/lib/veiland/python (preserving the python/examples/ layout so each
+	# widget's own sys.path shim + ICON_DIR resolve unmodified -- no .py edit),
+	# and a tiny exec shim per widget in /usr/bin (a shim, NOT a symlink, which
+	# would resolve __file__ back to /usr/bin and break the shims; and no env
+	# wrapper -- Debian's gi loader finds the default GI path). Mirrors the Arch
+	# PKGBUILD and the flake, kept in lockstep.
+	install -dm755 debian/veiland/usr/lib/veiland/python/examples
+	install -m644 python/veiland_plugin.py python/veiland_svg.py \
+	   python/veiland_text.py python/veiland_layout.py python/veiland_dbus.py \
+	   debian/veiland/usr/lib/veiland/python/
+	cp -r python/examples/icons \
+	   debian/veiland/usr/lib/veiland/python/examples/icons
+	install -dm755 debian/veiland/usr/bin
+	set -e; for pair in \
+	   veiland-now-playing:now_playing.py \
+	   veiland-weather:weather.py \
+	   veiland-wifi:wifi.py \
+	   veiland-ethernet:ethernet.py \
+	   veiland-bluetooth:bluetooth.py \
+	   veiland-avatar:avatar.py \
+	   veiland-markup:markup.py \
+	   veiland-shape:shape.py \
+	   veiland-battery:battery_svg.py; do \
+	   name=$${pair%%:*}; src=$${pair##*:}; \
+	   install -m755 python/examples/$$src \
+	      debian/veiland/usr/lib/veiland/python/examples/$$name; \
+	   printf '#!/bin/sh\nexec /usr/lib/veiland/python/examples/%s "$$@"\n' $$name \
+	      > debian/veiland/usr/bin/$$name; \
+	   chmod 755 debian/veiland/usr/bin/$$name; \
+	done

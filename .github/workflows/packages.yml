@@ -48,12 +48,18 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install build tooling
-        # base-devel gives makepkg + fakeroot; the rest are this
-        # package's makedepends. makepkg refuses to run as root, so we
-        # add an unprivileged 'builder' user below.
+        # base-devel gives makepkg + fakeroot; the middle row is this
+        # package's makedepends. The last two rows are the Python widget
+        # tier's runtime depends: makepkg verifies every depends=() entry is
+        # installable before building, so they must be present here even
+        # though they are runtime, not build, deps. Keep in sync with the
+        # PKGBUILD depends=() and build-arch.sh. makepkg refuses to run as
+        # root, so we add an unprivileged 'builder' user below.
         run: |
           pacman -Syu --noconfirm base-devel git rust cargo pkgconf \
-            pam libglvnd mesa libdrm wayland libxkbcommon
+            pam libglvnd mesa libdrm wayland libxkbcommon \
+            python python-gobject python-cairo python-pillow \
+            python-jeepney librsvg pango gdk-pixbuf2
           useradd -m builder
 
       - uses: actions/checkout@v4

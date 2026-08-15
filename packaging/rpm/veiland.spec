@@ -45,6 +45,21 @@ BuildRequires:  libxkbcommon-devel
 # the system-auth stack — a config dependency, not a library one. The
 # GPU driver .so is the user's system's job, like on Nix.
 Requires:       pam
+# The Python widget tier (the veiland-* status/info widgets): the interpreter,
+# the gi bindings + drawing libs (pycairo, Pillow), the D-Bus client, and the
+# C libraries whose typelibs the widgets load through gi. Unlike the Rust
+# binaries above (whose libs rpm auto-derives from ELF NEEDED), a .py script
+# has no ELF to scan, so the whole Python stack is declared explicitly.
+# gdk-pixbuf2 is pulled in transitively by librsvg2's typelib but listed for
+# clarity. On Fedora the typelibs land in the default GI path (no wrapper).
+Requires:       python3
+Requires:       python3-gobject
+Requires:       python3-cairo
+Requires:       python3-pillow
+Requires:       python3-jeepney
+Requires:       librsvg2
+Requires:       pango
+Requires:       gdk-pixbuf2
 
 %description
 Veiland is a Wayland screen locker whose visual layers (wallpaper,
@@ -119,6 +134,35 @@ for c in veiland-wallpaper veiland-clock veiland-particles \
   install -Dm0755 "target/release/$c" "%{buildroot}%{_bindir}/$c"
 done
 
+# Python widgets. Stash the SDK + companions + renamed widget scripts + icons
+# under %{_libdir}/veiland/python, PRESERVING the python/examples/ layout so
+# each widget's own sys.path shim (dirname(dirname(__file__))) and ICON_DIR
+# (<dir>/icons) resolve unmodified -- no .py edit. Each veiland-<name> in
+# %{_bindir} is a tiny exec shim into the stashed script: a shim, NOT a symlink
+# (a symlink resolves __file__ back to bindir and breaks the shims), and no env
+# wrapper (Fedora's gi loader finds the default GI path). Mirrors the Arch
+# PKGBUILD, the deb rules, and the flake, kept in lockstep.
+#
+# NOTE: %{_libdir} is /usr/lib64 on 64-bit Fedora; the shim hardcodes that same
+# macro-expanded path, so bindir shim and stashed script always agree.
+install -dm0755 %{buildroot}%{_libdir}/veiland/python/examples
+install -m0644 python/veiland_plugin.py python/veiland_svg.py \
+  python/veiland_text.py python/veiland_layout.py python/veiland_dbus.py \
+  %{buildroot}%{_libdir}/veiland/python/
+cp -r python/examples/icons %{buildroot}%{_libdir}/veiland/python/examples/icons
+for pair in veiland-now-playing:now_playing.py veiland-weather:weather.py \
+            veiland-wifi:wifi.py veiland-ethernet:ethernet.py \
+            veiland-bluetooth:bluetooth.py veiland-avatar:avatar.py \
+            veiland-markup:markup.py veiland-shape:shape.py \
+            veiland-battery:battery_svg.py; do
+  name="${pair%%:*}"; src="${pair##*:}"
+  install -m0755 "python/examples/$src" \
+    "%{buildroot}%{_libdir}/veiland/python/examples/$name"
+  printf '#!/bin/sh\nexec %{_libdir}/veiland/python/examples/%s "$@"\n' "$name" \
+    > "%{buildroot}%{_bindir}/$name"
+  chmod 0755 "%{buildroot}%{_bindir}/$name"
+done
+
 # PAM service (Fedora uses the system-auth variant).
 install -Dm0644 packaging/pam/veiland.system-auth \
   %{buildroot}%{_sysconfdir}/pam.d/veiland
@@ -132,13 +176,17 @@ install -Dm0644 packaging/veiland.example.toml \
 install -Dm0644 docs/examples/assets/sakura-dusk.jpg \
   %{buildroot}%{_datadir}/veiland/sakura-dusk.jpg
 
-# Ready-made example scenes. The hotplug repro config is a dev tool,
-# not a scene. Asset paths in the examples are repo-relative (so they
-# run in place from a checkout); point the installed copies at the
-# installed wallpaper.
+# Ready-made example scenes. The hotplug repro config is a dev tool, and the
+# two battery demo scenes reference widgets not installed as commands
+# (battery.py / battery_cairo.py) -- drop all three. The scenes already
+# reference every plugin by its bare veiland-<name> (Rust and Python alike),
+# so only the repo-relative asset paths need rewriting to the installed
+# wallpaper.
 install -dm0755 %{buildroot}%{_datadir}/veiland/examples
 install -m0644 docs/examples/*.toml %{buildroot}%{_datadir}/veiland/examples/
-rm %{buildroot}%{_datadir}/veiland/examples/hotplug-repro.toml
+rm %{buildroot}%{_datadir}/veiland/examples/hotplug-repro.toml \
+   %{buildroot}%{_datadir}/veiland/examples/battery_python.toml \
+   %{buildroot}%{_datadir}/veiland/examples/battery_cairo.toml
 sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
   %{buildroot}%{_datadir}/veiland/examples/*.toml
 
@@ -159,6 +207,17 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_bindir}/veiland-parallax
 %{_bindir}/veiland-blobs
 %{_bindir}/veiland-raymarcher
+# Python widget command shims + the stashed SDK/companions/scripts/icons tree.
+%{_bindir}/veiland-now-playing
+%{_bindir}/veiland-weather
+%{_bindir}/veiland-wifi
+%{_bindir}/veiland-ethernet
+%{_bindir}/veiland-bluetooth
+%{_bindir}/veiland-avatar
+%{_bindir}/veiland-markup
+%{_bindir}/veiland-shape
+%{_bindir}/veiland-battery
+%{_libdir}/veiland/
 %config(noreplace) %{_sysconfdir}/pam.d/veiland
 %dir %{_datadir}/veiland
 %{_datadir}/veiland/config.example.toml
