@@ -213,6 +213,13 @@ runcmd:
   - [ sh, -c, "dnf install -y /tmp/$RPM_NAME" ]
   # A breadcrumb to read from the host: did it install, and does it run?
   - [ sh, -c, "veiland --version > /var/log/veiland-install.log 2>&1 || echo 'veiland failed to run' > /var/log/veiland-install.log" ]
+  # Python-widget breadcrumb (see debian.sh for the full rationale): the
+  # veiland-* shims are on PATH and one imports its whole GI stack. No socket,
+  # so a clean import stops at "VEILAND_PLUGIN_SOCKET is not set" -- that string
+  # means every declared Requires (python3-gobject, python3-cairo, the
+  # librsvg/pango/gdk-pixbuf typelibs, python3-jeepney) resolved; an ImportError
+  # / "not available" / "foreign type context" means a Requires is missing.
+  - [ sh, -c, "{ command -v veiland-weather && veiland-weather; veiland-markup; } > /var/log/veiland-widgets.log 2>&1; grep -q 'VEILAND_PLUGIN_SOCKET' /var/log/veiland-widgets.log && echo WIDGETS_OK >> /var/log/veiland-widgets.log || echo WIDGETS_FAIL >> /var/log/veiland-widgets.log" ]
 EOF
 
 echo "instance-id: veiland-fedora" > "$VM_DIR/meta-data"
@@ -238,6 +245,7 @@ echo ">> booting (console login: fedora / veiland)"
 echo ">> check the install once cloud-init settles:"
 echo ">>   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
 echo ">>       -p $SSH_PORT fedora@localhost 'sudo cloud-init status; rpm -q veiland'"
+echo ">>   ssh ... -p $SSH_PORT fedora@localhost 'cat /var/log/veiland-widgets.log'  # expect WIDGETS_OK"
 
 # virtio-vga-gl + gl=on is the virgl path: guest GL is forwarded to the host GPU
 # rather than software-rasterized. On a single-GPU host this is as close to a
