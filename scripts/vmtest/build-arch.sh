@@ -48,27 +48,47 @@ docker run --rm \
     -v "$REPO_ROOT/dist":/out \
     archlinux:latest \
     bash -euxc '
+        # base-devel + the -sys crates makedepends, then the runtime depends
+        # of the widget tier: makepkg checks that every depends=() entry is
+        # installable before it builds (it aborts on a resolve failure), so
+        # the Python/GI packages must be present here even though they are
+        # runtime, not build, deps. Keep in sync with the PKGBUILD depends=()
+        # and packages.yml.
         pacman -Syu --noconfirm base-devel git rust cargo pkgconf \
-            pam libglvnd mesa libdrm wayland libxkbcommon
+            pam libglvnd mesa libdrm wayland libxkbcommon \
+            python python-gobject python-cairo python-pillow \
+            python-jeepney librsvg pango gdk-pixbuf2
         useradd -m builder
 
-        # makepkg builds out of $srcdir, and the PKGBUILD does
-        # `cd "$srcdir/veiland"` -- so stage the repo there rather than
-        # fetching a source tarball (source=() is empty by design until a
-        # release tag exists).
+        # makepkg builds out of $srcdir, and every PKGBUILD function does
+        # `cd "$srcdir/$pkgname-$pkgver"` (matching the release tarball, whose
+        # top dir is veiland-<ver>/). Stage the WORKING TREE under that exact
+        # name so the cd succeeds and paths relative to it (target/, python/)
+        # resolve.
+        #
+        # CRUCIAL: source=() in the PKGBUILD points at the published v0.1.0
+        # release tarball, so a plain `makepkg` would DOWNLOAD and extract it
+        # over $srcdir -- overwriting the staged working tree with released
+        # source and building the OLD code (the bug that shipped a new-widgets /
+        # old-core mix). --noextract makes makepkg use what we staged and skip
+        # the download; --skipinteg skips the checksum of the tarball we are
+        # deliberately not fetching. This matches the --noextract note in the
+        # PKGBUILD and the CI packages workflow.
+        ver=$(. /src/packaging/arch/PKGBUILD; echo "$pkgver")
         workdir=/home/builder/build
         mkdir -p "$workdir/src"
         cp /src/packaging/arch/PKGBUILD "$workdir/PKGBUILD"
-        cp -r /src "$workdir/src/veiland"
+        cp -r /src "$workdir/src/veiland-$ver"
         # A target/ copied from the host holds Nix-built artifacts for a
         # different toolchain and would only confuse cargo. Start clean.
-        rm -rf "$workdir/src/veiland/target"
+        rm -rf "$workdir/src/veiland-$ver/target"
         chown -R builder:builder "$workdir"
 
         # makepkg refuses to run as root. -f overwrites an existing package
-        # file. Deliberately NOT --nocheck: the PKGBUILD runs the workspace
-        # test suite in check(), and running it is the point.
-        su builder -c "cd $workdir && makepkg -f"
+        # file. --noextract/--skipinteg force the staged tree (see above).
+        # Deliberately NOT --nocheck: the PKGBUILD runs the workspace test
+        # suite in check(), and running it is the point.
+        su builder -c "cd $workdir && makepkg -f --noextract --skipinteg"
 
         cp "$workdir"/*.pkg.tar.zst /out/
         # The container runs as root, so hand the artifact back to the invoking
