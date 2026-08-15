@@ -69,6 +69,9 @@ Used in [`examples/sakura.toml`](examples/sakura.toml).
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `path` | string | `""` | Absolute path to the image (no `~` expansion). JPEG/PNG, detected by content. |
+| `blur` | float | `0.0` | Gaussian blur strength over the whole surface. `0` is off and a hard no-op (the blur path is skipped entirely, so a plain wallpaper pays nothing). Rounded and clamped to `0`&ndash;`20` passes; values below `0.5` round to off. |
+| `darken` | float | `0.0` | Base dim (`0.0`&ndash;`1.0`) applied everywhere on top of the (possibly blurred) image. `0` = no dimming. Also the default per-region darken for any `blur_regions` entry that omits its own. |
+| `blur_regions` | array of tables | `[]` | Frosted "cards": rounded rectangles that add an extra tint on top of the globally blurred base. Each entry is `{ x, y, w, h, radius, darken }` (see below). Empty = just the global blur/darken. Up to 10; extras are dropped with a log. |
 
 The image is stretched to the region with no cover or contain modes, so pick an image
 matching your monitor's aspect ratio. Decoding runs on a worker thread; the first frames
@@ -76,6 +79,39 @@ may be black before the image pops in.
 
 Remember the pitfall from [configuration](config.md): asset paths get no `~`
 or `$HOME` expansion, so always give a full absolute path.
+
+## Blur and frosted cards
+
+`blur` blurs the entire surface; `darken` dims it. Both are free when left at `0` &mdash;
+the ping-pong blur path is only built when `blur > 0`. This is how you get a
+frosted-glass backdrop: blur the wallpaper, then place your clock and widgets on top.
+
+`blur_regions` layers "cards" on that blurred base &mdash; rounded rectangles that get an
+extra `darken` so they read as distinct panels behind a widget. Blur is *not* gated by the
+regions: the whole surface is blurred when `blur > 0`, and each region only adds its
+per-card tint. Every region field is a **fraction of the surface** (`0.0`&ndash;`1.0`), so
+one config looks the same on any monitor:
+
+| Region key | Type | Default | Meaning |
+|---|---|---|---|
+| `x`, `y` | float | `0.0` | Top-left corner of the card. `y` is measured from the top. |
+| `w`, `h` | float | `0.0` | Card width and height. |
+| `radius` | float | `0.0` | Corner radius, as a fraction of surface **height** (so corners stay circular, not elliptical). `0` = hard corners; an over-large value clamps to a pill/circle. |
+| `darken` | float | inherits `darken` | Per-card dim (`0.0`&ndash;`1.0`). Omit to inherit the global `darken`; set it to make a card read as a card over the surrounding blur. |
+
+```toml
+[plugin.config]
+path = "/home/you/wall.jpg"
+blur = 10
+darken = 0.2
+blur_regions = [
+  { x = 0.06, y = 0.30, w = 0.28, h = 0.40, radius = 0.03, darken = 0.45 },
+]
+```
+
+The [`aurora-dashboard.toml`](examples/aurora-dashboard.toml)
+and [`deepfield.toml`](examples/deepfield.toml)
+scenes use these keys.
 
 ### gradient — `veiland-gradient`
 
@@ -195,10 +231,17 @@ Used in [`examples/shinkai.toml`](examples/shinkai.toml).
 | `count` | integer | `40` | Number of motes. |
 | `color` | [r,g,b,a] | `[1.0, 1.0, 1.0, 0.5]` | Mote color. |
 | `radius_px` | float | `0.4` | Core radius in logical px. Deliberately tiny; a soft glow halo about 3x the core does the visible work, so small changes go a long way. |
+| `twinkle` | bool | `false` | Pulse each mote's brightness in and out, so the field shimmers instead of glowing steadily. Off = constant brightness. |
+| `twinkle_speed` | float | `1.4` | Pulse rate in radians/second (only used when `twinkle` is on). Higher = faster shimmer. |
+| `twinkle_depth` | float | `0.6` | How far the pulse dims a mote below its peak, `0.0`&ndash;`1.0` (only used when `twinkle` is on). This is the "how noticeable" lever: `0` is imperceptible, `1` fades fully to dark. |
 
 Like the rest of the family, `count` is an absolute number, not a density: the same
 value puts the same number of motes on a 1080p and a 4K monitor. Bump it per scene if a
 field tuned on a laptop looks sparse on a large display.
+
+Set `twinkle = true` for a shimmering starfield: each mote pulses independently, at
+`twinkle_speed`, dimming by up to `twinkle_depth`. The [`deepfield.toml`](examples/deepfield.toml)
+scene uses it for its twinkling stars.
 
 ### sakura — `veiland-sakura`
 
@@ -336,6 +379,261 @@ Example: [`examples/label.toml`](examples/label.toml).
 
 The shinkai example scene runs four label instances at once: two titles and two quotes,
 in two languages.
+
+## Widgets
+
+Unlike the backgrounds and text plugins (which are Rust), these reference
+**widgets are Python programs**, installed as `veiland-avatar`,
+`veiland-weather`, `veiland-now-playing`, `veiland-markup`, `veiland-shape`,
+and the status pills `veiland-wifi` / `veiland-ethernet` / `veiland-bluetooth`
+/ `veiland-battery`. They speak the same protocol and read the same
+`[plugin.config]` table; the language is an implementation detail. A widget
+reads live data (battery, network, media, weather) read-only and never
+receives keyboard input, exactly like any other plugin.
+
+**Shared keys.** Most widgets honor the same opt-in conventions, so these are
+documented once here rather than repeated per widget:
+
+- **Placement inside the region** — `content_halign` (`left`/`center`/`right`,
+  default `center`) and `content_valign` (`top`/`center`/`bottom`, default
+  `center`) position the widget's content block within its assigned region.
+  Used by every widget except `shape` (which fills its region) and
+  `now-playing` (which self-centers).
+- **Font** — `font_family` (default `"Sans"`), `font_weight` (CSS 100&ndash;900,
+  default `400`), and `italic` (default `false`) style any text a widget draws;
+  `font_size` is a fraction of the widget's box. The status pills, `markup`, and
+  `weather` use the full set. `avatar` and `now-playing` derive their text size
+  from geometry, so they honor only `font_family` + `italic`. `shape` and
+  `ethernet` draw no text and read no font keys.
+- **Debug border** — `debug_border = true` strokes a 1px outline around the
+  region (color `debug_border_color`, default bright magenta) so you can see
+  and tune the anchor. Honored by every widget except `shape`.
+
+**Status pills** (`wifi`, `ethernet`, `bluetooth`, `battery`) share a look: a
+monochrome glyph in a small translucent chip. They all take `pill_color`
+(chip background, default a translucent dark navy; `[0,0,0,0]` draws no chip)
+and `icon_color` (glyph tint, default white). Each pill page lists only what
+is unique to it &mdash; the label keys and data source.
+
+### avatar — `veiland-avatar`
+
+The user's picture cover-cropped into a disc (or rounded square), or a tinted initials disc when no picture is found. Zero-config: reads your account picture automatically.
+Example: [`examples/avatar.toml`](examples/avatar.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `name` | string | your full name | Seeds the initials letter and the disc's tint. Defaults to your GECOS full name, then `$USER`, then `there`. |
+| `avatar` | string | `~/.face` | Path to a picture (`~` expanded), cover-cropped into the disc. Missing or unreadable falls back to `~/.face`, then to a tinted initials disc. |
+| `shape` | string | `"circle"` | Disc outline: `circle` or `rounded` (a rounded square). |
+| `ring_color` | [r,g,b,a] | `[1.0, 1.0, 1.0, 0.22]` | Thin rim around the disc. Alpha `0` draws no ring. |
+
+`avatar` shows just the profile disc &mdash; pair it with a [`markup`](@/docs/plugins/markup.md)
+greeting for a name/welcome line beside it. With no config it uses your account picture
+(`~/.face`) and full name automatically, so it works out of the box.
+
+Only `font_family` and `italic` affect the initials letter; its size comes from the disc
+diameter, so `font_size` and `font_weight` have no effect here. See the
+[widgets](plugins.md) overview for the `content_halign` /
+`content_valign` / `debug_border` keys.
+
+### weather — `veiland-weather`
+
+Current conditions and temperature from Open-Meteo (keyless), drawn as a glass card or a compact status pill. Read-only; the network fetch is cached and kept off the render path.
+Example: [`examples/weather.toml`](examples/weather.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `layout` | string | `"card"` | `card` (a bottom-corner glass card) or `pill` (a compact status-pill glyph + temperature). |
+| `units` | string | `"celsius"` | Display unit: `celsius` or `fahrenheit`. |
+| `location` | string | none | City name, geocoded once at startup (a privacy-friendlier alternative to raw coordinates). Ignored if `latitude`/`longitude` are set. |
+| `latitude` | float | none | Explicit latitude (&minus;90..90). Requires `longitude` too; wins over `location`. A partial or out-of-range pair is ignored. |
+| `longitude` | float | none | Explicit longitude (&minus;180..180), paired with `latitude`. |
+| `network` | bool | `true` | Master network switch. `false` = no HTTP fetch and no geocoding; the widget shows cached data or a placeholder only. |
+| `refresh_minutes` | float | `15.0` | Minutes between fetches, floored at `5.0`. |
+| `show_location` | bool | `true` | Whether the card shows the place-name label. |
+| `pill_color` | [r,g,b,a] | `[0.059, 0.071, 0.11, 0.686]` | Chip background in `pill` layout. `[0, 0, 0, 0]` draws no chip. |
+| `icon_color` | [r,g,b,a] | white | Tints the condition glyph. Omit for white. |
+
+`weather` fetches from [Open-Meteo](https://open-meteo.com/), which needs no API key. Give
+it a `location` city name (geocoded once) or an explicit `latitude`/`longitude`; with
+neither it uses IP geolocation. The fetch runs on a timer, is cached to disk, and is kept
+off the render path, so a locked screen never blocks on the network. Set `network = false`
+to disable all outbound requests entirely.
+
+See the [widgets](plugins.md) overview for the shared font,
+`content_halign` / `content_valign`, and `debug_border` keys.
+
+### now-playing — `veiland-now-playing`
+
+A glanceable now-playing card: album art, title and artist, progress bar. Read-only, from any MPRIS media player over D-Bus. No transport controls.
+Example: [`examples/now_playing.toml`](examples/now_playing.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `layout` | string | `"compact"` | `compact` (a chip: cover + title/artist + progress) or `star` (a large centered cover with a blurred-cover backdrop). Only `star` is special-cased; any other value renders `compact`. |
+| `fetch_remote_art` | bool | `false` | Allow fetching `http(s)://` cover art (e.g. Spotify). Off = a locked screen makes no network request; `file://` covers still decode locally. |
+
+`now-playing` reads whatever your MPRIS-capable player (Spotify, mpv, browsers, ...) is
+playing, over the session D-Bus. It is **read-only**: there are no play/pause/skip buttons,
+because clicks are not yet forwarded to plugins. The accent color is sampled from the album
+art.
+
+Only `font_family` and `italic` affect the text; each line's size is derived from the card
+geometry, so `font_size` and `font_weight` have no effect. This widget centers itself and
+does not read `content_halign` / `content_valign` (it does honor `debug_border`). See the
+[widgets](plugins.md) overview.
+
+### markup — `veiland-markup`
+
+One block of Pango markup with {variable} substitution, composited over the wallpaper. The dynamic styled-text widget: a clock, a greeting, a live system-info line.
+Example: [`examples/markup.toml`](examples/markup.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `text` | string | a bold time + date block | The template: Pango `<span>` markup plus `{variable}` placeholders (see the token table below). Newlines allowed. |
+| `text_color` | [r,g,b,a] | `[1.0, 1.0, 1.0, 0.96]` | Base text fill. An inline `<span color=...>` in the markup overrides it per run. |
+| `shadow_color` | [r,g,b,a] | `[0.0, 0.0, 0.0, 0.45]` | Drop-shadow color. Alpha `0` = no shadow (bare text). |
+| `bg_color` | [r,g,b,a] | none | Optional chip behind the text. Omitted or fully transparent = bare markup. |
+| `bg_radius` | float | `0.5` | Chip corner radius as a fraction of the chip height (`0.5` = full capsule). |
+| `bg_padding` | float | `0.5` | Chip padding around the text, as a fraction of the font pixel size. |
+
+`markup` renders one block of [Pango markup](https://docs.gtk.org/Pango/pango_markup.html)
+with `{variable}` substitution, over the wallpaper. It ticks about once a second and
+redraws only when the substituted string changes. Style with inline `<span>` tags; wrap it
+in a chip with `bg_color`.
+
+Unlike the other text widgets, when you omit `font_size` markup uses a larger default
+(0.20 of the region height) so a bare clock reads at a glance; an explicit `font_size` is
+honored as-is. `content_halign` also sets Pango line justification. See the
+[widgets](plugins.md) overview for the shared font, anchor, and
+`debug_border` keys.
+
+## Variables
+
+Any `{name}` in `text` is substituted before rendering. An unknown `{name}` is left
+verbatim &mdash; it never errors. Time and date tokens take an optional
+[`strftime`](https://strftime.org/) spec after a colon.
+
+| Token | Resolves to |
+|---|---|
+| `{time}` / `{time:%H:%M}` | Current time (default spec `%H:%M`). |
+| `{date}` / `{date:%A %d %B}` | Current date (default spec `%x`). |
+| `{user}` | `$USER` (or `there`). |
+| `{name}` | Your GECOS full name, then `$USER`, then `there`. |
+| `{host}` | The machine hostname. |
+| `{uptime}` | Human uptime, e.g. `2d 3h 47m`. |
+| `{loadavg}` | 1 / 5 / 15-minute load averages. |
+| `{kernel}` | Kernel release (`uname -r`). |
+| `{distro}` | Distro pretty name, e.g. `Ubuntu 24.04.1 LTS`. |
+| `{distro_version}` | Distro version id, e.g. `24.04`. |
+
+```toml
+[plugin.config]
+text = "<span size='xx-large' weight='bold'>{time:%H:%M}</span>\n<span size='large'>Hi, {name}</span>"
+```
+
+### shape — `veiland-shape`
+
+One rounded, colored, alpha-blended rectangle filling its region: the backdrop/card primitive. Static, read-only, draws once. The veiland answer to hyprlock's shape block.
+Example: [`examples/shape.toml`](examples/shape.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `color` | [r,g,b,a] | `[0.8, 0.643, 0.486, 1.0]` | Fill color of the rectangle (a warm tan by default). Alpha is the opacity, so a translucent value makes a tinted card over the wallpaper. There is no "off" &mdash; shape always paints its region. |
+| `radius` | float | `0.0` | Corner radius as a fraction of the region **height**. `0` = hard corners; an over-large value clamps to half the shorter side (a pill or circle). |
+
+`shape` is the card behind your other widgets: a semi-transparent rounded rectangle you
+stack *under* a clock, greeting, or status cluster to group them visually. It draws once
+and never changes &mdash; no data source, no polling.
+
+There is no grouping primitive in veiland: you place a card by giving `shape` and the
+content widget the **same region**, and giving the content a higher `z_index` so it paints
+on top. Where the card sits and how big it is are set by the `[[plugin]]` region anchor
+(see [configuration](config.md)); this plugin only fills whatever region it
+is handed.
+
+A `shape` does **not** blur. A frosted-glass card comes from the wallpaper's
+[`blur_regions`](plugins.md) (real OpenGL blur); `shape` is a flat
+translucent tint. For text or an icon on the card, stack a `markup`, `label`, or status
+widget on top.
+
+### wifi — `veiland-wifi`
+
+Wi-Fi signal-strength glyph in a small pill, with an optional SSID label. Live from NetworkManager; bucketed into five strength levels plus an off state.
+Example: [`examples/wifi.toml`](examples/wifi.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `pill_color` | [r,g,b,a] | `[0.059, 0.071, 0.11, 0.686]` | Chip background behind the glyph. Alpha is the opacity; `[0, 0, 0, 0]` draws no chip (bare glyph). |
+| `icon_color` | [r,g,b,a] | white | Tints the monochrome glyph. Omit for the glyph's authored white. |
+| `show_label` | bool | `false` | Show the SSID next to the glyph. Off = icon-only pill. |
+| `label_color` | [r,g,b,a] | `[0.95, 0.95, 0.95, 1.0]` | SSID text color. Only the RGB is used; alpha does not hide it (use `show_label = false` for that). |
+| `label_pos` | string | `"bottom"` | Where the label sits relative to the glyph: `top`, `bottom`, `left`, or `right`. |
+| `label_disconnected` | string | `"N/A"` | Label text when there is no SSID (disconnected, radio off, or no device). Set to `""` to vanish the label and leave just the glyph. |
+
+The glyph reflects live signal strength from NetworkManager, bucketed to five levels
+(0/25/50/75/100 %) plus an off/disconnected state. Data is read read-only over the system
+D-Bus; the widget never touches your credentials or the connection itself.
+
+This is one of the four **status pills** &mdash; see the [widgets](plugins.md)
+overview for the shared `pill_color` / `icon_color` look and the `content_halign` /
+`content_valign` / `debug_border` / font keys they all accept. Cluster several pills in one
+row with the [`status_cluster.toml`](examples/status_cluster.toml)
+scene.
+
+### ethernet — `veiland-ethernet`
+
+Wired-link status glyph in a small pill: up or down. Live from NetworkManager over the system D-Bus. Icon-only, no label.
+Example: [`examples/ethernet.toml`](examples/ethernet.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `pill_color` | [r,g,b,a] | `[0.059, 0.071, 0.11, 0.686]` | Chip background behind the glyph. `[0, 0, 0, 0]` draws no chip. |
+| `icon_color` | [r,g,b,a] | white | Tints the glyph. Omit for white. |
+
+The glyph shows whether the wired link is up or down, live from NetworkManager. This is the
+simplest of the [status pills](plugins.md): it draws no text, so it
+reads `pill_color`, `icon_color`, and the anchor / `debug_border` keys, but no label or
+font keys.
+
+### bluetooth — `veiland-bluetooth`
+
+Bluetooth status glyph in a small pill (off / on / connected), with an optional connected-device label. Live from bluez over the system D-Bus.
+Example: [`examples/bluetooth.toml`](examples/bluetooth.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `pill_color` | [r,g,b,a] | `[0.059, 0.071, 0.11, 0.686]` | Chip background behind the glyph. `[0, 0, 0, 0]` draws no chip. |
+| `icon_color` | [r,g,b,a] | white | Tints the glyph. Omit for white. |
+| `show_label` | bool | `false` | Show the connected device name. Off = icon-only pill. |
+| `label_color` | [r,g,b,a] | `[0.95, 0.95, 0.95, 1.0]` | Label text color (RGB only; alpha does not hide it). |
+| `label_pos` | string | `"bottom"` | Label position relative to the glyph: `top`, `bottom`, `left`, or `right`. |
+| `label_disconnected` | string | `"N/A"` | Label text when nothing is connected. Set to `""` for glyph-only. |
+
+The glyph has three states &mdash; off, on-but-idle, and connected &mdash; read live from
+bluez. With `show_label` on, a connected device's name appears beside it. See the
+[widgets](plugins.md) overview for the shared `pill_color` /
+`icon_color`, anchor, font, and `debug_border` keys.
+
+### battery — `veiland-battery`
+
+Battery status drawn from bucketed SVG icons in a small pill, with an optional percent + charging-state label. Reads /sys/class/power_supply. The template for the status-icon pattern.
+Example: [`examples/battery_svg.toml`](examples/battery_svg.toml).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `pill_color` | [r,g,b,a] | `[0.059, 0.071, 0.11, 0.686]` | Chip background behind the glyph. `[0, 0, 0, 0]` draws no chip. |
+| `icon_color` | [r,g,b,a] | white | Tints the glyph. Omit for white. |
+| `show_label` | bool | `false` | Show the percent + state text (e.g. `64% Discharging`, or `AC` on a desktop with no battery). Off = icon-only pill. |
+| `label_color` | [r,g,b,a] | `[0.95, 0.95, 0.95, 1.0]` | Label text color (RGB only; alpha does not hide it). |
+| `label_pos` | string | `"bottom"` | Label position relative to the glyph: `top`, `bottom`, `left`, or `right`. |
+
+The glyph is chosen from bucketed SVG icons by charge level and charging state, read from
+`/sys/class/power_supply`. A machine with no battery shows the "AC" glyph. This widget is
+also the copy-me starting point for writing your own status-icon pill.
+
+See the [widgets](plugins.md) overview for the shared `pill_color` /
+`icon_color`, anchor, font, and `debug_border` keys.
 
 ## The stress plugin
 

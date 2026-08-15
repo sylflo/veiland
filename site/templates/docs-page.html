@@ -9,7 +9,7 @@
   <article class="doc">
     <h1>{{ page.title }}{% if page.extra.one_liner %} <span class="doc-sub">{{ page.extra.one_liner }}</span>{% endif %}</h1>
     {% if page.extra.category %}
-    <p class="doc-meta"><code>veiland-{{ page.title }}</code> &middot; {{ page.extra.category }}
+    <p class="doc-meta"><code>{{ page.extra.binary | default(value="veiland-" ~ page.title) }}</code> &middot; {{ page.extra.category }}
       {% if page.extra.example %} &middot; <a href="https://github.com/sylflo/veiland/blob/master/docs/examples/{{ page.extra.example }}" target="_blank" rel="noopener">example scene: {{ page.extra.example }}</a>
       {% elif page.extra.used_in %} &middot; <a href="https://github.com/sylflo/veiland/blob/master/docs/examples/{{ page.extra.used_in }}" target="_blank" rel="noopener">used in {{ page.extra.used_in }}</a>{% endif %}</p>
     {% endif %}

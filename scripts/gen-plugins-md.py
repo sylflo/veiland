@@ -110,7 +110,8 @@ def render() -> str:
                 continue
             name = meta["title"]
             extra = meta["extra"]
-            out.append(f"### {name} — `veiland-{name}`")
+            binary = extra.get("binary", f"veiland-{name}")
+            out.append(f"### {name} — `{binary}`")
             out.append("")
             out.append(meta["description"])
             if extra.get("example"):

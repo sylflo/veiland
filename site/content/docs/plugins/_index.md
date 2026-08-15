@@ -50,6 +50,44 @@ Shared font behavior:
   value draws a sharp-edged shadow and logs a one-time warning.
 - Letter-spacing keys add tracking as a fraction of the font size.
 """
+
+[[extra.categories]]
+name = "widgets"
+desc = "glanceable info panels and cards; the reference widgets are Python programs"
+notes = """
+Unlike the backgrounds and text plugins (which are Rust), these reference
+**widgets are Python programs**, installed as `veiland-avatar`,
+`veiland-weather`, `veiland-now-playing`, `veiland-markup`, `veiland-shape`,
+and the status pills `veiland-wifi` / `veiland-ethernet` / `veiland-bluetooth`
+/ `veiland-battery`. They speak the same protocol and read the same
+`[plugin.config]` table; the language is an implementation detail. A widget
+reads live data (battery, network, media, weather) read-only and never
+receives keyboard input, exactly like any other plugin.
+
+**Shared keys.** Most widgets honor the same opt-in conventions, so these are
+documented once here rather than repeated per widget:
+
+- **Placement inside the region** — `content_halign` (`left`/`center`/`right`,
+  default `center`) and `content_valign` (`top`/`center`/`bottom`, default
+  `center`) position the widget's content block within its assigned region.
+  Used by every widget except `shape` (which fills its region) and
+  `now-playing` (which self-centers).
+- **Font** — `font_family` (default `"Sans"`), `font_weight` (CSS 100&ndash;900,
+  default `400`), and `italic` (default `false`) style any text a widget draws;
+  `font_size` is a fraction of the widget's box. The status pills, `markup`, and
+  `weather` use the full set. `avatar` and `now-playing` derive their text size
+  from geometry, so they honor only `font_family` + `italic`. `shape` and
+  `ethernet` draw no text and read no font keys.
+- **Debug border** — `debug_border = true` strokes a 1px outline around the
+  region (color `debug_border_color`, default bright magenta) so you can see
+  and tune the anchor. Honored by every widget except `shape`.
+
+**Status pills** (`wifi`, `ethernet`, `bluetooth`, `battery`) share a look: a
+monochrome glyph in a small translucent chip. They all take `pill_color`
+(chip background, default a translucent dark navy; `[0,0,0,0]` draws no chip)
+and `icon_color` (glyph tint, default white). Each pill page lists only what
+is unique to it &mdash; the label keys and data source.
+"""
 +++
 
 ## How plugin options work

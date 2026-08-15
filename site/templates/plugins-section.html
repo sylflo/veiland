@@ -19,7 +19,7 @@
       <thead><tr><th>plugin</th><th>what it draws</th></tr></thead>
       <tbody>
       {% for p in section.pages %}{% if p.extra.category == cat.name %}
-      <tr><td><a href="{{ p.permalink | safe }}"><code>veiland-{{ p.title }}</code></a></td><td>{{ p.extra.one_liner }}</td></tr>
+      <tr><td><a href="{{ p.permalink | safe }}"><code>{{ p.extra.binary | default(value="veiland-" ~ p.title) }}</code></a></td><td>{{ p.extra.one_liner }}</td></tr>
       {% endif %}{% endfor %}
       </tbody>
     </table>
