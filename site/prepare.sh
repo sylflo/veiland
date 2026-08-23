@@ -34,6 +34,7 @@ import() {
         -e 's|](plugins\.md|](@/docs/plugins/_index.md|g' \
         -e 's|](protocol\.md|](@/docs/protocol.md|g' \
         -e 's|](plugin-api\.md|](@/docs/plugin-api.md|g' \
+        -e 's|](plugin-python\.md|](@/docs/plugin-python.md|g' \
         -e 's|](architecture\.md|](@/docs/architecture.md|g' \
         -e 's|](plugin-authoring-claude\.md|](@/docs/ai-authoring.md|g' \
         -e 's|](examples/|](https://github.com/sylflo/veiland/blob/master/docs/examples/|g' \
@@ -47,9 +48,11 @@ import config.md configuration.md "Configuration" 2 guide \
   "The config.toml schema: plugin entries, z-order, monitors, regions, and the password field."
 import protocol.md protocol.md "Protocol" 10 reference \
   "The plugin-to-host wire format: socket transport, messages, and buffer passing."
-import plugin-api.md plugin-api.md "Plugin API" 11 reference \
+import plugin-api.md plugin-api.md "Plugin API (Rust)" 11 reference \
   "The veiland-plugin Rust SDK: connection, frame pacing, and DMA-BUF helpers."
-import architecture.md architecture.md "Architecture" 12 reference \
+import plugin-python.md plugin-python.md "Plugin API (Python)" 12 reference \
+  "The Python SDK: connection, CPU buffers, frame pacing, and the text/SVG/D-Bus companions."
+import architecture.md architecture.md "Architecture" 13 reference \
   "How veiland-core, the plugins, and the compositor fit together."
-import plugin-authoring-claude.md ai-authoring.md "AI-assisted authoring" 13 reference \
+import plugin-authoring-claude.md ai-authoring.md "AI-assisted authoring" 14 reference \
   "Purpose-built context for writing a veiland plugin with a coding assistant."

@@ -74,6 +74,11 @@ an `AF_UNIX` `SOCK_SEQPACKET` socket, tagged messages, and a dmabuf fd passed
 via `SCM_RIGHTS`. Any language that can speak a Unix socket and pass a file
 descriptor can implement it.
 
+There is a second first-party SDK for **Python** — for CPU-drawn widgets
+(a clock, a battery pill, a now-playing card) rather than GPU-heavy
+backgrounds. See the [Python plugin API](@/docs/plugin-python.md); the
+reference widgets ship as `veiland-avatar`, `veiland-weather`, and so on.
+
 ## Reference material
 
 - The [Plugin API](@/docs/plugin-api.md): the full SDK reference, including

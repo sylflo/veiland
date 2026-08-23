@@ -1,11 +1,13 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 
-# Veiland plugin API
+# Veiland Rust plugin API
 
 This document covers the helper crates that veiland plugins link
 against. The wire protocol the plugins speak to the host is in
 [`protocol.md`](protocol.md); the user-facing config is in
-[`config.md`](config.md).
+[`config.md`](config.md). For plugins written in Python, see the
+[Python plugin API](plugin-python.md) instead — it is a separate SDK
+speaking the same protocol.
 
 Two crates live on the plugin side:
 
