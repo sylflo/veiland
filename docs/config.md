@@ -632,7 +632,29 @@ By design:
   position on every monitor (note: the row may be off-centre or
   off-screen on monitors with widths below `2 * x`).
 
-## 8. See also
+## 8. Invocation and environment
+
+veiland takes **no positional arguments** — the config file and the
+`VEILAND_*` environment variables are its only inputs. Run it with no
+arguments to lock the current session. Two flags short-circuit before any
+startup work, so they answer from any shell without a compositor:
+
+- `-h`, `--help` — print usage (including the variables below) and exit.
+- `-V`, `--version` — print the version (e.g. `veiland 0.1.0`, with the
+  git revision appended in a dev build) and exit.
+
+Any unrecognized argument is an error: veiland prints a hint and exits
+non-zero rather than starting a lock.
+
+Environment variables:
+
+| Variable | Effect |
+|---|---|
+| `VEILAND_CONFIG` | Full path to the config file, overriding the `$XDG_CONFIG_HOME` / `$HOME` search (see §1). Intended for development. |
+| `VEILAND_ALLOW_DUMP=1` | Leave the core process dumpable. The core normally calls `prctl(PR_SET_DUMPABLE, 0)` to deny same-UID ptrace / `/proc/<pid>/mem` reads and suppress core dumps of the password buffer; this opts out for debugging and **weakens that hardening**. |
+| `VEILAND_GL_DEBUG=1` | Enable GL diagnostics (a `GL_KHR_debug` callback where available, plus checks at the fragile boundaries). Off by default and a no-op when off; a value other than `0`/`1` is ignored with a warning. |
+
+## 9. See also
 
 - `docs/plugins.md` — per-plugin reference: every `[plugin.config]`
   key the first-party plugins accept, with types and defaults.

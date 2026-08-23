@@ -169,13 +169,22 @@ unlock decision path is keyboard event → password buffer → PAM → state
 change. Plugins receive no keyboard events; the API surface is absent
 by protocol design, not runtime filter.
 
+The PAM step is `pam_authenticate` **only** — deliberately no
+`pam_acct_mgmt`. A locker re-verifies an *existing* session ("did the
+person at the keyboard prove they own this session?"); account admission
+(expiry, `pam_time`, `pam_nologin`) is a login manager's decision.
+Running it here also let a transient `pam_unix` error during logind
+session teardown reject a correct password and lock the user out of
+their own live session.
+
 The process boundary is a *protocol* boundary, not a same-UID security
 boundary: plugins run as the same user as the core, so `mlock` (which
 stops swapping, not reading) does not stop a hostile same-UID plugin
 from `PTRACE_ATTACH`-ing the core or reading `/proc/<pid>/mem` when
 `ptrace_scope=0`. The core mitigates this with `prctl(PR_SET_DUMPABLE, 0)`
-at startup (`main.rs` §0; opt out with `VEILAND_ALLOW_DUMP=1`), which
-denies same-UID ptrace/proc-mem and suppresses core dumps of the buffer.
+at startup (`main.rs` §0; opt out with `VEILAND_ALLOW_DUMP=1` — see the
+environment table in [`config.md`](config.md) §8), which denies same-UID
+ptrace/proc-mem and suppresses core dumps of the buffer.
 That is defense-in-depth, not an absolute wall — there is no seccomp or
 landlock sandbox yet, so a determined hostile *third-party* plugin is a
 residual risk. First-party plugins are reviewed in-tree; third-party
