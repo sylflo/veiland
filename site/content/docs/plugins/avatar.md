@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-avatar"
 one_liner = "profile disc"
 category = "widgets"
+image = "previews/avatar.png"
 example = "avatar.toml"
 
 [[extra.props]]

@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-bluetooth"
 one_liner = "Bluetooth status pill"
 category = "widgets"
+image = "previews/bluetooth.png"
 example = "bluetooth.toml"
 
 [[extra.props]]

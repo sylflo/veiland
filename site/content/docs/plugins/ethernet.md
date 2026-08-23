@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-ethernet"
 one_liner = "wired link status pill"
 category = "widgets"
+image = "previews/ethernet.png"
 example = "ethernet.toml"
 
 [[extra.props]]

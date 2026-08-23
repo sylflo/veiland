@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-now-playing"
 one_liner = "current track"
 category = "widgets"
+image = "previews/now-playing.png"
 example = "now_playing.toml"
 
 [[extra.props]]

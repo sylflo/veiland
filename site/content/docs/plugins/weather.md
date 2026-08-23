@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-weather"
 one_liner = "current conditions"
 category = "widgets"
+image = "previews/weather.png"
 example = "weather.toml"
 
 [[extra.props]]

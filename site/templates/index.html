@@ -147,6 +147,9 @@
     </p>
 
     <div class="scenes-grid">
+      <div class="scene scene-wide" role="button" tabindex="0" @click="open('deepfield')" @keydown.enter="open('deepfield')"><img src="{{ get_url(path='previews/scenes/deepfield.png') | safe }}" alt="Deep Field scene capture, a blurred nebula with a twinkling starfield, clock, and weather" loading="lazy"><span class="view-hint">view config</span>
+        <div class="scene-meta"><b>deep field</b><span>a calm, static hero &mdash; draws once, then idles</span><code>deepfield.toml</code></div>
+        <div class="ingredients"><span>wallpaper (blur)</span><span>particles (twinkle)</span><span>clock</span><span>weather</span></div></div>
       <div class="scene scene-wide" role="button" tabindex="0" @click="open('shinkai')" @keydown.enter="open('shinkai')"><img src="{{ get_url(path='previews/readme/gallery-shinkai.gif') | safe }}" alt="shinkai scene capture, one different scene on each of two monitors" loading="lazy"><span class="view-hint">view config</span>
         <div class="scene-meta"><b>shinkai</b><span>two monitors, ten layers</span><code>shinkai.toml</code></div>
         <div class="ingredients"><span>wallpaper &times;2</span><span>sakura</span><span>particles</span><span>clock</span><span>label &times;4</span><span>vignette</span></div></div>
@@ -184,7 +187,7 @@
   </div>
 </section>
 
-<section class="section" id="plugins" x-data="{ plugin: null }" @keydown.escape.window="plugin = null">
+<section class="section" id="plugins" x-data="{ plugin: null, binaries: { {% for p in plugsec.pages %}'{{ p.title }}': '{{ p.extra.binary | default(value="veiland-" ~ p.title) }}',{% endfor %} }, binary() { return this.plugin ? (this.binaries[this.plugin] || 'veiland-' + this.plugin) : '' } }" @keydown.escape.window="plugin = null">
   <div class="wrap">
     <div class="eyebrow">plugins</div>
     <h2>The building blocks, every property documented.</h2>
@@ -202,15 +205,15 @@
     <div class="gallery-grid">
       {% for p in plugsec.pages %}{% if p.extra.category == cat.name %}
       <div class="scene" role="button" tabindex="0" @click="plugin = '{{ p.title }}'" @keydown.enter="plugin = '{{ p.title }}'">{% if p.extra.image %}<img src="{{ get_url(path=p.extra.image) | safe }}" alt="{{ p.title }} plugin capture" loading="lazy">{% endif %}<span class="view-hint">view properties</span>
-        <div class="scene-meta"><b>{{ p.title }}</b><span>{{ p.extra.one_liner }}</span><code>veiland-{{ p.title }}</code></div></div>
+        <div class="scene-meta"><b>{{ p.title }}</b><span>{{ p.extra.one_liner }}</span><code>{{ p.extra.binary | default(value="veiland-" ~ p.title) }}</code></div></div>
       {% endif %}{% endfor %}
     </div>
     {% endfor %}
 
     <div class="modal-backdrop" x-show="plugin" x-cloak @click.self="plugin = null">
-      <div class="modal" role="dialog" aria-modal="true" :aria-label="'veiland-' + plugin + ' properties'">
+      <div class="modal" role="dialog" aria-modal="true" :aria-label="binary() + ' properties'">
         <div class="modal-head">
-          <code x-text="'veiland-' + plugin"></code>
+          <code x-text="binary()"></code>
           <span>[plugin.config] properties</span>
           <button class="modal-close" @click="plugin = null" aria-label="Close">&times;</button>
         </div>
@@ -234,11 +237,6 @@
       </div>
     </div>
 
-    <div class="chips-label">planned</div>
-    <div class="chips">
-      <span class="chip planned">now-playing</span><span class="chip planned">status</span>
-      <span class="chip planned">weather</span><span class="chip planned">avatar</span>
-    </div>
   </div>
 </section>
 
@@ -350,7 +348,7 @@
 {% endblock content %}
 
 {% block scripts %}
-{% for s in ["shinkai", "sakura"] %}
+{% for s in ["deepfield", "shinkai", "sakura"] %}
 <script type="text/plain" id="toml-{{ s }}">
 {{ load_data(path="static/examples/" ~ s ~ ".toml", format="plain") | safe }}
 </script>

@@ -15,6 +15,10 @@ cp ../docs/examples/*.toml static/examples/
 mkdir -p static/previews/readme
 cp ../docs/assets/readme/*.gif static/previews/readme/
 
+# Still captures of the example scenes (hero presets), reused as site previews.
+mkdir -p static/previews/scenes
+cp ../docs/examples/assets/*.png static/previews/scenes/
+
 # Repo docs imported as site pages, verbatim except for:
 #   - dropping the SPDX comment and the top-level H1 (the template draws it),
 #   - rewriting cross-doc links to site URLs (Zola's @/ links, checked at build),

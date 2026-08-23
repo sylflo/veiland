@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-shape"
 one_liner = "a rounded colored card"
 category = "widgets"
+image = "previews/shape.png"
 example = "shape.toml"
 
 [[extra.props]]

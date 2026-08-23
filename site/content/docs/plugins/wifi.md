@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-wifi"
 one_liner = "Wi-Fi status pill"
 category = "widgets"
+image = "previews/wifi.png"
 example = "wifi.toml"
 
 [[extra.props]]

@@ -8,6 +8,7 @@ template = "docs-page.html"
 binary = "veiland-battery"
 one_liner = "battery status pill"
 category = "widgets"
+image = "previews/battery.png"
 example = "battery_svg.toml"
 
 [[extra.props]]
