@@ -71,10 +71,11 @@ pub struct Label {
     /// CSS-style family name. Falls back to system Sans if not found.
     pub font_family: String,
     /// Physical (device) pixels. `veiland-text` renders at whatever size
-    /// it's handed; the caller decides how to derive it. The reference
-    /// text plugins (`veiland-label`, `veiland-clock`) size this as a
-    /// fraction of the physical surface height, which tracks resolution
-    /// and HiDPI scale in one step — see `docs/plugin-api.md` §HiDPI.
+    /// it's handed; the caller decides how to derive it. The core's
+    /// password placeholder — the in-tree caller — passes an absolute
+    /// pixel size straight from config; a caller that wants
+    /// resolution-independence can instead size this as a fraction of the
+    /// physical surface height (see `docs/plugin-api.md` §HiDPI).
     pub font_size: f32,
     /// Straight-alpha RGBA, each component in [0, 1].
     pub color: [f32; 4],
@@ -505,8 +506,8 @@ pub(crate) fn render_label(
                         // crash). This is NOT rare-and-harmless: the known
                         // trigger is a hairline weight (e.g. font_weight <= 300
                         // -> DejaVu Sans ExtraLight), whose digit glyphs swash
-                        // returns None for, so the clock loses its numbers with
-                        // no other sign. Warn ONCE per process (this is a
+                        // returns None for, so a thin-weight label silently
+                        // loses those glyphs. Warn ONCE per process (this is a
                         // per-glyph, per-frame loop — an unguarded log spams) so
                         // the failure is visible and diagnosable instead of
                         // silent. Fix for the caller: use a heavier font_weight.

@@ -49,12 +49,12 @@ const SEND_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Resolve a config `binary` value to the path we actually `execv`.
 ///
-/// A value containing a `/` (absolute like `/usr/bin/veiland-clock`, or
-/// relative like `target/debug/veiland-clock`) is used verbatim — the
+/// A value containing a `/` (absolute like `/usr/bin/veiland-wallpaper`, or
+/// relative like `target/debug/veiland-wallpaper`) is used verbatim — the
 /// escape hatch for dev builds and unusual layouts. `execv` handles the
 /// absolute case directly and the relative case against the core's cwd.
 ///
-/// A bare name (no `/`, e.g. `veiland-clock`) is resolved so the shipped
+/// A bare name (no `/`, e.g. `veiland-wallpaper`) is resolved so the shipped
 /// examples and the README are portable across distros without hardcoding
 /// a bindir:
 ///   1. Beside the locker itself: `dirname(current_exe())/<name>`. On every

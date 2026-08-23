@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Showcase config for the markup widget preview: a time+date block centered
+# large over the black lock surface -- the clock look done as one markup
+# string. Redraws once a minute, so a screenshot is enough: lock with it and
+# grab a frame (grim, or scene.sh -k + ffmpeg). Needs the gi stack (Pango);
+# run from `nix develop`.
+
+[[plugin]]
+name = "markup"
+binary = "veiland-markup"
+z_index = 0
+region = { halign = "center", valign = "top", width = 1.0, height = 0.24, margin_y = 0.32 }
+
+[plugin.config]
+text = '''<span size="400%">{time:%H:%M}</span>
+{date:%A, %B %d}'''
+font_size = 0.1
+content_halign = "center"
+content_valign = "top"

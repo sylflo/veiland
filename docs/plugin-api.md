@@ -35,9 +35,11 @@ order of complexity:
 - [`plugins/vignette`](../plugins/vignette/src/main.rs) — the same
   shape for a static effect: `FramePacer::on_demand()` instead of
   self-paced, re-rendering only when the host asks.
-- [`plugins/label`](../plugins/label/src/main.rs) — adds
-  `veiland-text` for glyph rendering on top of the same
-  lifecycle.
+
+For text, the `veiland-text` crate (`Label` + `FontContext`) provides
+cosmic-text-backed glyph rendering on top of the same lifecycle; the core
+uses it for the password placeholder. (The shipped text tier itself is the
+Python `veiland-markup` widget, which renders through PangoCairo.)
 
 The key types: `Connection` (socket framing + `submit_frame`), `GbmEgl`
 (render node + EGL context), `DmaBuffer` (the GPU buffer + FBO),
@@ -168,22 +170,20 @@ text plugin usually wants "the clock is ~1/15th of the screen tall,"
 expressed as a fraction and multiplied by the *physical* surface height
 when building the `Label`. This is both resolution- and scale-independent
 in one step: because the surface is already physical-sized, a 2× monitor
-delivers a 2×-taller buffer and the glyph grows automatically — so these
-plugins never read `scale_120` at all. `veiland-label` and `veiland-clock`
-size `font_size` and `shadow.offset` this way (config values are fractions
-of surface height, not logical pixels); their `letter_spacing` is a
-fraction of the *computed font size*, so it scales with the surface
-indirectly, through the font size it multiplies.
+delivers a 2×-taller buffer and the glyph grows automatically — so a text
+plugin following this convention never reads `scale_120` at all. Size
+`font_size` and `shadow.offset` as fractions of surface height (not logical
+pixels); let `letter_spacing` be a fraction of the *computed font size*, so
+it scales with the surface indirectly, through the font size it multiplies.
 
-`position` follows the fraction model in every plugin: a place on screen
-should be a *fraction of the surface* (`[0.5, 0.5]` = centre), multiplied
-by the surface size when building the frame. Fractions are
-resolution-independent — `0.5` is the middle of a 1080p and a 4K buffer
-alike — so a label stays put when the host resizes the surface (the
-1080p-spawn-fallback → native-4K resend, or a mid-lock mode change). The
-reference plugins (`veiland-clock`, `veiland-label`) take `position` as a
-`[0.0..=1.0]` fraction in their TOML config for this reason. Absolute
-pixels would silently mean "centre" only at one specific resolution.
+`position` follows the same fraction model: a place on screen should be a
+*fraction of the surface* (`[0.5, 0.5]` = centre), multiplied by the surface
+size when building the frame. Fractions are resolution-independent — `0.5`
+is the middle of a 1080p and a 4K buffer alike — so text stays put when the
+host resizes the surface (the 1080p-spawn-fallback → native-4K resend, or a
+mid-lock mode change). Take `position` as a `[0.0..=1.0]` fraction in config
+for this reason. Absolute pixels would silently mean "centre" only at one
+specific resolution.
 
 When the surface is resized, reallocate your dmabuf to the new size with
 `DmaBuffer::resize_or_keep(&gbm_egl, w, h, plugin_name)` in your
@@ -195,8 +195,9 @@ returns an error or panics, and you don't rebuild anything by hand
 lower-level `DmaBuffer::resize_to(&gbm_egl, w, h) -> Result<bool, _>` only
 if you want to react to the reallocation yourself.
 
-See [`plugins/label`](../plugins/label/src/main.rs)'s
-`build_label` for the reference shape.
+See the core's password-placeholder path in
+[`veiland-core/src/renderer.rs`](../veiland-core/src/renderer.rs) for a
+worked `Label` construction.
 
 ### Not yet supported
 

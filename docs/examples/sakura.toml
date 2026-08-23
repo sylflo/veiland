@@ -71,25 +71,26 @@ size_px = 22
 color = [1.0, 1.0, 1.0, 1.0]
 
 # --- Clock: time + date, upper-left --------------------------------
-# Uses the default system sans font (no CJK dependency). Positions are
-# fractions of the surface, so they track any resolution.
+# A markup block (Python/PangoCairo) parked top-left: a big time over a
+# smaller date, done as ONE markup string. The region pins the box to the
+# top-left corner (fractions of the surface, so it tracks any resolution);
+# content_* park the text flush at the box's top-left. The inline <span>
+# scales the time up from the base font_size; the date is the base size.
+# Needs the gi stack (pygobject3 + Pango) -- run from `nix develop`.
 [[plugin]]
 name = "clock"
-binary = "veiland-clock"
+binary = "veiland-markup"
 z_index = 10
+region = { halign = "left", valign = "top", width = 0.6, height = 0.22, margin_x = 0.017, margin_y = 0.03 }
 
 [plugin.config]
-time_format = "%H:%M"
-date_format = "%A, %B %d"
-time_font_size = 0.055        # fraction of surface height (~59px on 1080p)
-date_font_size = 0.014        # fraction of surface height (~15px on 1080p)
-time_color = [0.95, 0.96, 0.98, 0.95]
-date_color = [0.95, 0.96, 0.98, 0.80]
-time_position = [0.04, 0.05]  # fraction of surface, upper-left
-date_position = [0.04, 0.11]
-halign = "left"
-valign = "top"
-shadow_offset = [0, 0.002]    # fraction of surface height (~2px on 1080p)
+text = '''<span size="380%">{time:%H:%M}</span>
+{date:%A, %B %d}'''
+font_family = "Sans"
+font_size = 0.065             # base (date) size as a fraction of region height
+content_halign = "left"
+content_valign = "top"
+text_color = [0.95, 0.96, 0.98, 0.95]
 shadow_color = [0.0, 0.0, 0.0, 0.9]
 
 # --- Password field: the input pill --------------------------------

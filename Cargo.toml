@@ -2,11 +2,9 @@
 resolver = "3"
 members = [
     "plugins/blobs",
-    "plugins/clock",
     "plugins/embers",
     "plugins/fireflies",
     "plugins/gradient",
-    "plugins/label",
     "plugins/parallax",
     "plugins/particles",
     "plugins/rain",

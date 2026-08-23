@@ -38,7 +38,7 @@ Actually *running* the locker needs a Wayland compositor implementing
 `veiland` PAM service — see [PAM setup](README.md#pam-setup) in the
 README. Run a development build with plugin binaries from the same
 build tree by using paths in your config (e.g.
-`binary = "target/debug/veiland-clock"`).
+`binary = "target/debug/veiland-wallpaper"`).
 
 ## Checks — what CI runs
 

@@ -6,12 +6,10 @@
 # freeform styled labels. It is READ-ONLY, like the clock: it displays, it never
 # controls, and no keystroke ever reaches it.
 #
-# It is ADDITIVE to veiland-label (the Rust static-text plugin), not a
-# replacement. veiland-label is the lean, no-Python-needed tier (one style, a
-# fixed string); markup is the rich/dynamic tier for text that CHANGES ({time})
-# or MIXES styles (inline <span>). Same lean-Rust vs rich-Python split the whole
-# project makes -- reach for veiland-label when a Python interpreter on the lock
-# path is a cost you don't want, and markup when you want variables or markup.
+# It is the project's text tier: both static labels (a fixed string, one style)
+# and dynamic/styled text (content that CHANGES via {time}, or MIXES styles via
+# inline <span>) are one widget. A plain string with no placeholders and no span
+# is the lean static case; add {variables} or <span> for the rich case.
 #
 # What it draws: the `text` config string, which may contain BOTH Pango <span>
 # markup (inline sizes/weights/colors, no styling-DSL to invent) AND {variable}
@@ -30,9 +28,9 @@
 # ever takes down the locker (the untrusted-input rule; see CLAUDE.md).
 #
 # The base font comes from veiland_text.font_from_config (markup is its first
-# consumer) -- the uniform font_family/font_size/font_weight/italic keys, same
-# names as the Rust label plugin. Any inline <span size=... weight=...> in the
-# text OVERRIDES it for that run, which is exactly what veiland-label cannot do.
+# consumer) -- the uniform font_family/font_size/font_weight/italic keys. Any
+# inline <span size=... weight=...> in the text OVERRIDES it for that run, so a
+# single block can mix sizes and weights per run.
 #
 # Redraw discipline mirrors now_playing.py / avatar.py: FramePacer.on_demand(),
 # a ~1s tick, and a display-signature check -- we mark_dirty() only when the

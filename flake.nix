@@ -43,10 +43,8 @@
       realCrates = [
         "veiland-core"
         "veiland-wallpaper"
-        "veiland-clock"
         "veiland-particles"
         "veiland-vignette"
-        "veiland-label"
         "veiland-sakura"
         "veiland-snow"
         "veiland-rain"

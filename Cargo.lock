@@ -1110,18 +1110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "veiland-clock"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "gl",
- "serde",
- "veiland-plugin",
- "veiland-protocol",
- "veiland-text",
-]
-
-[[package]]
 name = "veiland-core"
 version = "0.1.0"
 dependencies = [
@@ -1171,17 +1159,6 @@ dependencies = [
  "serde",
  "veiland-plugin",
  "veiland-protocol",
-]
-
-[[package]]
-name = "veiland-label"
-version = "0.1.0"
-dependencies = [
- "gl",
- "serde",
- "veiland-plugin",
- "veiland-protocol",
- "veiland-text",
 ]
 
 [[package]]

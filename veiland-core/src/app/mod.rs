@@ -326,8 +326,9 @@ impl AppData {
     /// early if less than 30 s have elapsed since the last tick.
     ///
     /// Why this exists: the host's only mandatory Configure is at
-    /// spawn. A clock plugin (`veiland-clock`, M11 step 2) needs the
-    /// time field to advance for its display to track the wall clock.
+    /// spawn. A time-displaying plugin (e.g. `veiland-markup` with a
+    /// `{time}` field) needs the time field to advance for its display
+    /// to track the wall clock.
     /// Re-sending Configure with refreshed `time_unix_seconds` keeps
     /// plugins pure functions of host events instead of each one
     /// reaching for `clock_gettime` independently.

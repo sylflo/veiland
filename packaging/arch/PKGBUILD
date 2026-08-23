@@ -53,10 +53,8 @@ sha256sums=('acbcd1d9b09b0fc4bd771088f8a80fc054053d2b3dcdc13ac77e43e7fc14d980')
 _crates=(
   veiland-core
   veiland-wallpaper
-  veiland-clock
   veiland-particles
   veiland-vignette
-  veiland-label
   veiland-sakura
   veiland-snow
   veiland-rain

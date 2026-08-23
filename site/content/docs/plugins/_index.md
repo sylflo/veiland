@@ -29,33 +29,10 @@ so the particles themselves stay the same physical size.
 """
 
 [[extra.categories]]
-name = "text"
-desc = "sizes and positions are fractions of the surface; one config looks the same on any monitor"
-notes = """
-Both text plugins position and size themselves as **fractions of the surface**,
-not pixels: a `font_size` of `0.03` is 3% of the surface height (~32 px on 1080p,
-~65 px on 4K), and a `position` of `[0.5, 0.5]` is the center. One config
-therefore looks the same on any monitor. Colors are `[r,g,b,a]` floats like
-everywhere else.
-
-Shared font behavior:
-
-- `font_family` accepts `"Sans"`, `"Serif"`, `"Monospace"`, or any installed
-  system family name (e.g. `"JetBrains Mono"`, `"Noto Sans CJK JP"`). Unknown
-  names fall back to the system sans-serif.
-- `font_weight` is the CSS numeric scale: `100` thin, `300` light, `400` normal,
-  `700` bold. Missing weights fall back to the nearest face the family has.
-- `shadow_offset = [x, y]` enables a drop shadow (each component a fraction of
-  surface height). `shadow_blur` is accepted but **not implemented yet** — any
-  value draws a sharp-edged shadow and logs a one-time warning.
-- Letter-spacing keys add tracking as a fraction of the font size.
-"""
-
-[[extra.categories]]
 name = "widgets"
 desc = "glanceable info panels and cards; the reference widgets are Python programs"
 notes = """
-Unlike the backgrounds and text plugins (which are Rust), these reference
+Unlike the background plugins (which are Rust), these reference
 **widgets are Python programs**, installed as `veiland-avatar`,
 `veiland-weather`, `veiland-now-playing`, `veiland-markup`, `veiland-shape`,
 and the status pills `veiland-wifi` / `veiland-ethernet` / `veiland-bluetooth`
@@ -127,8 +104,8 @@ Conventions shared by all first-party plugins:
   have no effect, check the spelling first.
 - **Sizes ending in `_px` are logical pixels.** They are multiplied by the
   output scale, so one value renders the same physical size on 1× and HiDPI
-  monitors. The text plugins (clock, label) use a different model — fractions
-  of the surface — described under their category.
+  monitors. Text sizes use a different model — a `font_size` is a fraction of
+  the widget's region, not a pixel count (see the `markup` widget).
 
 ## The stress plugin
 
@@ -155,7 +132,7 @@ its knobs are compile-time constants. Leave it out of real configs.
   looks sparser on a 4K monitor of the same physical size; bump `count` per
   scene, not per plugin default.
 - **Text sizes are fractions, not points.** `font_size = 24` is 24× the
-  surface height. You want values like `0.02`–`0.10`.
+  widget's region height. You want values like `0.1`–`0.7`.
 - **Integer-valued floats are fine either way** — TOML `22` and `22.0` both
   parse for float keys via JSON. Type strictness bites on strings-vs-numbers,
   not int-vs-float.

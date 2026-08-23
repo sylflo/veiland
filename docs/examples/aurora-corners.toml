@@ -56,27 +56,24 @@ seed = 40503
 # y's together to reposition the whole group without breaking the rhythm.
 [[plugin]]
 name = "clock"
-binary = "veiland-clock"
+binary = "veiland-markup"
 z_index = 30
+# A centered markup block: a big time over a smaller date, done as ONE markup
+# string. The region spans the width and is anchored so the block's center rests
+# in the lower-middle (top of the tight clock/date/password cluster); content_*
+# center the text in the box. The inline <span> scales the time up from the base
+# (date) size -- the old time/date size ratio (0.085/0.018) as a percentage. A
+# dimmer date via an inline <span foreground>. Needs the gi stack.
+region = { halign = "center", valign = "top", width = 1.0, height = 0.20, margin_y = 0.42 }
 [plugin.config]
-time_format = "%H:%M"
-date_format = "%A, %B %d"
+text = '''<span size="470%">{time:%H:%M}</span>
+<span foreground="#ccd6ec">{date:%A, %B %d}</span>'''
 font_family = "Sans"
-font_weight = 400          # NOT thin -- see the aurora-minimal WEIGHT NOTE (thin
-                           # "Sans" drops digits; deferred veiland-text fix).
-time_font_size = 0.085     # ~92px on 1080p, the group's hero line
-date_font_size = 0.018
-time_letter_spacing = 0.02
-date_letter_spacing = 0.10
-time_color = [0.95, 0.96, 0.99, 0.95]
-date_color = [0.80, 0.84, 0.92, 0.7]
-time_position = [0.5, 0.50]   # lower-middle; top of the tight group
-date_position = [0.5, 0.57]   # tight under the clock
-halign = "center"
-valign = "middle"
-shadow_offset = [0.0, 0.0015]
+font_size = 0.09              # base (date) size as a fraction of region height
+content_halign = "center"
+content_valign = "top"
+text_color = [0.95, 0.96, 0.99, 0.95]
 shadow_color = [0.0, 0.0, 0.05, 0.5]
-shadow_blur = 0.004
 
 # --- TOP-RIGHT cluster: battery + wifi + bluetooth (crisp chips) ---------------
 # All anchor top-right, share width/height/margin_y, step margin_x leftward.

@@ -12,10 +12,8 @@ export CARGO_TARGET_DIR = $(CURDIR)/target
 CRATES = \
  -p veiland-core \
  -p veiland-wallpaper \
- -p veiland-clock \
  -p veiland-particles \
  -p veiland-vignette \
- -p veiland-label \
  -p veiland-sakura \
  -p veiland-snow \
  -p veiland-rain \

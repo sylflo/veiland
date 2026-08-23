@@ -828,7 +828,7 @@ class LinearBuffer:
             # Copy row by row: the source is tightly packed (row bytes) but the
             # destination steps by map_stride, which may be wider. Writing
             # top-down matches PIL's natural row order and the host's texture
-            # flip (verified against veiland-label).
+            # flip.
             for y in range(self.height):
                 dst = y * map_stride
                 src = y * row

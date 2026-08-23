@@ -319,7 +319,7 @@ struct MyConfig { /* your fields, each with a sensible Default */ }
 let cfg: MyConfig = veiland_plugin::load_config(PLUGIN_NAME);
 ```
 
-See `plugins/clock` or `plugins/particles` for a real config struct
+See `plugins/particles` or `plugins/vignette` for a real config struct
 (fields, defaults, `#[serde(default)]`).
 
 ## Coordinate math — the part that looks scarier than it is

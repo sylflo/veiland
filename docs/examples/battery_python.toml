@@ -1,27 +1,26 @@
 # No [plugin.region]: the plugin fills the whole lock surface and positions
-# itself inside that full-surface transparent canvas — the same model as the
-# label/clock plugins. (For a small placed chip instead, add a [plugin.region];
-# see battery_svg.toml for the anchored form.)
+# itself inside that full-surface transparent canvas. (For a small placed chip
+# instead, add a [plugin.region]; see battery_svg.toml for the anchored form.)
 [[plugin]]
 name = "veiland-battery"
 binary = "./python/examples/battery.py"
 z_index = 10
 
 
+# A markup block for the title: a single centered CJK line. letter_spacing is an
+# inline Pango <span> attribute (Pango units, 1024 per px; ~8px -> 8192), weight
+# likewise; the region spans the width and content_* center the line.
 [[plugin]]
 name = "title-japanese"
-binary = "veiland-label"
+binary = "veiland-markup"
 z_index = 31
+region = { halign = "center", valign = "top", width = 1.0, height = 0.06, margin_y = 0.36 }
 
 [plugin.config]
-text = "君の名は。"
+text = '<span weight="300" letter_spacing="8192">君の名は。</span>'
 font_family = "Noto Sans CJK JP"
-font_size = 0.035             # fraction of surface height (~38px on 1080p)
-font_weight = 300
-letter_spacing = 0.4          # fraction of font size (~8px with a 20px font)
-color = [0.91, 0.96, 0.97, 0.95]
-halign = "center"
-valign = "middle"
-position = [0.5, 0.387]
-shadow_offset = [0, 0.004]    # fraction of surface height (~4px on 1080p)
+font_size = 0.63             # base size as a fraction of region height (~38px)
+content_halign = "center"
+content_valign = "center"
+text_color = [0.91, 0.96, 0.97, 0.95]
 shadow_color = [0.0, 0.0, 0.0, 0.9]

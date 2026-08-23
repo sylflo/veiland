@@ -1,11 +1,11 @@
 # Test config for the markup widget (python/examples/markup.py): ONE block of
 # Pango markup with {variable} substitution, composited over the wallpaper. This
-# is the DYNAMIC text tier -- variables and inline <span> styling -- additive to
-# the Rust veiland-label plugin (the lean static tier), not a replacement.
+# is the project's text tier -- static labels and dynamic/styled text (variables
+# and inline <span>) in one widget.
 #
 # This scene is a clock-style time+date block: a big bold time over a smaller
-# date line, done as ONE markup string instead of two fixed labels -- the widget
-# subsumes the clock look while adding {variables}. With an EMPTY [plugin.config]
+# date line, done as ONE markup string -- a static label is just this without the
+# {variables} or the <span>. With an EMPTY [plugin.config]
 # it draws exactly this default block (the `text` below just spells it out).
 #
 # The `text` string may contain BOTH Pango <span> tags (inline size/weight/color,

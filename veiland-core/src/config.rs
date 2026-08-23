@@ -34,10 +34,10 @@ pub struct PluginEntry {
     pub name: String,
 
     /// The plugin binary to spawn. A bare name (no `/`, e.g.
-    /// `veiland-clock`) is resolved by the core: first beside the locker
+    /// `veiland-wallpaper`) is resolved by the core: first beside the locker
     /// itself, then on `$PATH` (see `plugin::host_spawn::resolve_binary`).
-    /// A value containing a `/` (absolute `/usr/bin/veiland-clock` or
-    /// relative `target/debug/veiland-clock`) is used verbatim — the
+    /// A value containing a `/` (absolute `/usr/bin/veiland-wallpaper` or
+    /// relative `target/debug/veiland-wallpaper`) is used verbatim — the
     /// escape hatch for dev builds. No tilde expansion. Spawn / resolution
     /// failure is logged at runtime and leaves that plugin's layer empty.
     pub binary: PathBuf,
@@ -938,13 +938,13 @@ mod tests {
             region = { x = 0, y = 0, w = 1920, h = 1080 }
 
             [[plugin]]
-            name = "clock"
-            binary = "/path/to/veiland-clock"
+            name = "markup"
+            binary = "/path/to/veiland-markup"
             z_index = 10
 
             [plugin.config]
-            timezone = "Europe/Paris"
-            format_24h = true
+            font_family = "Sans"
+            italic = true
         "#;
         let config = parse(text).expect("happy path should parse");
         assert_eq!(config.plugins.len(), 2);
@@ -970,7 +970,7 @@ mod tests {
         }
         assert!(config.plugins[0].config.is_none());
 
-        assert_eq!(config.plugins[1].name, "clock");
+        assert_eq!(config.plugins[1].name, "markup");
         assert_eq!(config.plugins[1].z_index, 10);
         assert!(
             config.plugins[1].region.is_none(),
@@ -985,13 +985,10 @@ mod tests {
             .expect("second plugin has a [plugin.config] table");
         let table = custom.as_table().expect("[plugin.config] is a table");
         assert_eq!(
-            table.get("timezone").and_then(|v| v.as_str()),
-            Some("Europe/Paris")
+            table.get("font_family").and_then(|v| v.as_str()),
+            Some("Sans")
         );
-        assert_eq!(
-            table.get("format_24h").and_then(|v| v.as_bool()),
-            Some(true)
-        );
+        assert_eq!(table.get("italic").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]

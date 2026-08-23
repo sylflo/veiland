@@ -150,8 +150,8 @@ jobs:
         run: |
           set -eux
           # Everything packaging/arch/PKGBUILD package() promises.
-          for b in veiland veiland-wallpaper veiland-clock \
-                   veiland-particles veiland-vignette veiland-label \
+          for b in veiland veiland-wallpaper \
+                   veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
                    veiland-parallax veiland-blobs veiland-raymarcher; do
@@ -291,8 +291,8 @@ jobs:
           set -eux
           # Everything packaging/debian/veiland.install (+ dh_installpam)
           # promises.
-          for b in veiland veiland-wallpaper veiland-clock \
-                   veiland-particles veiland-vignette veiland-label \
+          for b in veiland veiland-wallpaper \
+                   veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
                    veiland-parallax veiland-blobs veiland-raymarcher; do
@@ -360,8 +360,8 @@ jobs:
       - name: Verify installed layout and linkage
         run: |
           set -eux
-          for b in veiland veiland-wallpaper veiland-clock \
-                   veiland-particles veiland-vignette veiland-label \
+          for b in veiland veiland-wallpaper \
+                   veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
                    veiland-parallax veiland-blobs veiland-raymarcher; do
@@ -469,8 +469,8 @@ jobs:
         run: |
           set -eux
           # Everything packaging/rpm/veiland.spec %files promises.
-          for b in veiland veiland-wallpaper veiland-clock \
-                   veiland-particles veiland-vignette veiland-label \
+          for b in veiland veiland-wallpaper \
+                   veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
                    veiland-parallax veiland-blobs veiland-raymarcher; do

@@ -69,8 +69,8 @@ The locker itself owns PAM authentication, keyboard input, and the
 unlock decision; plugins never see keystrokes or the password.
 
 This package installs veiland-core and the reference plugins
-(wallpaper, clock, particles, vignette, label, sakura, snow, rain,
-embers, fireflies, gradient, parallax, blobs, raymarcher).
+(wallpaper, particles, vignette, sakura, snow, rain, embers,
+fireflies, gradient, parallax, blobs, raymarcher).
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -80,10 +80,8 @@ export CARGO_HOME=%{_builddir}/cargo-home
 cargo build --release --locked \
   -p veiland-core \
   -p veiland-wallpaper \
-  -p veiland-clock \
   -p veiland-particles \
   -p veiland-vignette \
-  -p veiland-label \
   -p veiland-sakura \
   -p veiland-snow \
   -p veiland-rain \
@@ -104,10 +102,8 @@ export CARGO_HOME=%{_builddir}/cargo-home
 cargo test --release --locked \
   -p veiland-core \
   -p veiland-wallpaper \
-  -p veiland-clock \
   -p veiland-particles \
   -p veiland-vignette \
-  -p veiland-label \
   -p veiland-sakura \
   -p veiland-snow \
   -p veiland-rain \
@@ -126,8 +122,8 @@ cargo test --release --locked \
 # `veiland` (see its [[bin]] in Cargo.toml); the plugins keep their
 # crate names.
 install -Dm0755 target/release/veiland "%{buildroot}%{_bindir}/veiland"
-for c in veiland-wallpaper veiland-clock veiland-particles \
-         veiland-vignette veiland-label veiland-sakura \
+for c in veiland-wallpaper veiland-particles \
+         veiland-vignette veiland-sakura \
          veiland-snow veiland-rain veiland-embers \
          veiland-fireflies veiland-gradient veiland-parallax \
          veiland-blobs veiland-raymarcher; do
@@ -194,10 +190,8 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %license LICENSE
 %{_bindir}/veiland
 %{_bindir}/veiland-wallpaper
-%{_bindir}/veiland-clock
 %{_bindir}/veiland-particles
 %{_bindir}/veiland-vignette
-%{_bindir}/veiland-label
 %{_bindir}/veiland-sakura
 %{_bindir}/veiland-snow
 %{_bindir}/veiland-rain

@@ -207,8 +207,7 @@ def upload(bo, w, h, img):
         sys.exit("veiland-battery: gbm_bo_map failed")
     # Rows are written top-down, Pillow's natural order. The host's
     # compositor program flips plugin textures such that top-down
-    # memory displays upright (verified against veiland-label, which
-    # produces the same orientation).
+    # memory displays upright.
     row = w * 4
     for y in range(h):
         ctypes.memmove(ptr + y * stride.value, data[y * row:(y + 1) * row], row)

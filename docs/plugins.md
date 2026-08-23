@@ -54,8 +54,8 @@ Conventions shared by all first-party plugins:
   have no effect, check the spelling first.
 - **Sizes ending in `_px` are logical pixels.** They are multiplied by the
   output scale, so one value renders the same physical size on 1× and HiDPI
-  monitors. The text plugins (clock, label) use a different model — fractions
-  of the surface — described under their category.
+  monitors. Text sizes use a different model — a `font_size` is a fraction of
+  the widget's region, not a pixel count (see the `markup` widget).
 
 ## Backgrounds
 
@@ -307,82 +307,9 @@ Example: [`examples/fireflies.toml`](examples/fireflies.toml).
 | `radius_px` | float | `2.5` | Core radius in logical px; the visible halo extends about 4x beyond it. |
 | `flash_sharpness` | float | `0.4` | Blink character, 0 to 1: `0` is gentle continuous pulsing, `1` is brief sharp flashes with long dark gaps. |
 
-## Text
-
-Both text plugins position and size themselves as **fractions of the surface**,
-not pixels: a `font_size` of `0.03` is 3% of the surface height (~32 px on 1080p,
-~65 px on 4K), and a `position` of `[0.5, 0.5]` is the center. One config
-therefore looks the same on any monitor. Colors are `[r,g,b,a]` floats like
-everywhere else.
-
-Shared font behavior:
-
-- `font_family` accepts `"Sans"`, `"Serif"`, `"Monospace"`, or any installed
-  system family name (e.g. `"JetBrains Mono"`, `"Noto Sans CJK JP"`). Unknown
-  names fall back to the system sans-serif.
-- `font_weight` is the CSS numeric scale: `100` thin, `300` light, `400` normal,
-  `700` bold. Missing weights fall back to the nearest face the family has.
-- `shadow_offset = [x, y]` enables a drop shadow (each component a fraction of
-  surface height). `shadow_blur` is accepted but **not implemented yet** — any
-  value draws a sharp-edged shadow and logs a one-time warning.
-- Letter-spacing keys add tracking as a fraction of the font size.
-
-### clock — `veiland-clock`
-
-The current time and date as two independently styled labels. Time comes from the host, the plugin never reads the system clock, and it follows your timezone.
-Used in [`examples/shinkai.toml`](examples/shinkai.toml).
-
-| Key | Type | Default | Meaning |
-|---|---|---|---|
-| `time_format` | string | `"%H:%M"` | [chrono strftime](https://docs.rs/chrono/latest/chrono/format/strftime/) pattern for the time. `"%I:%M %p"` for 12-hour. |
-| `date_format` | string | `"%B %d, %Y"` | strftime pattern for the date line. |
-| `font_family` | string | `"Sans"` | `"Sans"`, `"Serif"`, `"Monospace"`, or any installed family name. Unknown names fall back to the system sans. |
-| `font_weight` | integer | `400` | CSS numeric scale: 100 thin, 300 light, 400 normal, 700 bold. |
-| `time_font_size` | float | `0.067` | Time size, fraction of surface height (~7%). |
-| `date_font_size` | float | `0.013` | Date size, fraction of surface height. |
-| `time_color` | [r,g,b,a] | `[0.91, 0.96, 0.97, 0.9]` | Time color. |
-| `date_color` | [r,g,b,a] | `[0.66, 0.84, 0.91, 0.6]` | Date color. |
-| `time_position` | [x, y] | `[0.026, 0.046]` | Time anchor, fractions of the surface. |
-| `date_position` | [x, y] | `[0.026, 0.150]` | Date anchor. |
-| `halign` | string | `"left"` | Which horizontal edge of the text sits on the anchor, for both labels: `"left"` / `"center"` / `"right"`. |
-| `valign` | string | `"top"` | Vertical counterpart: `"top"` / `"middle"` / `"bottom"`. |
-| `time_letter_spacing` | float | `0.0` | Extra tracking for the time, fraction of its font size. |
-| `date_letter_spacing` | float | `0.0` | Extra tracking for the date. |
-| `shadow_offset` | [x, y] | absent | Set to enable a drop shadow on both labels; each component is a fraction of surface height. |
-| `shadow_color` | [r,g,b,a] | `[0.0, 0.0, 0.0, 0.9]` | Shadow color. |
-| `shadow_blur` | float | `0.0` | Reserved; any value draws a sharp-edged shadow for now and logs a one-time warning. |
-
-An invalid strftime pattern does not error; chrono renders the unrecognized parts
-literally. If you see a stray `%q` on your lockscreen, check the pattern.
-
-### label — `veiland-label`
-
-One static styled text label: names, quotes, kaomoji, vertical captions. Run several instances for several labels.
-Example: [`examples/label.toml`](examples/label.toml).
-
-| Key | Type | Default | Meaning |
-|---|---|---|---|
-| `text` | string | (placeholder) | The text. Deliberately loud when unconfigured so you notice. |
-| `font_family` | string | `"Sans"` | Any installed family name, including CJK fonts (e.g. `"Noto Sans CJK JP"`). |
-| `font_weight` | integer | `400` | CSS numeric scale. |
-| `italic` | bool | `false` | Use the family's italic face. Families without one (many CJK fonts) render upright; no fake slant is synthesized. |
-| `font_size` | float | `0.030` | Size, fraction of surface height (~3%). |
-| `color` | [r,g,b,a] | `[1.0, 1.0, 1.0, 1.0]` | Text color. |
-| `position` | [x, y] | `[0.5, 0.5]` | Anchor, fractions of the surface; the default is dead center. |
-| `halign` | string | `"center"` | Horizontal edge on the anchor. Note the default differs from clock: `"left"` / `"center"` / `"right"`. |
-| `valign` | string | `"middle"` | `"top"` / `"middle"` / `"bottom"`. |
-| `rotation` | float | `0.0` | Counter-clockwise rotation in degrees around the anchor; vertical spine text is `90` or `-90`. |
-| `letter_spacing` | float | `0.0` | Extra tracking, fraction of the font size. |
-| `shadow_offset` | [x, y] | absent | Set to enable a drop shadow. |
-| `shadow_color` | [r,g,b,a] | `[0.0, 0.0, 0.0, 0.6]` | Shadow color. |
-| `shadow_blur` | float | `0.0` | Reserved; draws sharp for now. |
-
-The shinkai example scene runs four label instances at once: two titles and two quotes,
-in two languages.
-
 ## Widgets
 
-Unlike the backgrounds and text plugins (which are Rust), these reference
+Unlike the background plugins (which are Rust), these reference
 **widgets are Python programs**, installed as `veiland-avatar`,
 `veiland-weather`, `veiland-now-playing`, `veiland-markup`, `veiland-shape`,
 and the status pills `veiland-wifi` / `veiland-ethernet` / `veiland-bluetooth`
@@ -660,7 +587,7 @@ its knobs are compile-time constants. Leave it out of real configs.
   looks sparser on a 4K monitor of the same physical size; bump `count` per
   scene, not per plugin default.
 - **Text sizes are fractions, not points.** `font_size = 24` is 24× the
-  surface height. You want values like `0.02`–`0.10`.
+  widget's region height. You want values like `0.1`–`0.7`.
 - **Integer-valued floats are fine either way** — TOML `22` and `22.0` both
   parse for float keys via JSON. Type strictness bites on strings-vs-numbers,
   not int-vs-float.

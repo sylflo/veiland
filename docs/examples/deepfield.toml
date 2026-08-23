@@ -75,35 +75,29 @@ twinkle = true
 twinkle_depth = 0.9
 twinkle_speed = 3.5
 
-# --- HERO: one big thin clock + date, over the dark sky ------------------------
-# Centered-ish but parked a little high-left where the nebula is darkest (the calm
-# indigo above the pillars), so the white glyphs read without fighting the gold.
-# font_weight 400 (NOT thin -- "Sans" ExtraLight drops digits; see the deferred
-# veiland-text fix noted in aurora-minimal.toml). A soft shadow lifts the glyphs
-# off any bright patch.
+# --- HERO: one big clock + date, over the dark sky -----------------------------
+# A centered markup block (Python/PangoCairo): a big time over a smaller date,
+# done as ONE markup string, parked upper-middle where the nebula is darkest (the
+# calm indigo above the pillars) so the white glyphs read without fighting the
+# gold. The region spans the width and content_* center the text; the inline
+# <span> scales the time up from the base (date) size (the old time/date ratio as
+# a percentage), and a dimmer, cooler date via <span foreground>. A soft shadow
+# lifts the glyphs off any bright patch. Needs the gi stack (run from nix develop).
 [[plugin]]
 name = "clock"
-binary = "veiland-clock"
+binary = "veiland-markup"
 z_index = 30
+region = { halign = "center", valign = "top", width = 1.0, height = 0.22, margin_y = 0.33 }
 
 [plugin.config]
-time_format = "%H:%M"
-date_format = "%A, %B %d"
+text = '''<span size="500%">{time:%H:%M}</span>
+<span foreground="#d1dbf2">{date:%A, %B %d}</span>'''
 font_family = "Sans"
-font_weight = 400
-time_font_size = 0.10          # big hero clock (~108px on 1080p)
-date_font_size = 0.020
-time_letter_spacing = 0.03
-date_letter_spacing = 0.12
-time_color = [0.96, 0.97, 1.0, 0.96]
-date_color = [0.82, 0.86, 0.95, 0.75]
-time_position = [0.5, 0.40]    # upper-middle; the calm dark sky above the pillars
-date_position = [0.5, 0.48]
-halign = "center"
-valign = "middle"
-shadow_offset = [0.0, 0.0018]
+font_size = 0.091             # base (date) size as a fraction of region height
+content_halign = "center"
+content_valign = "top"
+text_color = [0.96, 0.97, 1.0, 0.96]
 shadow_color = [0.0, 0.0, 0.03, 0.6]
-shadow_blur = 0.005
 
 # --- One faint accessory: a weather pill, bottom-left --------------------------
 # The single corner accessory -- a small temp + condition glyph, bottom-left,

@@ -1,9 +1,7 @@
 target/release/veiland             usr/bin
 target/release/veiland-wallpaper   usr/bin
-target/release/veiland-clock       usr/bin
 target/release/veiland-particles   usr/bin
 target/release/veiland-vignette    usr/bin
-target/release/veiland-label       usr/bin
 target/release/veiland-sakura      usr/bin
 target/release/veiland-snow        usr/bin
 target/release/veiland-rain        usr/bin

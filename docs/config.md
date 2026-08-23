@@ -94,15 +94,15 @@ binary.
 
 The plugin's executable. Two forms:
 
-- **A bare name** (no `/`, e.g. `veiland-clock`) is resolved by the
+- **A bare name** (no `/`, e.g. `veiland-wallpaper`) is resolved by the
   core: first beside the locker itself (the directory `veiland` was
   installed into), then by searching `$PATH`. This is the portable,
   copy-paste form — it works regardless of whether your distro installs
   to `/usr/bin` or, on NixOS, a `/nix/store/.../bin` directory, because
   the reference plugins always ship in the same directory as `veiland`.
 
-- **A path containing a `/`** (absolute `/usr/bin/veiland-clock`, or
-  relative `target/debug/veiland-clock`) is used verbatim — no lookup.
+- **A path containing a `/`** (absolute `/usr/bin/veiland-wallpaper`, or
+  relative `target/debug/veiland-wallpaper`) is used verbatim — no lookup.
   Use this to point at a specific build, e.g. a `target/debug` binary
   while developing.
 
@@ -471,8 +471,8 @@ z_index = -100   # always behind everything
 # full screen
 
 [[plugin]]
-name = "clock"
-binary = "/usr/bin/veiland-clock"
+name = "markup"
+binary = "/usr/bin/veiland-markup"
 z_index = 10
 region = { x = 100, y = 100, w = 300, h = 80 }
 
