@@ -21,11 +21,10 @@
   x-data="{
     i: 0,
     slides: [
-      { name: 'raymarcher', desc: 'the built-in default, zero config needed', cfg: 'no config.toml' },
-      { name: 'sakura',     desc: 'falling petals over a dusk sky',               cfg: 'sakura.toml' },
-      { name: 'embers',     desc: 'rising sparks and a bottom glow',              cfg: 'embers.toml' },
-      { name: 'snow',       desc: 'drifting crystals',                            cfg: 'snow.toml' },
-      { name: 'rain',       desc: 'wind-slanted streaks',                         cfg: 'rain.toml' }
+      { name: 'deep field', desc: 'a static hero: blurred nebula, clock, weather', cfg: 'deepfield.toml' },
+      { name: 'sakura',     desc: 'falling petals over a dusk sky',                 cfg: 'sakura.toml' },
+      { name: 'embers',     desc: 'rising sparks and a bottom glow',                cfg: 'embers.toml' },
+      { name: 'raymarcher', desc: 'the built-in default, zero config needed',       cfg: 'no config.toml' }
     ],
     next() { this.i = (this.i + 1) % this.slides.length },
     prev() { this.i = (this.i + this.slides.length - 1) % this.slides.length }
@@ -34,11 +33,10 @@
   @keydown.window.arrow-right="next()" @keydown.window.arrow-left="prev()">
   <div class="slider">
     <div class="slider-frame">
-      <div class="slide" :class="{ active: i === 0 }"><img src="{{ get_url(path='previews/readme/hero.gif') | safe }}" alt="raymarcher scene capture"></div>
+      <div class="slide" :class="{ active: i === 0 }"><img src="{{ get_url(path='previews/scenes/deepfield.png') | safe }}" alt="deep field scene capture, a blurred nebula with clock and weather"></div>
       <div class="slide" :class="{ active: i === 1 }"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"></div>
       <div class="slide" :class="{ active: i === 2 }"><img src="{{ get_url(path='previews/readme/gallery-embers.gif') | safe }}" alt="embers scene capture" loading="lazy"></div>
-      <div class="slide" :class="{ active: i === 3 }"><img src="{{ get_url(path='previews/readme/gallery-snow.gif') | safe }}" alt="snow scene capture" loading="lazy"></div>
-      <div class="slide" :class="{ active: i === 4 }"><img src="{{ get_url(path='previews/readme/gallery-rain.gif') | safe }}" alt="rain scene capture" loading="lazy"></div>
+      <div class="slide" :class="{ active: i === 3 }"><img src="{{ get_url(path='previews/readme/hero.gif') | safe }}" alt="raymarcher scene capture, the zero-config default"></div>
 
       <button class="slider-arrow prev" @click="prev()" aria-label="Previous scene">‹</button>
       <button class="slider-arrow next" @click="next()" aria-label="Next scene">›</button>
@@ -123,6 +121,45 @@
       socket. Rust SDK in the box, but any language that can pass a file
       descriptor works.</p>
     </div>
+  </div>
+</section>
+
+<section class="section" id="modes">
+  <div class="wrap">
+    <div class="eyebrow">dynamic or static</div>
+    <h2>Motion when you want it.<br>Stillness when you don't.</h2>
+    <p class="lede">
+      The same plugin model does both. Run animated backgrounds on the GPU at your
+      refresh rate, or a wallpaper and a few widgets that draw once and sit still.
+      Neither is the "real" mode &mdash; pick per scene, or mix them in one.
+    </p>
+
+    <div class="modes-grid">
+      <div class="scene mode-card">
+        <img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="a dynamic scene: petals falling in real time" loading="lazy">
+        <span class="mode-badge">motion</span>
+        <div class="scene-meta"><b>dynamic</b><span>particles, shaders, animated backgrounds</span></div>
+        <p class="mode-desc">Rendered live on the GPU, every frame, at your monitor's
+        refresh rate. Petals drift, embers rise, a shader churns. Full-screen animation
+        is the normal case, not a stress test.</p>
+        <div class="ingredients"><span>sakura</span><span>embers</span><span>rain</span><span>raymarcher</span><span>blobs</span></div>
+      </div>
+
+      <div class="scene mode-card">
+        <img src="{{ get_url(path='previews/scenes/deepfield.png') | safe }}" alt="a static scene: a still nebula, clock, and widgets" loading="lazy">
+        <span class="mode-badge">still</span>
+        <div class="scene-meta"><b>static</b><span>a wallpaper, a clock, glanceable widgets</span></div>
+        <p class="mode-desc">Draws once and idles &mdash; near-zero CPU, calm by design.
+        A blurred wallpaper, a clock, a status cluster, an avatar. The composed,
+        lived-with look, without a single moving pixel.</p>
+        <div class="ingredients"><span>wallpaper (blur)</span><span>clock</span><span>weather</span><span>avatar</span><span>status</span></div>
+      </div>
+    </div>
+
+    <p class="modes-note">
+      And they compose: a still card of widgets over a gently drifting background is
+      one config away. Every scene below is somewhere on that line.
+    </p>
   </div>
 </section>
 

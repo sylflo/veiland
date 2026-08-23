@@ -315,6 +315,18 @@
     font-family: var(--mono); font-size: 0.66rem; color: var(--dim);
     border: 1px solid var(--line-soft); border-radius: 999px; padding: 1px 8px;
   }
+  .modes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; margin-top: 48px; }
+  @media (max-width: 720px) { .modes-grid { grid-template-columns: 1fr; } }
+  .mode-card { position: relative; }
+  .mode-card:hover { transform: none; border-color: var(--line-soft); }
+  .mode-badge {
+    position: absolute; top: 10px; left: 10px;
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text); background: rgba(14, 11, 22, 0.72);
+    border: 1px solid rgba(244, 166, 192, 0.4); border-radius: 5px; padding: 3px 9px;
+  }
+  .mode-desc { color: var(--muted); font-size: 0.9rem; padding: 0 16px 12px; margin: 0; }
+  .modes-note { color: var(--dim); font-size: 0.9rem; margin-top: 26px; max-width: 60ch; }
   .cat-desc { color: var(--dim); letter-spacing: 0.02em; text-transform: none; }
   #plugins .gallery-grid { margin-top: 20px; margin-bottom: 40px; }
   .modal-body { overflow: auto; padding: 18px 22px; }
