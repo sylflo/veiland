@@ -21,10 +21,10 @@
   x-data="{
     i: 0,
     slides: [
-      { name: 'deep field', desc: 'a static hero: blurred nebula, clock, weather', cfg: 'deepfield.toml' },
-      { name: 'sakura',     desc: 'falling petals over a dusk sky',                 cfg: 'sakura.toml' },
-      { name: 'embers',     desc: 'rising sparks and a bottom glow',                cfg: 'embers.toml' },
-      { name: 'raymarcher', desc: 'the built-in default, zero config needed',       cfg: 'no config.toml' }
+      { name: 'aurora card',    desc: 'a frosted center card over a drifting aurora', cfg: 'aurora-card.toml' },
+      { name: 'raymarcher',     desc: 'the built-in default, zero config needed',    cfg: 'no config.toml' },
+      { name: 'aurora corners', desc: 'corner-anchored widgets, one big clock',      cfg: 'aurora-corners.toml' },
+      { name: 'sakura',         desc: 'falling petals over a dusk sky',              cfg: 'sakura.toml' }
     ],
     next() { this.i = (this.i + 1) % this.slides.length },
     prev() { this.i = (this.i + this.slides.length - 1) % this.slides.length }
@@ -33,10 +33,10 @@
   @keydown.window.arrow-right="next()" @keydown.window.arrow-left="prev()">
   <div class="slider">
     <div class="slider-frame">
-      <div class="slide" :class="{ active: i === 0 }"><img src="{{ get_url(path='previews/scenes/deepfield.png') | safe }}" alt="deep field scene capture, a blurred nebula with clock and weather"></div>
-      <div class="slide" :class="{ active: i === 1 }"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"></div>
-      <div class="slide" :class="{ active: i === 2 }"><img src="{{ get_url(path='previews/readme/gallery-embers.gif') | safe }}" alt="embers scene capture" loading="lazy"></div>
-      <div class="slide" :class="{ active: i === 3 }"><img src="{{ get_url(path='previews/readme/hero.gif') | safe }}" alt="raymarcher scene capture, the zero-config default"></div>
+      <div class="slide" :class="{ active: i === 0 }"><img src="{{ get_url(path='previews/scenes/aurora-card.png') | safe }}" alt="aurora card scene capture, a frosted center card over a drifting aurora backdrop"></div>
+      <div class="slide" :class="{ active: i === 1 }"><img src="{{ get_url(path='previews/readme/hero.gif') | safe }}" alt="raymarcher scene capture, the zero-config default" loading="lazy"></div>
+      <div class="slide" :class="{ active: i === 2 }"><img src="{{ get_url(path='previews/scenes/aurora-corners.png') | safe }}" alt="aurora corners scene capture, corner-anchored widgets around a big center clock" loading="lazy"></div>
+      <div class="slide" :class="{ active: i === 3 }"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"></div>
 
       <button class="slider-arrow prev" @click="prev()" aria-label="Previous scene">‹</button>
       <button class="slider-arrow next" @click="next()" aria-label="Next scene">›</button>
@@ -195,6 +195,12 @@
       <div class="scene" role="button" tabindex="0" @click="open('sakura')" @keydown.enter="open('sakura')"><img src="{{ get_url(path='previews/readme/gallery-sakura.gif') | safe }}" alt="sakura scene capture" loading="lazy"><span class="view-hint">view config</span>
         <div class="scene-meta"><b>sakura</b><span>falling petals at dusk</span><code>sakura.toml</code></div>
         <div class="ingredients"><span>wallpaper</span><span>sakura</span><span>clock</span></div></div>
+      <div class="scene" role="button" tabindex="0" @click="open('aurora-card')" @keydown.enter="open('aurora-card')"><img src="{{ get_url(path='previews/scenes/aurora-card.png') | safe }}" alt="aurora card scene capture, a frosted center card over a drifting aurora backdrop" loading="lazy"><span class="view-hint">view config</span>
+        <div class="scene-meta"><b>aurora card</b><span>a frosted center card, static and calm</span><code>aurora-card.toml</code></div>
+        <div class="ingredients"><span>blobs</span><span>shape</span><span>avatar</span><span>markup</span><span>weather</span><span>now-playing</span></div></div>
+      <div class="scene" role="button" tabindex="0" @click="open('aurora-corners')" @keydown.enter="open('aurora-corners')"><img src="{{ get_url(path='previews/scenes/aurora-corners.png') | safe }}" alt="aurora corners scene capture, corner-anchored widgets around a big center clock" loading="lazy"><span class="view-hint">view config</span>
+        <div class="scene-meta"><b>aurora corners</b><span>corner widgets frame one big clock</span><code>aurora-corners.toml</code></div>
+        <div class="ingredients"><span>blobs</span><span>markup</span><span>battery</span><span>wifi</span><span>weather</span><span>now-playing</span></div></div>
       <a class="scene scene-ghost" href="https://github.com/sylflo/veiland/tree/master/docs/examples" target="_blank" rel="noopener">
         <span class="ghost-plus">+</span>
         <b>your scene here</b>
@@ -387,7 +393,7 @@
 {% endblock content %}
 
 {% block scripts %}
-{% for s in ["deepfield", "shinkai", "sakura"] %}
+{% for s in ["deepfield", "shinkai", "sakura", "aurora-card", "aurora-corners"] %}
 <script type="text/plain" id="toml-{{ s }}">
 {{ load_data(path="static/examples/" ~ s ~ ".toml", format="plain") | safe }}
 </script>
