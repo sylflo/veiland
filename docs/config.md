@@ -41,11 +41,14 @@ available`.
 - **Schema mismatch** (e.g. `z_index = "high"` instead of an
   integer, missing required field): fatal. Same shape as malformed
   TOML — logged, refused to start.
-- **Unknown keys**: silently ignored, everywhere — in the core
-  schema, in `[password]`, and in every plugin's `[plugin.config]`
-  table. A *misspelled key name* is never an error at lock time, so
-  if an option seems to have no effect, check its spelling against
-  this reference first.
+- **Unknown keys**: silently ignored in the core schema, in
+  `[password]`, and in every plugin's `[plugin.config]` table. A
+  *misspelled key name* in those places is never an error at lock
+  time, so if an option seems to have no effect, check its spelling
+  against this reference first. The one exception is a `[plugin.region]`
+  table: it rejects unknown keys, so a typo there (`witdh` for `width`)
+  is fatal and refuses to start — deliberately, since a silently-ignored
+  region key would place the plugin somewhere you didn't ask for.
 - **Known key with the wrong type**: fatal in the core schema and in
   `[password]` — that is the schema-mismatch case above. Non-fatal in
   `[plugin.config]`: the core doesn't type-check plugin tables (it
@@ -149,8 +152,8 @@ region = { halign = "right", valign = "top", width = 0.06, height = 0.10, margin
 - `valign` (string): `top` | `center` | `bottom`. Default `center`.
 - `width`, `height` (floats in `0.0..=1.0`): box size as a fraction of
   the surface width/height. Required. `width = 0.06` is 6% of the
-  surface width — the same fraction-of-surface model `label`/`clock`
-  use for text, so a widget looks the same relative size on any monitor.
+  surface width — the same fraction-of-surface model the `markup` widget
+  uses for text, so a widget looks the same relative size on any monitor.
 - `margin` (float in `0.0..=1.0`, optional, default `0`): inset from
   the aligned edge(s), as a fraction of the surface. Shorthand that
   sets both axes. A `center` axis ignores it. Out-of-range fractions

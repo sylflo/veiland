@@ -43,13 +43,10 @@ color = [0.0, 0.0, 0.0, 0.3]
 radius = 0.06
 
 # The content that sits ON the card: a markup label at the SAME region, HIGHER
-# z_index so it paints over the panel. markup is chosen deliberately over the
-# clock plugin here: the clock sizes and PLACES itself by its own
-# time_position/font_size (fractions of the whole SURFACE), ignoring
-# [plugin.region] -- so it would NOT land on the card without hand-matching two
-# coordinate systems. markup instead sizes and anchors by ITS region, so sharing
-# the card's region makes the text fill the card automatically. It renders the
-# time+date as one styled block -- the clock look as a region-aware string.
+# z_index so it paints over the panel. markup sizes and anchors by ITS region,
+# so sharing the card's region makes the text fill the card automatically -- no
+# hand-matching of coordinate systems. It renders the time+date as one styled
+# block, a clock-style look as a region-aware string.
 #
 # The newline MUST be a real line break in a TOML multi-line literal ('''...'''),
 # NOT a "\n" escape: markup substitutes variables str.replace-style and does not

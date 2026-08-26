@@ -128,7 +128,7 @@ pub(crate) struct AppData {
     /// Last time the periodic Configure tick fired. Initialised at
     /// startup; `process_periodic_tick` re-sends Configure to every
     /// alive plugin when 30s have elapsed since this. The tick is
-    /// what keeps the clock plugin's display current — every Configure
+    /// what keeps a time-displaying plugin current — every Configure
     /// carries a fresh `time_unix_seconds`.
     last_time_tick: std::time::Instant,
     /// `wp_fractional_scale_manager_v1` global, bound from the registry.
@@ -619,8 +619,8 @@ fn main() -> ExitCode {
         // See AppData::process_pending_hotplug.
         state.process_pending_hotplug();
         // Re-send Configure with a fresh `time_unix_seconds` if 30 s
-        // have elapsed. Keeps clock plugins current without a
-        // dedicated TimeTick message. See M11 step 2.
+        // have elapsed. Keeps time-displaying plugins current without
+        // a dedicated TimeTick message.
         state.process_periodic_tick();
     }
 

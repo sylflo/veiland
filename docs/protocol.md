@@ -493,7 +493,7 @@ function for premultiplied alpha. Plugins that emit straight alpha
 overlap lower-z plugins.
 
 This convention was chosen because `veiland-text` (the glyph atlas
-renderer used by the clock and label plugins) emits premultiplied
+renderer used by the core's password field) emits premultiplied
 alpha — glyph coverage composites correctly only once under
 `ONE / ONE_MINUS_SRC_ALPHA`. Straight alpha with that blend function
 double-applied coverage and produced a halo around text edges.

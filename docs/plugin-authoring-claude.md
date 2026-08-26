@@ -204,8 +204,8 @@ fence.as_fd() -> BorrowedFd
      at the compositor's repaint rate. Use for particles, gradients,
      anything moving.
    - `on_demand()` — you're mostly static. Renders only when the host
-     asks (FrameDone). Use for a wallpaper, clock, label. No wasted
-     redraws.
+     asks (FrameDone). Use for a wallpaper or a static overlay. No
+     wasted redraws.
 
 4. **Premultiply alpha for any transparency.** The host composites under
    `glBlendFunc(ONE, ONE_MINUS_SRC_ALPHA)`. A transparent plugin MUST
@@ -285,8 +285,9 @@ Notes that trip people up:
 - **`region_w`/`region_h` are already in physical pixels.** Do NOT
   multiply by scale. Use `scale_120 as f32 / 120.0` only if you need the
   float multiplier for DPI-aware sizing (e.g. font size).
-- **Time comes from the host, not `clock_gettime`.** A clock plugin
-  reads `time_unix_seconds` and re-renders when Configure re-arrives
+- **Time comes from the host, not `clock_gettime`.** A plugin that
+  displays the time reads `time_unix_seconds` and re-renders when Configure
+  re-arrives
   (~every 30s). Don't reach for the system clock yourself — stay a pure
   function of host events.
 - **`output_name` is how you do per-monitor behaviour** (different

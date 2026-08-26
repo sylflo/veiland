@@ -40,8 +40,8 @@ veiland is unaffiliated with the Wayland project.
   ([`docs/protocol.md`](docs/protocol.md)) and not tied to Rust.
 - **Stack layers into a scene.** Order plugins by `z_index` like layers in
   an image editor, target specific monitors, and animate them on the GPU at
-  your refresh rate. Fourteen plugins ship in the box; see the
-  [gallery](#gallery).
+  your refresh rate. Twelve Rust backgrounds and nine Python widgets ship
+  in the box; see the [gallery](#gallery).
 
 ## Why another locker?
 

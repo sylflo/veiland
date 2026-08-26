@@ -4,7 +4,7 @@
 #
 # The camera drifts through the tunnels of a gyroid (a triply periodic
 # minimal surface), fog swallowing the distance. Fully opaque bottom
-# layer: compose vignette, label, or particles on top.
+# layer: compose vignette, markup, or particles on top.
 #
 # Thermal defaults are deliberate: the shader renders at half
 # resolution (the locker upsamples bilinearly) and submits at most 30

@@ -53,7 +53,7 @@ debug_border = true
 
 # Everything below is optional -- these are the defaults spelled out.
 #
-# The base font, same keys (and defaults) as the Rust label plugin. font_size is
+# The base font: the shared font_family/font_size keys and defaults. font_size is
 # a FRACTION of the region height; an inline <span size=...> overrides it:
 # font_family = "Sans"     # any fontconfig family; falls back to Sans if absent.
 #                          # The dev shell also ships "Dancing Script" (a cursive

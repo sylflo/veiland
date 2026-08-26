@@ -19,9 +19,9 @@
 # show_text cannot do. The three draw helpers place one such line top-left,
 # vertically centered, or right-aligned -- the arrangements the widgets actually
 # use. font_from_config reads font_family/font_size the way parse_color reads
-# colors: one parser, keys matching the Rust label plugin, never a crash on a bad
-# value. font_size is a FRACTION of a box (like the Rust label's fraction of
-# surface height); the caller multiplies it by whichever dimension it anchors to.
+# colors: one parser, the shared font_family/font_size keys, never a crash on a bad
+# value. font_size is a FRACTION of a box (a fraction of surface height); the
+# caller multiplies it by whichever dimension it anchors to.
 #
 # See python/examples/now_playing.py and avatar.py for the worked patterns.
 
@@ -54,10 +54,10 @@ __all__ = [
 # tuple[...] not | so the alias evaluates on the SDK's 3.9 floor.
 RGB = tuple[float, float, float]
 
-# Defaults matching the Rust label plugin's config so a widget's font keys mean
-# the same thing across tiers. "Sans" is fontconfig's generic sans family;
-# font_size is a fraction of a box (the caller decides which side), 0.030 the
-# label plugin's default fraction-of-surface-height.
+# Shared font defaults so a widget's font keys mean the same thing across
+# widgets. "Sans" is fontconfig's generic sans family; font_size is a fraction
+# of a box (the caller decides which side), 0.030 a sensible
+# fraction-of-surface-height default.
 DEFAULT_FONT_FAMILY = "Sans"
 DEFAULT_FONT_SIZE = 0.030
 
@@ -68,8 +68,8 @@ class FontSpec:
     weight, and italic flag. Immutable and read once at startup, like the Style
     dataclasses the widgets already build. size is a fraction, NOT pixels: the
     caller multiplies it by whichever dimension it anchors to (region height, a
-    pill height, ...), matching the Rust label plugin's fraction-of-surface
-    model and how the widgets already derive their own sizes."""
+    pill height, ...), matching how the widgets already derive their own sizes
+    as a fraction of the surface."""
 
     family: str = DEFAULT_FONT_FAMILY
     size: float = DEFAULT_FONT_SIZE
@@ -78,7 +78,7 @@ class FontSpec:
 
 
 def _weight_from(raw: Any, tag: str) -> Pango.Weight:
-    # A CSS-style numeric weight (100..900, the Rust label's font_weight) mapped
+    # A CSS-style numeric weight (100..900, the font_weight key) mapped
     # to the nearest Pango.Weight. Pango.Weight members ARE those numbers, so we
     # clamp and hand the int straight in. Bad value -> NORMAL plus one line.
     if raw is None:
@@ -96,8 +96,8 @@ def _weight_from(raw: Any, tag: str) -> Pango.Weight:
 
 
 def font_from_config(cfg: Mapping[str, Any], tag: str = "veiland-text") -> FontSpec:
-    """Read a FontSpec from a plugin-config dict, using the same key names as the
-    Rust label plugin so a font is configured the same way on either tier:
+    """Read a FontSpec from a plugin-config dict, using the shared font_family/
+    font_size key names so a font is configured the same way across widgets:
 
       font_family = "Noto Sans"   (default "Sans"; fontconfig falls back)
       font_size   = 0.05          (a FRACTION of a box, default 0.030)

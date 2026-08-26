@@ -66,7 +66,7 @@ fetch_remote_art = true
 # The card becomes the centerpiece: a large PORTRAIT card centered on screen,
 # on a full-surface blurred copy of the cover. Because its backdrop fills the
 # whole screen, the star's region is the FULL SURFACE -- so DROP the region line
-# (the plugin then gets the whole lock surface, like the label/clock plugins)
+# (the plugin then gets the whole lock surface and self-positions within it)
 # and switch the layout: remove the `region = {...}` line above and set
 # `layout = "star"` in the [plugin.config] block. See now_playing_star.toml for
 # the worked scene.

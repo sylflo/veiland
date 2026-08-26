@@ -233,8 +233,9 @@ the ones you use.
 - **`veiland_text`** — shaped, end-ellipsized single-line text via
   PangoCairo (dep: PyGObject + Pango). `font_from_config(cfg)` reads
   `font_family` / `font_size` / `font_weight` / `italic` from a config
-  dict into a `FontSpec` (using the same key names as the Rust label
-  plugin); `draw_ellipsized`, `draw_ellipsized_centered`, and
+  dict into a `FontSpec` (the shared `font_family` / `font_size` /
+  `font_weight` / `italic` keys); `draw_ellipsized`,
+  `draw_ellipsized_centered`, and
   `draw_ellipsized_right` draw a line onto a cairo context, ellipsizing
   past a pixel width. `font_size` is a fraction of a box you pick, not
   pixels.

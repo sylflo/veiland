@@ -51,9 +51,9 @@ documented once here rather than repeated per widget:
   `now-playing` (which self-centers).
 - **Font** — `font_family` (default `"Sans"`), `font_weight` (CSS 100&ndash;900,
   default `400`), and `italic` (default `false`) style any text a widget draws;
-  `font_size` is a fraction of the widget's box. The status pills, `markup`, and
-  `weather` use the full set. `avatar` and `now-playing` derive their text size
-  from geometry, so they honor only `font_family` + `italic`. `shape` and
+  `font_size` is a fraction of the widget's box. The status pills and `markup`
+  use the full set. `avatar`, `now-playing`, and `weather` derive their text
+  size from geometry, so they honor only `font_family` + `italic`. `shape` and
   `ethernet` draw no text and read no font keys.
 - **Debug border** — `debug_border = true` strokes a 1px outline around the
   region (color `debug_border_color`, default bright magenta) so you can see

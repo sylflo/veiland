@@ -36,5 +36,5 @@ is handed.
 
 A `shape` does **not** blur. A frosted-glass card comes from the wallpaper's
 [`blur_regions`](@/docs/plugins/_index.md) (real OpenGL blur); `shape` is a flat
-translucent tint. For text or an icon on the card, stack a `markup`, `label`, or status
+translucent tint. For text or an icon on the card, stack a `markup` or status
 widget on top.

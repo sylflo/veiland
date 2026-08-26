@@ -19,9 +19,10 @@ everything else.
   repo-relative form to the installed locations)
 
 All packages build the **real set** from source
-(`veiland-core` + wallpaper, clock, particles, vignette, label,
-sakura, snow, rain, embers, fireflies, gradient, parallax, blobs,
-raymarcher)
+(`veiland-core` + wallpaper, particles, vignette, sakura, snow, rain,
+embers, fireflies, gradient, parallax, blobs, raymarcher) and install
+the nine Python widgets as `veiland-*` commands (markup, weather,
+now-playing, avatar, wifi, ethernet, bluetooth, battery, shape)
 into `/usr/bin`, and bundle `/etc/pam.d/veiland` so PAM works on
 install. The stress test plugin is not packaged.
 

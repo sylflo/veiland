@@ -144,7 +144,7 @@ def draw_widget(cfg, pct):
 
     # Configure carries the full surface size; the widget is a small
     # card drawn at a fixed spot inside that transparent canvas — the
-    # same model the reference label/clock plugins use. scale converts
+    # same self-positioning model the other widgets use. scale converts
     # the card's logical design size to physical pixels.
     s = cfg["scale"]
     canvas = Image.new("RGBA", (cfg["w"], cfg["h"]), (0, 0, 0, 0))
