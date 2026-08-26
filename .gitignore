@@ -13,3 +13,6 @@ TODO
 # Python bytecode caches (the Python SDK in python/ and its pytest run).
 __pycache__/
 *.pyc
+
+# Claude Code worktrees for parallel sessions.
+.claude/worktrees/

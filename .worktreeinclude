@@ -1,0 +1,4 @@
+# Untracked working notes copied into each new worktree so a parallel
+# session has the same planning context as the main checkout.
+docs/plans/
+mockups/
