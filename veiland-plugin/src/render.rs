@@ -40,11 +40,48 @@ pub struct GbmEgl {
 }
 
 impl GbmEgl {
-    /// Open the default DRM render node, set up EGL, and make a context
-    /// current surfacelessly. After this returns, GL function pointers are
-    /// loaded and the plugin can issue draw calls (once a `Buffer` is bound
-    /// as the framebuffer).
+    /// Open the default DRM render node, set up EGL, and make a GLES 2
+    /// context current surfacelessly. After this returns, GL function
+    /// pointers are loaded and the plugin can issue draw calls (once a
+    /// `Buffer` is bound as the framebuffer).
+    ///
+    /// This is the byte-for-byte-equivalent ES2 path every existing
+    /// plugin uses. Plugins that need `#version 300 es` call
+    /// [`GbmEgl::new_es3`] instead.
     pub fn new() -> Result<Self, PluginError> {
+        Self::new_with_es_version(2, egl::OPENGL_ES2_BIT)
+    }
+
+    /// Same as [`new`](Self::new) but requests a GLES 3 context, needed to
+    /// compile `#version 300 es` shaders.
+    ///
+    /// Returns `Err` when the stack cannot provide an ES3 config or
+    /// context. There is no ES2 fallback: a plugin calling this needs ES3
+    /// (its shaders are `#version 300 es`), so failing here means the
+    /// plugin cannot do its job — it should propagate the error and exit,
+    /// and the host draws the region fallback like it does for any plugin
+    /// whose GL setup fails. GLES 3.0 has been baseline on Mesa and NVIDIA
+    /// for over a decade, so on any machine that runs an
+    /// `ext-session-lock-v1` compositor this does not fail in practice.
+    ///
+    /// ES 3.x contexts still compile `#version 100` shaders per the GLES
+    /// backwards-compat guarantee, so a plugin can mix an ES 1.00 fallback
+    /// shader with ES 3.00 user shaders in one context.
+    pub fn new_es3() -> Result<Self, PluginError> {
+        // 0x40 = EGL_OPENGL_ES3_BIT (EGL_KHR_create_context); khronos-egl
+        // doesn't re-export it, same as EGL_PLATFORM_GBM_KHR above.
+        const EGL_OPENGL_ES3_BIT: egl::Int = 0x40;
+        Self::new_with_es_version(3, EGL_OPENGL_ES3_BIT)
+    }
+
+    /// Shared body of [`new`](Self::new) and [`new_es3`](Self::new_es3).
+    /// `context_version` is the `CONTEXT_CLIENT_VERSION` requested;
+    /// `renderable_bit` is the `RENDERABLE_TYPE` bit the config selector
+    /// asks for. Every other step is version-independent.
+    fn new_with_es_version(
+        context_version: i32,
+        renderable_bit: egl::Int,
+    ) -> Result<Self, PluginError> {
         // 1. Open the render node. O_CLOEXEC so child processes don't
         //    inherit; O_RDWR because GBM needs both.
         let render_node = "/dev/dri/renderD128";
@@ -118,11 +155,12 @@ impl GbmEgl {
         //    (eglMakeCurrent gets NO_SURFACE and we render into an FBO),
         //    and on Mesa's GBM platform no config advertises PBUFFER_BIT,
         //    so asking for one returns zero matches on Intel/Mesa.
-        //    OPENGL_ES2_BIT picks a config compatible with a GLES2 context.
-        //    RGB8, no alpha — alpha is decided when the host samples.
+        //    `renderable_bit` picks a config compatible with the requested
+        //    context version (ES2 or ES3). RGB8, no alpha — alpha is
+        //    decided when the host samples.
         let config_attribs = [
             egl::RENDERABLE_TYPE,
-            egl::OPENGL_ES2_BIT,
+            renderable_bit,
             egl::RED_SIZE,
             8,
             egl::GREEN_SIZE,
@@ -136,8 +174,8 @@ impl GbmEgl {
             .map_err(|_| PluginError::Render("eglChooseConfig failed"))?
             .ok_or(PluginError::Render("no matching EGL config"))?;
 
-        // 7. Create a GLES2 context.
-        let context_attribs = [egl::CONTEXT_CLIENT_VERSION, 2, egl::NONE];
+        // 7. Create the GLES context at the requested client version.
+        let context_attribs = [egl::CONTEXT_CLIENT_VERSION, context_version, egl::NONE];
         let egl_context = egl
             .create_context(egl_display, egl_config, None, &context_attribs)
             .map_err(|_| PluginError::Render("eglCreateContext failed"))?;

@@ -154,7 +154,8 @@ jobs:
                    veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
-                   veiland-parallax veiland-blobs veiland-raymarcher; do
+                   veiland-parallax veiland-blobs veiland-raymarcher \
+                   veiland-shader; do
             command -v "$b"
             test -x "/usr/bin/$b"
             # The binaries can't actually run in CI (no Wayland session),
@@ -295,7 +296,8 @@ jobs:
                    veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
-                   veiland-parallax veiland-blobs veiland-raymarcher; do
+                   veiland-parallax veiland-blobs veiland-raymarcher \
+                   veiland-shader; do
             command -v "$b"
             test -x "/usr/bin/$b"
             # The binaries can't actually run in CI (no Wayland session),
@@ -364,7 +366,8 @@ jobs:
                    veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
-                   veiland-parallax veiland-blobs veiland-raymarcher; do
+                   veiland-parallax veiland-blobs veiland-raymarcher \
+                   veiland-shader; do
             command -v "$b"
             test -x "/usr/bin/$b"
             # The binaries can't actually run in CI (no Wayland session),
@@ -473,7 +476,8 @@ jobs:
                    veiland-particles veiland-vignette \
                    veiland-sakura veiland-snow veiland-rain \
                    veiland-embers veiland-fireflies veiland-gradient \
-                   veiland-parallax veiland-blobs veiland-raymarcher; do
+                   veiland-parallax veiland-blobs veiland-raymarcher \
+                   veiland-shader; do
             command -v "$b"
             test -x "/usr/bin/$b"
             # The binaries can't actually run in CI (no Wayland session),

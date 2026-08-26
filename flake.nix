@@ -54,6 +54,7 @@
         "veiland-parallax"
         "veiland-blobs"
         "veiland-raymarcher"
+        "veiland-shader"
       ];
       crateFlags = nixpkgs.lib.concatMap (c: [ "-p" c ]) realCrates;
 
@@ -369,6 +370,21 @@
             # back to Sans when a family is absent, and nothing at runtime needs
             # this. Add more families here the same way if the examples want them.
             dancing-script
+
+            # google-fonts: the Google Fonts collection, here purely so the Deep
+            # Field astronomy scene's clock can resolve "Cormorant Garamond" (the
+            # mockup's elegant serif, a variable font with a real Light weight so
+            # the thin time reads as designed). A large package, but this is a
+            # demo/example dev shell, not a runtime dep -- fontconfig scans its
+            # share/fonts like any other font package here. Same role as
+            # dancing-script above.
+            google-fonts
+
+            # jetbrains-mono: an OFL-1.1 monospace, the exact font the Deep Field
+            # mockup uses for its HUD lines (Julian Date, observer tag). The
+            # scene's markup widgets set font_family = "JetBrains Mono"; without
+            # this they fall back to a generic monospace. Same demo/example role.
+            jetbrains-mono
 
             # ruff: formatter + import-sort + linter for the Python SDK, in
             # one binary (replaces black + isort + flake8). Standalone, so it

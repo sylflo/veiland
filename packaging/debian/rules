@@ -22,7 +22,8 @@ CRATES = \
  -p veiland-gradient \
  -p veiland-parallax \
  -p veiland-blobs \
- -p veiland-raymarcher
+ -p veiland-raymarcher \
+ -p veiland-shader
 
 # Test set: the shipped crates plus the library crates compiled into
 # them. `cargo test -p` only runs the named packages' tests, so the

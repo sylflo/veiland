@@ -6,13 +6,15 @@
 [![CI](https://github.com/sylflo/veiland/actions/workflows/ci.yml/badge.svg)](https://github.com/sylflo/veiland/actions/workflows/ci.yml)
 
 <!--
-  hero.gif : THE shot. Raymarcher scene as a full lock screen with the
-  password pill visible, so it reads as a locker, not a demo. Config:
-  docs/examples/raymarcher.toml (has a [password] pill). GIF (not video)
-  so it autoplays and loops natively on github.com; kept to 900px/10fps
-  to hold the size down, since a full-screen shader is worst-case for GIF.
+  hero-deepfield.gif : THE shot. The Deep Field astronomy scene as a full
+  lock screen with the password pill visible, so it reads as a locker, not
+  a demo. Four veiland-shader layers (nebula, starfield, moon, meteor) plus
+  the markup clock and ephemeris HUD, entirely procedural -- no image asset.
+  Config: docs/examples/deepfield-astronomy.toml. Note this is a scene you
+  opt into, not the built-in default (that one is the raymarcher, further
+  down). GIF (not video) so it autoplays and loops natively on github.com.
 -->
-![veiland: a raymarched tunnel behind the lock pill](docs/assets/readme/hero.gif)
+![veiland: a procedural deep-space sky behind the lock pill](docs/assets/readme/hero-deepfield.gif)
 
 Veiland (from "veil", something that obscures what's behind it) locks your
 Wayland session and hands the *look* of the lock screen to plugins: small
@@ -86,7 +88,8 @@ Copy one, set your wallpaper path, and lock.
 | <!-- gallery-gradient.gif : slow looping color ramp. 5-8s loop, ~600px. Config: docs/examples/gradient.toml --> ![Gradient scene](docs/assets/readme/gallery-gradient.gif)<br>**[gradient](docs/examples/gradient.toml)**<br>flowing color ramp | <!-- gallery-blobs.gif : drifting metaball / lava-lamp field. 5-8s loop, ~600px. Config: docs/examples/blobs.toml --> ![Blobs scene](docs/assets/readme/gallery-blobs.gif)<br>**[blobs](docs/examples/blobs.toml)**<br>lava-lamp metaballs | <!-- gallery-parallax.gif : three bokeh layers drifting over a gradient. 5-8s loop, ~600px. Config: docs/examples/parallax.toml --> ![Parallax scene](docs/assets/readme/gallery-parallax.gif)<br>**[parallax](docs/examples/parallax.toml)**<br>layered bokeh depth |
 
 **The full lineup.** Backgrounds (Rust): wallpaper, vignette, particles,
-sakura, snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher.
+sakura, snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher,
+shader (runs a Shadertoy-convention GLSL fragment shader).
 Widgets (Python): now-playing, weather, avatar, markup (the text tier: labels
 and dynamic styled text), shape, and a status cluster (battery, wifi, ethernet,
 bluetooth).
@@ -221,11 +224,10 @@ A source build does **not** set up PAM. You must create
 
 [releases]: https://github.com/sylflo/veiland/releases
 
-**2. Grab a scene — or don't.** With no config file, veiland renders the
-raymarcher scene from the hero shot at the top of this page. The scene is
-compiled into the binary and renders procedurally, so a package install and
-a source build show exactly the same thing. Copy the installed example when
-you want to *change* it:
+**2. Grab a scene — or don't.** With no config file, veiland renders a
+built-in raymarcher scene. The scene is compiled into the binary and renders
+procedurally, so a package install and a source build show exactly the same
+thing. Copy the installed example when you want to *change* it:
 
 ```sh
 mkdir -p ~/.config/veiland

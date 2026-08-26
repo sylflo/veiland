@@ -20,7 +20,8 @@
 # human-style, e.g. "2d 3h 47m", from /proc/uptime), {loadavg} (1/5/15-min load
 # from /proc/loadavg), {kernel} (os.uname release), {distro} (PRETTY_NAME from
 # /etc/os-release, e.g. "Ubuntu 24.04.1 LTS"), {distro_version} (VERSION_ID),
-# {time:STRFTIME}, {date:STRFTIME}. These cover the common hyprlock cmd[...]
+# {time:STRFTIME}, {date:STRFTIME}, {jd} (Julian Day Number for right now, the
+# astronomers' running day count). These cover the common hyprlock cmd[...]
 # recipes with zero shell -- fixed /proc + /etc/os-release reads, not
 # subprocesses. A bad strftime spec substitutes
 # the literal placeholder and logs one line; a failed /proc read substitutes ""
@@ -272,6 +273,16 @@ def substitute(template: str, name: str) -> str:
             except (ValueError, TypeError) as e:
                 log(f"{{{key}:{spec}}}: bad strftime spec ({e}); left as-is")
                 return m.group(0)  # the literal "{time:...}" -- visible, fixable
+        if key == "jd":
+            # Julian Day Number for right now: the integer count of days since
+            # noon UT on 1 Jan 4713 BC (the astronomers' running day tally, as
+            # the mockup's ephemeris HUD shows). floor(unix/86400 + 2440587.5),
+            # where 2440587.5 is the JD of the Unix epoch. The division stays
+            # floating point (only the final result is floored) so the .5 offset
+            # keeps the fraction-of-day -- the JDN then rolls over at noon UT,
+            # not local midnight. The dirty-check picks that daily change up like
+            # a {time} rollover.
+            return str(math.floor(time.time() / 86400.0 + 2440587.5))
         # An unknown {key}: leave it verbatim. It might be a literal brace the
         # user wants shown, or a typo -- either way, mis-render, never raise.
         return m.group(0)

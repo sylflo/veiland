@@ -70,7 +70,7 @@ unlock decision; plugins never see keystrokes or the password.
 
 This package installs veiland-core and the reference plugins
 (wallpaper, particles, vignette, sakura, snow, rain, embers,
-fireflies, gradient, parallax, blobs, raymarcher).
+fireflies, gradient, parallax, blobs, raymarcher, shader).
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -90,7 +90,8 @@ cargo build --release --locked \
   -p veiland-gradient \
   -p veiland-parallax \
   -p veiland-blobs \
-  -p veiland-raymarcher
+  -p veiland-raymarcher \
+  -p veiland-shader
 
 %check
 export CARGO_HOME=%{_builddir}/cargo-home
@@ -113,6 +114,7 @@ cargo test --release --locked \
   -p veiland-parallax \
   -p veiland-blobs \
   -p veiland-raymarcher \
+  -p veiland-shader \
   -p veiland-protocol \
   -p veiland-plugin \
   -p veiland-text
@@ -126,7 +128,7 @@ for c in veiland-wallpaper veiland-particles \
          veiland-vignette veiland-sakura \
          veiland-snow veiland-rain veiland-embers \
          veiland-fireflies veiland-gradient veiland-parallax \
-         veiland-blobs veiland-raymarcher; do
+         veiland-blobs veiland-raymarcher veiland-shader; do
   install -Dm0755 "target/release/$c" "%{buildroot}%{_bindir}/$c"
 done
 
@@ -201,6 +203,7 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_bindir}/veiland-parallax
 %{_bindir}/veiland-blobs
 %{_bindir}/veiland-raymarcher
+%{_bindir}/veiland-shader
 # Python widget command shims + the stashed SDK/companions/scripts/icons tree.
 %{_bindir}/veiland-now-playing
 %{_bindir}/veiland-weather

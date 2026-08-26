@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# veiland-shader, "plasma" preset - a bare single-plugin scene for trying
+# the shader in isolation. The demoscene classic: summed sine waves mapped
+# through a smooth cosine palette, the cheapest of the three presets.
+#
+# Thermal defaults: full render scale capped at 30 fps. Lower either for
+# an unattended lock; raise for capture.
+
+[[plugin]]
+name = "shader"
+binary = "veiland-shader"
+z_index = 0
+
+[plugin.config]
+# Embedded preset shipped in the binary. Also try "nebula" or "warp".
+preset = "plasma"
+render_scale = 1.0
+max_fps = 30
+
+# --- Password field: a simple pill readable over the plasma ----------
+[password]
+y_percent = 68
+box_width = 440
+box_height = 70
+outline_thickness = 2
+rounding = -1                              # full pill
+inner_color = "rgba(16, 20, 34, 0.50)"
+outer_color = "rgba(150, 170, 200, 0.45)"
+dot_color = "rgba(235, 238, 245, 1.0)"
+dot_diameter = 10
+dot_spacing = 22

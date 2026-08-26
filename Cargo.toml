@@ -10,6 +10,7 @@ members = [
     "plugins/rain",
     "plugins/raymarcher",
     "plugins/sakura",
+    "plugins/shader",
     "plugins/snow",
     "plugins/stress",
     "plugins/vignette",

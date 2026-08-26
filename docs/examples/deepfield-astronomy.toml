@@ -1,0 +1,260 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Scene: "Deep Field" (astronomy) -- a fully procedural, zero-asset night sky
+# built entirely from veiland-shader layers. No bundled image and no particles
+# plugin: the whole backdrop is generated on the GPU, so there is nothing to
+# download and no asset to license.
+#
+# THE LEAD IDEA: a domain-warped nebula fills the void, a twinkling starfield
+# adds depth over it, and a cropped 3D moon hangs in the upper-left -- a real lit
+# sphere with a terminator, not a flat coin. One thin clock and a quiet password
+# float over the calm dark sky. The starfield and moon are TRANSPARENT shader
+# overlays (opacity < 1.0), so they composite over the layers below them while
+# the space between the stars (and around the disc) stays clear.
+#
+# LAYER STACK (back -> front, by z_index):
+#   -100  shader (deepfield)   opaque nebula background, fills the surface
+#   -80   shader (starfield)   TRANSPARENT twinkling starfield over the nebula
+#   -20   shader (moon)        TRANSPARENT lit-sphere overlay, upper-left
+#    10   shader (meteor)      TRANSPARENT periodic shooting star, upper sky
+#    40   markup lines         JD/twilight, observer tag, bottom-left readout
+#   100   markup clock         serif time + date (Pango, for the serif font)
+#         [core] password      the core draws its pill last, on top of all
+
+#
+# This is the fully-generated sibling of deepfield.toml (which uses a real JWST
+# photo). Both aim at the same "living deep-space void" look; pick the photo one
+# for photographic detail, this one for a no-asset, all-GPU scene.
+#
+# Plugins are referenced by their installed names (veiland-shader,
+# veiland-markup), so the scene runs as-is from a package. From a dev checkout,
+# point each `binary` at the built path instead: "./target/debug/veiland-shader"
+# (cargo build -p veiland-shader) and "./python/examples/markup.py".
+#
+# FONTS: the clock asks for "Cormorant Garamond" and the HUD lines for "JetBrains
+# Mono". Those are dev-shell fonts (google-fonts, jetbrains-mono in flake.nix),
+# not runtime package dependencies -- install them, or set font_family to a serif
+# and a monospace you have, otherwise both silently fall back to the default.
+
+# --- Backdrop: the nebula (opaque, full surface) -------------------------------
+# The "deepfield" preset: domain-warped fbm through a cold-blue / magenta / gold
+# palette with a dark dust lane and a soft vignette. Opaque (opacity defaults to
+# 1.0), so it is the solid base every other layer composites over. Cheap enough
+# to run at full render scale; 30 fps caps the duty cycle on an unattended lock.
+[[plugin]]
+name = "deepfield-shader"
+binary = "veiland-shader"
+z_index = -100
+
+[plugin.config]
+preset = "deepfield"
+render_scale = 1.0
+max_fps = 30
+
+# --- Starfield: the twinkling depth layer, TRANSPARENT overlay -----------------
+# The "starfield" preset: three depth tiers of crisp point-stars (many faint,
+# fewer bright), a minority of the bright ones gold, each twinkling out of sync
+# (dimming toward a floor, never fully off), with a barely-perceptible parallax
+# sway. This is a shader, not the particles plugin, on purpose: the particles
+# plugin rises-and-falls like snow, which is wrong for a sky -- a starfield
+# should sit still and blink. opacity = 0.9 (< 1.0) uses the premultiplied
+# wrapper so the stars draw over the nebula and everything between them is clear.
+# max_fps is modest: the stars barely move, so the twinkle is all the motion.
+[[plugin]]
+name = "starfield-shader"
+binary = "veiland-shader"
+z_index = -80
+
+[plugin.config]
+preset = "starfield"
+opacity = 0.9
+render_scale = 1.0
+max_fps = 30
+
+# --- Moon: a cropped 3D lit sphere, TRANSPARENT overlay ------------------------
+# The "moon" preset: a pale desaturated tan sphere in the upper-left, cropped by
+# the left edge, lit from the upper-left with a clear terminator, small faint
+# craters, and a tight rim glow. This is the KEY transparency layer: opacity =
+# 0.95 (< 1.0) switches veiland-shader to its premultiplied wrapper, so the
+# shader's per-pixel alpha is honoured -- the disc + glow draw over the stars and
+# nebula, and everything else in the layer is clear. render_scale is full so the
+# limb stays crisp; max_fps is low because the moon does not move (a static disc
+# only needs the occasional repaint to survive reconfigure).
+[[plugin]]
+name = "moon-shader"
+binary = "veiland-shader"
+z_index = -20
+
+[plugin.config]
+preset = "moon"
+opacity = 0.95
+render_scale = 1.0
+max_fps = 10
+
+# --- Meteor: a periodic shooting star, TRANSPARENT overlay ---------------------
+# The "meteor" preset: a bright head with a short warm tail sweeps diagonally
+# across the upper sky, fades in and out, then repeats after a pause (~7s cycle).
+# Each pass takes a different path, seeded from the pass number. Unlike the
+# mockup's JS meteor it fires on a fixed schedule rather than at random intervals
+# (a pure iTime shader is deterministic), which reads the same on a lock screen.
+# opacity = 0.9 (< 1.0) uses the premultiplied wrapper so the streak draws over
+# the sky and everything else stays clear.
+[[plugin]]
+name = "meteor-shader"
+binary = "veiland-shader"
+z_index = 10
+
+[plugin.config]
+preset = "meteor"
+opacity = 0.9
+render_scale = 1.0
+max_fps = 30
+
+# --- HERO: an elegant serif clock + date, over the dark sky --------------------
+# The hero time + date, rendered through the markup (Pango) widget rather than
+# the Rust veiland-clock plugin -- specifically so the serif font loads. Pango +
+# fontconfig resolve "Cormorant Garamond"; cosmic-text, which veiland-clock uses,
+# did not match the family, so the clock plugin fell back to Sans. Rendering the
+# clock as markup fixes that and keeps the whole hero on one renderer.
+#
+# font_family "Cormorant Garamond" is the mockup's exact serif -- a variable font
+# with a real Light weight, so weight="300" on the time gives the thin, elegant
+# look (it comes from the google-fonts package in the flake devShell; run `nix
+# develop` so fontconfig sees it, else it falls back to Sans). {time}/{date} are
+# live tokens: the time line redraws each minute, the date once a day. The block
+# is time-over-date, centred upper-middle where the sky is calm.
+[[plugin]]
+name = "clock"
+binary = "veiland-markup"
+z_index = 100
+# Anchored from the TOP so the block lands upper-middle (valign "center" would
+# ignore margin_y and drop it to mid-screen, over the JD line below).
+region = { halign = "center", valign = "top", width = 0.7, height = 0.26, margin_y = 0.27 }
+
+[plugin.config]
+# One markup block: a big serif time over a MUCH smaller, dimmer date caption --
+# the mockup's ratio is dramatic (a huge time, a tiny letter-spaced date). The
+# inline <span size="N%"> sets each run relative to font_size (the region-height
+# fraction base): the time is blown up, the date shrunk to a small caption with
+# wide tracking so it reads as a label under the clock rather than a subtitle.
+text = '''<span size="xx-large" weight="300">{time:%H:%M}</span>
+<span size="22%" letter_spacing="1500" foreground="#d1dbf0">{date:%A, %B %d}</span>'''
+font_family = "Cormorant Garamond"
+# font_size is a fraction of the REGION HEIGHT, and xx-large multiplies the time
+# on top of that. Keep it low enough that the whole time+date block (including
+# the date's descenders) fits INSIDE the region: if the block is taller than the
+# box, the centering pushes its bottom off the buffer edge and the date clips.
+# Growing the region does not help -- the font scales with it. Lower this instead.
+font_size = 0.38
+content_halign = "center"
+content_valign = "center"
+text_color = [0.96, 0.97, 1.0, 0.96]
+# Shadow OFF (alpha 0): the widget offsets one shadow of the whole block by a
+# fraction of the BASE font px, which on the tiny date span lands a big offset
+# relative to its glyphs and reads as a DOUBLED copy. The near-white serif is
+# perfectly legible on this dark nebula without a shadow, so drop it.
+shadow_color = [0.0, 0.0, 0.03, 0.0]
+
+# --- Ephemeris line: live Julian Date + twilight, under the date ---------------
+# The mockup's "JD 2461264 - ASTRONOMICAL TWILIGHT" caption, in gold under the
+# clock's date. The markup widget's {jd} token computes the real Julian Day
+# Number for right now (it rolls over once a day, redrawing then), so the number
+# is live, not decorative. Gold, letter-spaced, all-caps mono to match the HUD
+# look. Same Python/`nix develop` requirement as the observer tag below.
+[[plugin]]
+name = "ephemeris-line"
+binary = "veiland-markup"
+z_index = 40
+# Anchored from the TOP with margin_y so it hugs just under the date (which,
+# with the taller clock region, lands near 0.55). valign = "center" would ignore
+# margin_y and center it over the clock.
+region = { halign = "center", valign = "top", width = 0.7, height = 0.05, margin_y = 0.51 }
+
+[plugin.config]
+# {jd} is the live Julian Day Number; the <span> gives it the gold amber tint
+# and wide astronomical-HUD letter-spacing.
+text = '<span foreground="#c9a86a" letter_spacing="5000">JD {jd} · ASTRONOMICAL TWILIGHT</span>'
+font_family = "JetBrains Mono"
+font_size = 0.20
+content_halign = "center"
+content_valign = "center"
+text_color = [0.79, 0.66, 0.42, 0.85]
+
+# --- Observer tag: a dim mono line under the password pill ---------------------
+# The mockup's "OBSERVER@MERIDIAN" caption. A static, letter-spaced, all-caps
+# mono line centered below the password pill (which sits at y_percent 72). Done
+# with the markup widget: a full-width region anchored near the bottom, the text
+# centered within it, dim grey so it reads as a quiet tag. font_family "JetBrains
+# Mono" is the mockup's HUD mono, shipped in the flake devShell (run `nix
+# develop` so fontconfig sees it; falls back to a generic mono otherwise). Needs
+# the gi stack too; the script must be chmod +x. Drop this block to omit it.
+[[plugin]]
+name = "observer-tag"
+binary = "veiland-markup"
+z_index = 40
+region = { halign = "center", valign = "bottom", width = 0.6, height = 0.06, margin_y = 0.29 }
+
+[plugin.config]
+# Letter-spaced caps via a Pango <span letter_spacing="..."> run (Pango units:
+# 1024 per point, so ~3000 is a wide astronomical-HUD tracking). Dim indigo-grey
+# to match the mockup's quiet tag.
+text = '<span letter_spacing="3000">OBSERVER@MERIDIAN</span>'
+font_family = "JetBrains Mono"
+font_size = 0.18
+content_halign = "center"
+content_valign = "center"
+text_color = [0.62, 0.66, 0.76, 0.6]
+
+# --- Ephemeris readout: the mockup's bottom-left HUD block ----------------------
+# Three dim mono lines in the bottom-left corner, gold labels + dim values, like
+# an observatory status readout. Anchored to the bottom-left with content pinned
+# left (which also left-justifies the lines). font_family "JetBrains Mono" +
+# wide letter-spacing for the HUD look.
+#
+# HONESTY NOTE: these values are STATIC decorative flavor, not live sensor data.
+# SEEING / MAG LIMIT / SITE have no source on a normal machine, and LST / moon
+# phase would need your longitude (a network geolocation call from a locked
+# screen is a privacy leak we deliberately avoid). Computing LST/moonphase live
+# from a config lat/long is a clean future addition; for now the numbers are
+# fixed. Edit them to taste -- they are just text.
+[[plugin]]
+name = "ephemeris-readout"
+binary = "veiland-markup"
+z_index = 40
+region = { halign = "left", valign = "bottom", width = 0.24, height = 0.12, margin_x = 0.02, margin_y = 0.025 }
+
+[plugin.config]
+# Gold <span> labels, dim values (the base text_color). The three lines mirror
+# the mockup; \n splits them, and content_halign left-justifies. The widget has
+# no line-spacing knob, so a small-size blank line (<span size="x-small"> </span>)
+# between rows acts as a spacer -- widen/narrow it by changing that span size.
+# Each line is wrapped in an outer <span letter_spacing="..."> for the wide HUD
+# tracking (Pango units, 1024/point); the inner colour spans nest inside it.
+text = '''<span letter_spacing="4000"><span foreground="#c9a86a">SEEING</span> 1.8" · <span foreground="#c9a86a">MOON</span> 78% waxing</span>
+<span size="x-small"> </span>
+<span letter_spacing="4000"><span foreground="#c9a86a">MAG LIMIT</span> +6.4 · <span foreground="#c9a86a">LST</span> 02:30</span>
+<span size="x-small"> </span>
+<span letter_spacing="4000"><span foreground="#c9a86a">SITE</span> atacama · 2635m · clear</span>'''
+font_family = "JetBrains Mono"
+font_size = 0.09
+content_halign = "left"
+content_valign = "bottom"
+text_color = [0.85, 0.90, 0.97, 0.62]
+
+# --- Password: quiet, bottom-center --------------------------------------------
+# The core draws this last, on top of every plugin. Low-contrast, centered, over
+# the darker lower nebula. Cool indigo tints echo the backdrop.
+[password]
+y_percent = 63
+box_width = 320
+box_height = 56
+outline_thickness = 2
+rounding = -1
+inner_color = "rgba(14, 18, 36, 0.50)"
+outer_color = "rgba(150, 168, 220, 0.38)"
+dot_color = "rgba(238, 242, 250, 0.95)"
+dot_diameter = 9
+dot_spacing = 20
+placeholder_text = "password"
+placeholder_color = "rgba(210, 218, 236, 0.52)"
+placeholder_font_size = 15

@@ -66,6 +66,7 @@ _crates=(
   veiland-parallax
   veiland-blobs
   veiland-raymarcher
+  veiland-shader
 )
 
 # The nine production Python widgets, as "installed-name=source-basename"
