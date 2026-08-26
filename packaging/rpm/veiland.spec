@@ -7,7 +7,7 @@
 # The stress test plugin is not built or packaged.
 
 Name:           veiland
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Wayland screen locker with process-isolated GPU plugins
 
@@ -219,6 +219,19 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_datadir}/veiland/examples/
 
 %changelog
+* Wed Aug 26 2026 sylflo <veiland@sylvain-chateau.com> - 0.2.0-1
+- Add a Python plugin tier: an SDK plus nine widgets installed as veiland-*
+  commands (markup, weather, now-playing, avatar, wifi, ethernet, bluetooth,
+  battery, shape).
+- Add wallpaper blur/darken/frosted regions, anchored region placement
+  (halign/valign with fraction-of-surface sizing), --help/--version, and
+  particle twinkle.
+- Authenticate with pam_authenticate only; the account phase is no longer
+  run and the shipped PAM file drops its account line.
+- Remove the clock and label plugins; the markup widget replaces both.
+- Fix CPU-plugin flicker, black external-only dmabufs, and text atlas
+  glyph bleed.
+
 * Sat Jul 04 2026 sylflo <veiland@sylvain-chateau.com> - 0.1.0-1
 - Initial package: veiland-core + reference plugins, bundled PAM service.
 - Run PAM authentication on a worker thread so a wrong password no longer

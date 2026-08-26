@@ -1,3 +1,19 @@
+veiland (0.2.0-1) unstable; urgency=medium
+
+  * Add a Python plugin tier: an SDK plus nine widgets installed as veiland-*
+    commands (markup, weather, now-playing, avatar, wifi, ethernet, bluetooth,
+    battery, shape).
+  * Add wallpaper blur/darken/frosted regions, anchored region placement
+    (halign/valign with fraction-of-surface sizing), --help/--version, and
+    particle twinkle.
+  * Authenticate with pam_authenticate only; the account phase is no longer
+    run and the shipped PAM file drops its account line.
+  * Remove the clock and label plugins; the markup widget replaces both.
+  * Fix CPU-plugin flicker, black external-only dmabufs, and text atlas
+    glyph bleed.
+
+ -- sylflo <veiland@sylvain-chateau.com>  Wed, 26 Aug 2026 18:00:00 +0000
+
 veiland (0.1.0-1) unstable; urgency=medium
 
   * Initial package: veiland-core + reference plugins, bundled PAM service.
