@@ -253,7 +253,7 @@ users:
     ssh_authorized_keys:
       - $ssh_key
 ssh_pwauth: true
-package_update: true
+package_update: false
 bootcmd:
   # The image's pacman-init.service (pacman-key --init + --populate) is gated
   # on ConditionFirstBoot=yes, and a fresh overlay boot has been observed to
@@ -264,6 +264,18 @@ bootcmd:
   # keyring ourselves. bootcmd runs before the packages module; the guard
   # makes reboots a no-op.
   - [ sh, -c, "[ -d /etc/pacman.d/gnupg ] || { pacman-key --init && pacman-key --populate; }" ]
+  # Arch is a rolling release but the cached base image is a snapshot, so the
+  # \`packages:\` module below installs sway/foot/mesa-utils from TODAY's repos
+  # onto a months-old system -- a partial upgrade. The new packages link
+  # against a glibc the image does not have and sway dies at startup with
+  # \`GLIBC_2.xx not found\`. package_update (\`pacman -Sy\`) *causes* this: it
+  # refreshes the database without upgrading what is installed, which is the
+  # one thing Arch documents as never safe. Upgrade the whole system instead,
+  # here in bootcmd so it runs before the packages module and sway installs
+  # against a current base. Hence package_update: false above -- -Syu already
+  # refreshes, and leaving it on would just re-run a bare -Sy first.
+  # Debian and Fedora are point releases and need no equivalent.
+  - [ sh, -c, "pacman -Syu --noconfirm" ]
 packages:
   # A compositor implementing ext-session-lock-v1 to host the lock surface, a
   # terminal to launch veiland from, and the guest-side Mesa userspace that
