@@ -7,7 +7,7 @@
 # The stress test plugin is not built or packaged.
 
 Name:           veiland
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Wayland screen locker with process-isolated GPU plugins
 
@@ -222,6 +222,18 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_datadir}/veiland/examples/
 
 %changelog
+* Thu Aug 27 2026 sylflo <veiland@sylvain-chateau.com> - 0.3.0-1
+- Add veiland-shader, which runs a Shadertoy-convention GLSL fragment
+  shader as a full-region layer: seven embedded presets (nebula,
+  deepfield, starfield, moon, meteor, warp, plasma) or a user .frag
+  via path. Bad content draws a dark fill instead of exiting, and
+  --check compiles a shader without locking the screen.
+- Add a Deep Field astronomy example scene, built from four shader
+  layers and the markup widget with no image asset.
+- Add a {jd} Julian Day Number token to the markup widget.
+- Add GbmEgl::new_es3 to veiland-plugin, for plugins whose shaders
+  need GLES 3.
+
 * Wed Aug 26 2026 sylflo <veiland@sylvain-chateau.com> - 0.2.0-1
 - Add a Python plugin tier: an SDK plus nine widgets installed as veiland-*
   commands (markup, weather, now-playing, avatar, wifi, ethernet, bluetooth,
