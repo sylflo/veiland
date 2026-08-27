@@ -96,8 +96,9 @@
       # RUNTIME, and the dev shell / python-check need for import parity. These
       # are C libraries + typelibs that `pip` CANNOT supply (librsvg, Pango,
       # HarfBuzz, glib) — the concrete reason the widgets ship as distro
-      # packages, not on PyPI (docs/plans/python-distribution.md). Defined once
-      # here, consumed by the package's wrappers, the dev shell, and the check.
+      # packages, not on PyPI (docs/plans/python-distribution.md). Consumed by
+      # the package's wrappers and the python-widget-libs check that guards
+      # them; the dev shell keeps its own list, so the two can drift.
       # .out explicitly: several of these are multi-output, and their DEFAULT
       # output is NOT the one carrying lib/ or the typelib. pango in particular
       # defaults to its `-bin` output, whose lib/girepository-1.0 is EMPTY — so
@@ -111,6 +112,10 @@
       # this via propagation; an isolated wrapper does not, so it must be
       # listed explicitly on both paths.
       pythonWidgetLibs = pkgs: [
+        # Every widget needs this one, GI stack or not: the SDK dlopens
+        # libgbm.so.1 via ctypes, which gets no RPATH the way a compiled
+        # plugin's DT_NEEDED does, so LD_LIBRARY_PATH is all that resolves it.
+        pkgs.libgbm.out
         pkgs.librsvg.out
         pkgs.gdk-pixbuf.out
         pkgs.glib.out
@@ -578,6 +583,21 @@
             ruff check --no-cache .
             mypy --no-incremental --config-file pyproject.toml
             pytest tests -q -p no:cacheprovider
+            touch "$out"
+          '';
+
+        # Gate on the installed widgets' runtime library path, which the SDK
+        # gate above cannot see: it consumes pythonWidgetLibs, so a widget that
+        # only runs under `nix develop` fails CI instead of the lock screen.
+        # _load_gbm, not GbmDevice -- dlopen is hermetic, a DRM node is not.
+        python-widget-libs = pkgs.runCommand "veiland-python-widget-libs-check"
+          {
+            nativeBuildInputs = [ (pythonWidgetInterpreter pkgs) ];
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (pythonWidgetLibs pkgs);
+          }
+          ''
+            PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=${./python} \
+              python3 -c 'import veiland_plugin; veiland_plugin._load_gbm()'
             touch "$out"
           '';
       });
