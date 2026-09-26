@@ -139,7 +139,7 @@
       packages = forAllSystems (pkgs: {
         default = pkgs.rustPlatform.buildRustPackage {
           pname = "veiland";
-          version = "0.3.0";
+          version = "0.3.1";
 
           src = ./.;
 

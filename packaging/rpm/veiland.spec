@@ -7,7 +7,7 @@
 # The stress test plugin is not built or packaged.
 
 Name:           veiland
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        Wayland screen locker with process-isolated GPU plugins
 
@@ -222,6 +222,12 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_datadir}/veiland/examples/
 
 %changelog
+* Sat Sep 26 2026 sylflo <veiland@sylvain-chateau.com> - 0.3.1-1
+- Packaging-only release: nothing in veiland itself changed since 0.3.0 --
+  no core, protocol, SDK or plugin code was touched. The one fix was
+  NixOS-only (the Python plugins could not load libgbm there) and does not
+  affect this package.
+
 * Thu Aug 27 2026 sylflo <veiland@sylvain-chateau.com> - 0.3.0-1
 - Add veiland-shader, which runs a Shadertoy-convention GLSL fragment
   shader as a full-region layer: seven embedded presets (nebula,

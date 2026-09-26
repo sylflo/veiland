@@ -1,3 +1,12 @@
+veiland (0.3.1-1) unstable; urgency=medium
+
+  * Packaging-only release: nothing in veiland itself changed since 0.3.0 --
+    no core, protocol, SDK or plugin code was touched. The one fix was
+    NixOS-only (the Python plugins could not load libgbm there) and does not
+    affect this package.
+
+ -- sylflo <veiland@sylvain-chateau.com>  Sat, 26 Sep 2026 12:00:00 +0000
+
 veiland (0.3.0-1) unstable; urgency=medium
 
   * Add veiland-shader, which runs a Shadertoy-convention GLSL fragment
