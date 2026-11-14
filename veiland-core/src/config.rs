@@ -104,9 +104,9 @@ pub struct PluginEntry {
     pub config: Option<toml::Value>,
 }
 
-/// A resolved region in absolute surface pixels — the form the
+/// A resolved region in absolute buffer (physical) pixels — the form the
 /// compositor consumes. Both `RegionSpec` variants resolve into this
-/// (the pixel form trivially, the anchored form against the live
+/// (the pixel form scaled by the output scale, the anchored form against the live
 /// surface size). `region.rs::region_to_clip_rect` and `configure_dims`
 /// operate on it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -169,7 +169,7 @@ pub struct AnchorSpec {
 /// a pixel `Region` at Configure time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RegionSpec {
-    /// Explicit absolute pixels — the escape hatch, `{ x, y, w, h }`.
+    /// Explicit absolute logical pixels — the escape hatch, `{ x, y, w, h }`.
     Pixels(Region),
     /// Anchored fraction-of-surface box — `{ halign, valign, width,
     /// height, margin / margin_x / margin_y }`.
@@ -177,15 +177,21 @@ pub enum RegionSpec {
 }
 
 impl RegionSpec {
-    /// Resolve to a pixel `Region` against a concrete surface size.
-    /// `Pixels` passes through; `Anchored` computes `x, y, w, h` from
-    /// the fractions, size, margin, and alignment. Never panics: all
-    /// arithmetic is on clamped fractions and saturates at the surface
-    /// bounds. Called at Configure time (spawn + resize resend), once
-    /// per output, so a mode change re-anchors correctly.
-    pub fn resolve(&self, surface_w: u32, surface_h: u32) -> Region {
+    /// Resolve to a buffer-pixel `Region` against a concrete surface size.
+    /// `Pixels` are logical px, scaled by `scale_120`; `Anchored` computes
+    /// `x, y, w, h` from fractions of the (already physical) surface, so it
+    /// needs no scale. Never panics: all arithmetic is on clamped fractions
+    /// and saturates at the surface bounds. Called at Configure time (spawn
+    /// + resize resend), once per output, so a mode change re-anchors.
+    pub fn resolve(&self, surface_w: u32, surface_h: u32, scale_120: u32) -> Region {
+        use crate::scale::{scale_i32, scale_u32};
         match self {
-            RegionSpec::Pixels(r) => *r,
+            RegionSpec::Pixels(r) => Region {
+                x: scale_i32(r.x, scale_120),
+                y: scale_i32(r.y, scale_120),
+                w: scale_u32(r.w, scale_120).max(1),
+                h: scale_u32(r.h, scale_120).max(1),
+            },
             RegionSpec::Anchored(a) => a.resolve(surface_w, surface_h),
         }
     }
@@ -441,7 +447,7 @@ impl<'de> serde::Deserialize<'de> for Color {
 /// renderer doesn't need to think about `None`.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Password {
-    /// Horizontal centre of the dot row, in surface-pixel coords.
+    /// Horizontal centre of the dot row, in logical px (scaled by the output scale).
     /// `None` → centred (renderer computes `width / 2` per output).
     #[serde(default)]
     pub x: Option<i32>,
@@ -454,11 +460,11 @@ pub struct Password {
     #[serde(default)]
     pub y_percent: Option<i32>,
 
-    /// Dot diameter in surface pixels. Default 12; clamped to [1, 100].
+    /// Dot diameter in logical pixels. Default 12; clamped to [1, 100].
     #[serde(default = "default_dot_diameter")]
     pub dot_diameter: u32,
 
-    /// Centre-to-centre stride between consecutive dots in surface
+    /// Centre-to-centre stride between consecutive dots in logical
     /// pixels. Default 20; clamped to [1, 200]. With diameter 12,
     /// the default leaves an 8-px gap between dot edges.
     #[serde(default = "default_dot_spacing")]
@@ -478,25 +484,25 @@ pub struct Password {
     #[serde(default = "default_show_box")]
     pub show_box: bool,
 
-    /// Input-box width in surface pixels. Default 400; clamped to
+    /// Input-box width in logical pixels. Default 400; clamped to
     /// [1, 8192] (the threat-model implausible-size ceiling). Ignored
     /// when `show_box = false`.
     #[serde(default = "default_box_width")]
     pub box_width: u32,
 
-    /// Input-box height in surface pixels. Default 90; clamped to
+    /// Input-box height in logical pixels. Default 90; clamped to
     /// [1, 8192]. Ignored when `show_box = false`.
     #[serde(default = "default_box_height")]
     pub box_height: u32,
 
-    /// Outline thickness in surface pixels. Default 2; clamped to
+    /// Outline thickness in logical pixels. Default 2; clamped to
     /// [0, box_height/2] (0 = no outline; can't exceed half-height or
     /// the outline would consume the box). Ignored when
     /// `show_box = false`.
     #[serde(default = "default_outline_thickness")]
     pub outline_thickness: u32,
 
-    /// Corner radius in surface pixels. Default -1, a sentinel meaning
+    /// Corner radius in logical pixels. Default -1, a sentinel meaning
     /// "full pill" (radius = box_height/2). Any other value is clamped
     /// to [0, min(box_width, box_height)/2]. Ignored when
     /// `show_box = false`.
@@ -535,9 +541,8 @@ pub struct Password {
     #[serde(default = "default_placeholder_font_family")]
     pub placeholder_font_family: String,
 
-    /// Placeholder font size in surface pixels. Default 18; clamped to
-    /// [1, 512]. (Surface pixels, not scaled — the core has no per-output
-    /// scale plumbed into the field yet, matching the box dimensions.)
+    /// Placeholder font size in logical pixels (scaled by the output
+    /// scale, like the box dimensions). Default 18; clamped to [1, 512].
     #[serde(default = "default_placeholder_font_size")]
     pub placeholder_font_size: u32,
 
@@ -549,6 +554,29 @@ pub struct Password {
     /// Box fill colour override while caps lock is active.
     #[serde(default = "default_capslock_color")]
     pub capslock_color: Color,
+}
+
+impl Password {
+    /// Copy with every pixel field converted from logical to buffer px.
+    pub fn scaled(&self, scale_120: u32) -> Password {
+        use crate::scale::{scale_i32, scale_u32};
+        Password {
+            x: self.x.map(|v| scale_i32(v, scale_120)),
+            dot_diameter: scale_u32(self.dot_diameter, scale_120).max(1),
+            dot_spacing: scale_u32(self.dot_spacing, scale_120).max(1),
+            box_width: scale_u32(self.box_width, scale_120).max(1),
+            box_height: scale_u32(self.box_height, scale_120).max(1),
+            outline_thickness: scale_u32(self.outline_thickness, scale_120),
+            // -1 is the full-pill sentinel, not a length.
+            rounding: if self.rounding < 0 {
+                self.rounding
+            } else {
+                scale_i32(self.rounding, scale_120)
+            },
+            placeholder_font_size: scale_u32(self.placeholder_font_size, scale_120).max(1),
+            ..self.clone()
+        }
+    }
 }
 
 impl Default for Password {
@@ -1779,6 +1807,61 @@ mod tests {
     }
 
     #[test]
+    fn resolve_pixels_scales_logical_to_buffer_px() {
+        let spec = RegionSpec::Pixels(Region {
+            x: 10,
+            y: 20,
+            w: 300,
+            h: 80,
+        });
+        assert_eq!(
+            spec.resolve(2880, 1800, 180),
+            Region {
+                x: 15,
+                y: 30,
+                w: 450,
+                h: 120
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_anchored_ignores_scale() {
+        let spec = RegionSpec::Anchored(AnchorSpec {
+            halign: HAlign::Right,
+            valign: VAlign::Top,
+            width: 0.1,
+            height: 0.1,
+            margin_x: 0.02,
+            margin_y: 0.03,
+        });
+        assert_eq!(spec.resolve(2880, 1800, 180), spec.resolve(2880, 1800, 120));
+    }
+
+    #[test]
+    fn password_scaled_converts_every_pixel_field() {
+        let pw = Password {
+            x: Some(100),
+            rounding: 10,
+            ..Password::default()
+        };
+        let s = pw.scaled(180);
+        assert_eq!(s.x, Some(150));
+        assert_eq!((s.dot_diameter, s.dot_spacing), (18, 30)); // defaults 12, 20
+        assert_eq!((s.box_width, s.box_height), (600, 135)); // defaults 400, 90
+        assert_eq!(s.outline_thickness, 3); // default 2
+        assert_eq!(s.rounding, 15);
+        assert_eq!(s.placeholder_font_size, 27); // default 18
+    }
+
+    #[test]
+    fn password_scaled_keeps_pill_sentinel_and_centring() {
+        let s = Password::default().scaled(360);
+        assert_eq!(s.rounding, -1);
+        assert_eq!(s.x, None);
+    }
+
+    #[test]
     fn resolve_pixels_passes_through() {
         let spec = RegionSpec::Pixels(Region {
             x: 10,
@@ -1788,7 +1871,7 @@ mod tests {
         });
         // Independent of surface size.
         assert_eq!(
-            spec.resolve(1920, 1080),
+            spec.resolve(1920, 1080, 120),
             Region {
                 x: 10,
                 y: 20,
@@ -1797,7 +1880,7 @@ mod tests {
             }
         );
         assert_eq!(
-            spec.resolve(3840, 2160),
+            spec.resolve(3840, 2160, 120),
             Region {
                 x: 10,
                 y: 20,

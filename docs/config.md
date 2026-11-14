@@ -172,9 +172,10 @@ surface's right edge, not a container or another plugin. `margin` then
 insets the box *inward* from that edge, so you never need a negative
 number to pull a corner chip off the edge.
 
-**Explicit pixels (escape hatch):** absolute coordinates, top-left
-origin. Only lands correctly on the resolution it was written for — use
-the anchored form unless you need exact pixels on a known display.
+**Explicit pixels (escape hatch):** absolute coordinates in logical
+pixels (multiplied by the output's scale), top-left origin. Only lands
+correctly on the resolution it was written for — use the anchored form
+unless you need exact pixels on a known display.
 
 ```toml
 region = { x = 100, y = 200, w = 400, h = 80 }
@@ -182,7 +183,7 @@ region = { x = 100, y = 200, w = 400, h = 80 }
 
 - `x`, `y` (integers): top-left corner. `(0, 0)` is the lock
   surface's top-left.
-- `w`, `h` (positive integers): width and height in pixels.
+- `w`, `h` (positive integers): width and height in logical pixels.
 
 Declaring both forms in one `region` is a config error (pick one).
 Explicit pixel regions are *not* validated against the surface size at
@@ -253,23 +254,27 @@ appearance is the only thing config can touch.
 Every field is optional; missing `[password]` table → all defaults,
 which render the box-and-dots field shown below.
 
+Pixel values are **logical**: on an output scaled 1.5×, `box_width = 400`
+covers 600 physical pixels, so a config looks the same at any scale and
+stays sharp.
+
 ```toml
 [password]
 # Position (the box, and the dots auto-centre inside it)
-x = 960            # surface px; omit → centred per surface
+x = 960            # logical px; omit → centred per surface
 y_percent = 75     # % of surface height (0..=100); omit → 75
 
 # The input box
 show_box = true             # draw the box at all; false → bare dots
-box_width = 400             # surface px; clamped [1, 8192]
-box_height = 90             # surface px; clamped [1, 8192]
-outline_thickness = 2       # surface px; clamped [0, box_height/2]
+box_width = 400             # logical px; clamped [1, 8192]
+box_height = 90             # logical px; clamped [1, 8192]
+outline_thickness = 2       # logical px; clamped [0, box_height/2]
 rounding = -1               # corner radius px; -1 = full pill
 inner_color = "rgba(34, 41, 56, 0.55)"    # box fill
 outer_color = "rgba(180, 190, 210, 0.55)" # box outline
 
 # The dots
-dot_diameter = 12                          # surface px; clamped [1, 100]
+dot_diameter = 12                          # logical px; clamped [1, 100]
 dot_spacing = 20                           # centre-to-centre px; clamped [1, 200]
 max_dots = 32                              # row caps here; clamped [1, 256]
 dot_color = "rgba(220, 220, 220, 1.0)"     # dot fill
@@ -278,7 +283,7 @@ dot_color = "rgba(220, 220, 220, 1.0)"     # dot fill
 placeholder_text = "Enter to remember..."  # "" disables it
 placeholder_color = "rgba(200, 205, 215, 0.6)"
 placeholder_font_family = "Sans"           # CSS-style family name
-placeholder_font_size = 18                 # surface px; clamped [1, 512]
+placeholder_font_size = 18                 # logical px; clamped [1, 512]
 ```
 
 **Colours** use a CSS-style `rgba(r, g, b, a)` string: `r`/`g`/`b`
@@ -290,7 +295,7 @@ Gradients are not supported — one flat colour per field.
 Position:
 
 - **`x`** (integer, optional). Horizontal centre of the field in
-  surface-pixel coordinates. If omitted, the field is centred on each
+  logical-pixel coordinates. If omitted, the field is centred on each
   surface's `width / 2` — different absolute pixel positions on
   different-width monitors, same surface-relative position. No clamp:
   values that put the field off-screen are user error but not unsafe.
@@ -307,12 +312,12 @@ The box:
   dots auto-centre inside the box, so `x`/`y_percent` position the box
   and the dots follow.
 - **`box_width`** / **`box_height`** (integer, optional, defaults `400`
-  / `90`). Box size in surface pixels. Each clamped to `[1, 8192]`.
+  / `90`). Box size in logical pixels. Each clamped to `[1, 8192]`.
 - **`outline_thickness`** (integer, optional, default `2`). Outline
-  width in surface pixels. `0` draws fill only (no outline). Clamped to
+  width in logical pixels. `0` draws fill only (no outline). Clamped to
   `[0, box_height/2]` — a thicker outline would consume the box.
 - **`rounding`** (integer, optional, default `-1`). Corner radius in
-  surface pixels. The sentinel `-1` means a **full pill** (radius =
+  logical pixels. The sentinel `-1` means a **full pill** (radius =
   `box_height / 2`, fully rounded ends — the default look). Any other
   value is clamped to `[0, min(box_width, box_height) / 2]`; `0` is a
   sharp rectangle.
@@ -324,9 +329,9 @@ The box:
 The dots:
 
 - **`dot_diameter`** (integer, optional, default `12`). Diameter of
-  each dot in surface pixels. Clamped to `[1, 100]`.
+  each dot in logical pixels. Clamped to `[1, 100]`.
 - **`dot_spacing`** (integer, optional, default `20`). **Centre-to-
-  centre** stride between consecutive dots in surface pixels — not
+  centre** stride between consecutive dots in logical pixels — not
   the gap between edges. With diameter 12, the default leaves an
   8-px gap. Clamped to `[1, 200]`.
 - **`max_dots`** (integer, optional, default `32`). Cap on the number
@@ -356,8 +361,7 @@ The placeholder:
   CSS-style family name (e.g. `"Liberation Sans"`); falls back to the
   system sans-serif if the name doesn't resolve.
 - **`placeholder_font_size`** (integer, optional, default `18`).
-  Surface pixels. Clamped to `[1, 512]`. Not scaled by output DPI yet
-  (same as the box dimensions).
+  Logical pixels. Clamped to `[1, 512]`.
 
 The auth-state box tints (both **only take effect when `show_box =
 true`** — they override the box fill, so with bare dots there is
