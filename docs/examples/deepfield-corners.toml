@@ -1,0 +1,188 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Scene: "Deep Field Corners" -- the Deep Field shader sky behind the Aurora
+# Corners frame of live widgets.
+#
+# WHY THIS SCENE EXISTS: it is the one example that combines a SHADER backdrop
+# with LIVE widgets. deepfield-astronomy.toml is all shader + static-ish text;
+# aurora-corners.toml has the live widget frame but a `blobs` backdrop. This
+# scene is the intersection: a GPU shader behind a four-corner frame of live
+# widgets, with the password pill in the hero position.
+#
+# EVERYTHING HERE IS A SEPARATE PROCESS. Backdrop shaders are veiland-shader
+# (Rust), every widget is a Python program. The core composites them and draws
+# the password pill last, on top.
+#
+# LAYER STACK (back -> front, by z_index):
+#   -100  shader (nebula)      opaque GPU backdrop, fills the surface
+#    -80  shader (starfield)   TRANSPARENT twinkling stars over the nebula
+#     10  shader (meteor)      TRANSPARENT periodic shooting star
+#     20  battery/wifi/bt      live status chips, top-right
+#     20  weather              live conditions + temp, bottom-left
+#     20  now-playing          live MPRIS album art + title, bottom-right
+#     30  markup clock         big time + date, the hero
+#         [core] password      drawn last, on top of every plugin
+#
+# ZERO IMAGE ASSETS: the whole backdrop is generated on the GPU, so this scene
+# runs identically from a package install or a source checkout with nothing to
+# download.
+#
+# RESOLUTION-INDEPENDENT: every region is a fraction of the surface and the
+# password `x` is left unset (the core centers it), so this is identical on
+# 1080p, 1440p and 4K. Safe to show on two monitors.
+#
+# REQUIREMENTS: the Python widgets need the PyGObject / Pango / librsvg GI
+# stack. From a package install that is a package dependency and Just Works.
+# From a source checkout, run veiland from the repo root inside `nix develop`
+# and point each `binary` at its built path instead of the bare name.
+#
+# The D-Bus widgets (now-playing, wifi, bluetooth) draw a graceful empty state
+# when there is no player / NetworkManager / adapter, so the scene never looks
+# broken on a machine that lacks one.
+
+# --- Backdrop: the nebula (opaque, full surface) -------------------------------
+# The "nebula" preset: layered value-noise clouds drifting through a deep-space
+# palette. Opaque (opacity defaults to 1.0), so it is the base every other layer
+# composites over. 30 fps caps the duty cycle on an unattended lock; raise to 0
+# (compositor rate) only while recording.
+[[plugin]]
+name = "nebula-shader"
+binary = "veiland-shader"
+z_index = -100
+
+[plugin.config]
+preset = "nebula"
+render_scale = 1.0
+max_fps = 30
+
+# --- Starfield: twinkling depth, TRANSPARENT overlay ---------------------------
+# opacity < 1.0 switches veiland-shader to its premultiplied wrapper, so the
+# shader's own per-pixel alpha is honoured: the stars draw over the nebula and
+# the space between them stays clear.
+[[plugin]]
+name = "starfield-shader"
+binary = "veiland-shader"
+z_index = -80
+
+[plugin.config]
+preset = "starfield"
+opacity = 0.9
+render_scale = 1.0
+max_fps = 30
+
+# --- Meteor: a periodic shooting star, TRANSPARENT overlay ---------------------
+# A bright head with a warm tail sweeps the upper sky, fades, repeats every 8 s.
+# This is the "something happens" beat for a short video -- time the recording
+# so at least one pass lands on camera.
+[[plugin]]
+name = "meteor-shader"
+binary = "veiland-shader"
+z_index = 10
+
+[plugin.config]
+preset = "meteor"
+opacity = 0.9
+render_scale = 1.0
+max_fps = 30
+
+# --- HERO: big clock + date, lower-center, tight above the password ------------
+# clock + date + password read as ONE cluster in the lower third; the top ~55%
+# stays open sky where the shader motion is most visible. The inline <span>
+# scales the time up from the base (date) size.
+[[plugin]]
+name = "clock"
+binary = "veiland-markup"
+z_index = 30
+region = { halign = "center", valign = "top", width = 1.0, height = 0.20, margin_y = 0.42 }
+
+[plugin.config]
+text = '''<span size="470%">{time:%H:%M}</span>
+<span foreground="#ccd6ec">{date:%A, %B %d}</span>'''
+font_family = "Sans"
+font_size = 0.09
+content_halign = "center"
+content_valign = "top"
+text_color = [0.95, 0.96, 0.99, 0.95]
+shadow_color = [0.0, 0.0, 0.05, 0.5]
+
+# --- TOP-RIGHT cluster: battery + wifi + bluetooth -----------------------------
+# All anchor top-right, share width/height/margin_y, step margin_x leftward:
+# rightmost (battery) smallest margin_x, each chip to its left adds ~0.040.
+# These are LIVE -- wifi reads NetworkManager and bluetooth reads bluez
+# event-driven, so a connection change updates on screen with no polling.
+[[plugin]]
+name = "cluster-battery"
+binary = "veiland-battery"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.020, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+[[plugin]]
+name = "cluster-wifi"
+binary = "veiland-wifi"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.060, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+[[plugin]]
+name = "cluster-bluetooth"
+binary = "veiland-bluetooth"
+z_index = 20
+region = { halign = "right", valign = "top", width = 0.032, height = 0.045, margin_x = 0.100, margin_y = 0.030 }
+[plugin.config]
+icon_color = [0.93, 0.95, 1.0, 0.95]
+
+# --- BOTTOM-LEFT: weather, condition icon + temperature + place ----------------
+# Open-Meteo, no API key. `location` is geocoded ONCE at startup (friendlier
+# than raw coordinates); set `latitude`/`longitude` instead to skip geocoding,
+# or `network = false` to disable every outbound request and show cached data
+# only. Change "Reykjavik" to your city.
+[[plugin]]
+name = "corner-weather"
+binary = "veiland-weather"
+z_index = 20
+region = { halign = "left", valign = "bottom", width = 0.15, height = 0.10, margin = 0.03 }
+[plugin.config]
+layout = "card"
+location = "Reykjavik"
+units = "celsius"
+show_location = true
+pill_color = [0.0, 0.0, 0.0, 0.0]
+icon_color = [0.90, 0.93, 0.98, 0.95]
+font_family = "Sans"
+
+# --- BOTTOM-RIGHT: now-playing with ALBUM ART ----------------------------------
+# Reads whatever MPRIS player is running (Spotify, mpv, a browser) over the
+# session D-Bus. READ-ONLY: no transport controls, because clicks are not
+# forwarded to plugins yet. The accent color is sampled from the album art.
+# fetch_remote_art = true allows http(s) cover fetches (Spotify art is remote);
+# off by default because the player chooses the URL the lock screen fetches.
+[[plugin]]
+name = "corner-nowplaying"
+binary = "veiland-now-playing"
+z_index = 20
+region = { halign = "right", valign = "bottom", width = 0.26, height = 0.12, margin = 0.03 }
+[plugin.config]
+layout = "compact"
+fetch_remote_art = false
+
+# --- Password: core pill, under the date ---------------------------------------
+# The core draws this LAST, on top of every plugin -- a plugin can draw beneath
+# it, never over it. `x` unset -> centered per surface, so this stays correct on
+# any resolution and on every monitor.
+[password]
+y_percent = 66
+box_width = 300
+box_height = 54
+outline_thickness = 2
+rounding = -1
+inner_color = "rgba(18, 22, 40, 0.45)"
+outer_color = "rgba(150, 170, 220, 0.35)"
+dot_color = "rgba(236, 240, 248, 0.95)"
+dot_diameter = 9
+dot_spacing = 20
+placeholder_text = "password"
+placeholder_color = "rgba(210, 216, 232, 0.50)"
+placeholder_font_size = 15

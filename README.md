@@ -6,15 +6,17 @@
 [![CI](https://github.com/sylflo/veiland/actions/workflows/ci.yml/badge.svg)](https://github.com/sylflo/veiland/actions/workflows/ci.yml)
 
 <!--
-  hero-deepfield.gif : THE shot. The Deep Field astronomy scene as a full
-  lock screen with the password pill visible, so it reads as a locker, not
-  a demo. Four veiland-shader layers (nebula, starfield, moon, meteor) plus
-  the markup clock and ephemeris HUD, entirely procedural -- no image asset.
-  Config: docs/examples/deepfield-astronomy.toml. Note this is a scene you
-  opt into, not the built-in default (that one is the raymarcher, further
-  down). GIF (not video) so it autoplays and loops natively on github.com.
+  hero-deepfield-corners.gif : THE shot. The Deep Field Corners scene as a
+  full lock screen with the password pill visible, so it reads as a locker,
+  not a demo. Three veiland-shader layers (nebula, starfield, meteor) behind
+  live Python widgets (clock, battery/wifi/bluetooth, weather, now-playing),
+  every layer its own process, no image asset. Config:
+  docs/examples/deepfield-corners.toml. A scene you opt into, not the built-in
+  default (that one is the raymarcher). GIF (not video) so it autoplays and
+  loops natively on github.com. Recorded with scripts/record/scene.sh, then
+  re-encoded to ~5 MB (6 s, 12 fps, bayer dither, gifsicle --lossy=60).
 -->
-![veiland: a procedural deep-space sky behind the lock pill](docs/assets/readme/hero-deepfield.gif)
+![veiland: a procedural deep-space sky framed by live widgets, behind the lock pill](docs/assets/readme/hero-deepfield-corners.gif)
 
 Veiland (from "veil", something that obscures what's behind it) locks your
 Wayland session and hands the *look* of the lock screen to plugins: small
@@ -86,6 +88,7 @@ Copy one, set your wallpaper path, and lock.
 | <!-- gallery-shinkai.gif : flagship lived-with scene, wallpaper + vignette + particles + sakura + markup clock and labels. 5-8s loop, ~600px wide. Config: docs/examples/shinkai.toml --> ![Shinkai scene](docs/assets/readme/gallery-shinkai.gif)<br>**[shinkai](docs/examples/shinkai.toml)**<br>two monitors, a different scene on each | <!-- gallery-sakura.gif : falling cherry blossoms over a dusk sky. 5-8s loop, ~600px. Config: docs/examples/sakura.toml --> ![Sakura scene](docs/assets/readme/gallery-sakura.gif)<br>**[sakura](docs/examples/sakura.toml)**<br>falling petals | <!-- gallery-snow.gif : procedural six-fold ice crystals over a dark wallpaper. 5-8s loop, ~600px. Config: docs/examples/snow.toml --> ![Snow scene](docs/assets/readme/gallery-snow.gif)<br>**[snow](docs/examples/snow.toml)**<br>dendritic crystals |
 | <!-- gallery-rain.gif : wind-slanted motion-blur rain over a moody wallpaper. 5-8s loop, ~600px. Config: docs/examples/rain.toml --> ![Rain scene](docs/assets/readme/gallery-rain.gif)<br>**[rain](docs/examples/rain.toml)**<br>slanted streaks | <!-- gallery-embers.gif : rising sparks + bottom glow over a dark wallpaper. 5-8s loop, ~600px. Config: docs/examples/embers.toml --> ![Embers scene](docs/assets/readme/gallery-embers.gif)<br>**[embers](docs/examples/embers.toml)**<br>rising sparks | <!-- gallery-fireflies.gif : softly glowing wandering lights over a dark wallpaper. 5-8s loop, ~600px. Config: docs/examples/fireflies.toml --> ![Fireflies scene](docs/assets/readme/gallery-fireflies.gif)<br>**[fireflies](docs/examples/fireflies.toml)**<br>wandering glow |
 | <!-- gallery-gradient.gif : slow looping color ramp. 5-8s loop, ~600px. Config: docs/examples/gradient.toml --> ![Gradient scene](docs/assets/readme/gallery-gradient.gif)<br>**[gradient](docs/examples/gradient.toml)**<br>flowing color ramp | <!-- gallery-blobs.gif : drifting metaball / lava-lamp field. 5-8s loop, ~600px. Config: docs/examples/blobs.toml --> ![Blobs scene](docs/assets/readme/gallery-blobs.gif)<br>**[blobs](docs/examples/blobs.toml)**<br>lava-lamp metaballs | <!-- gallery-parallax.gif : three bokeh layers drifting over a gradient. 5-8s loop, ~600px. Config: docs/examples/parallax.toml --> ![Parallax scene](docs/assets/readme/gallery-parallax.gif)<br>**[parallax](docs/examples/parallax.toml)**<br>layered bokeh depth |
+| <!-- hero-deepfield.gif : four shader layers (nebula, starfield, moon, meteor) + markup clock and ephemeris HUD, no image asset. Config: docs/examples/deepfield-astronomy.toml --> ![Deep Field astronomy scene](docs/assets/readme/hero-deepfield.gif)<br>**[deep field astronomy](docs/examples/deepfield-astronomy.toml)**<br>four shader layers, a moon | | |
 
 **The full lineup.** Backgrounds (Rust): wallpaper, vignette, particles,
 sakura, snow, rain, embers, fireflies, gradient, blobs, parallax, raymarcher,
