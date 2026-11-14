@@ -1,10 +1,7 @@
-# PAM configuration for veiland (Arch, Fedora/RHEL).
-# veiland does password authentication only. It runs the auth phase and
-# feeds the typed password to PAM; it never opens a session, sets
-# credentials, or changes passwords, and it cannot drive interactive
-# modules like fingerprint (pam_fprintd) or hardware tokens.
-# No account phase on purpose: a locker re-verifies an existing session,
-# it does not admit a new one, so there is deliberately no account line.
-# Including system-auth inherits the machine's password stack; any
-# non-password lines it pulls in are inert for veiland.
+# PAM configuration for veiland's password check (Arch).
+# Authenticate only: no account, session, or password phase. A locker
+# re-verifies an existing session; it does not admit a new one.
+# Fingerprint unlock is the separate veiland-fingerprint service, run in
+# parallel. Keep pam_fprintd out of this stack: here it would make every
+# password attempt wait for the reader's timeout.
 auth     include  system-auth

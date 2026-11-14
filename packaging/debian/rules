@@ -49,6 +49,11 @@ override_dh_auto_install:
 	# dh_installpam (debian/veiland.pam); the default cargo install is
 	# not what we want, so this override is intentionally empty.
 
+override_dh_installpam:
+	dh_installpam
+	# debian/veiland.veiland-fingerprint.pam -> /etc/pam.d/veiland-fingerprint
+	dh_installpam --name=veiland-fingerprint
+
 execute_after_dh_install:
 	# dh_install can't rename. The example config must land as
 	# config.example.toml — the name the Arch and RPM packages install,

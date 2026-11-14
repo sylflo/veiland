@@ -12,6 +12,8 @@
 //! Two copies remain that we cannot scrub: the per-prompt clone handed to
 //! PAM, and libpam's own internal copy. Neither is mlock'd or zeroized.
 
+pub mod fingerprint;
+
 use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 use std::{
     ffi::{CStr, CString, c_void},

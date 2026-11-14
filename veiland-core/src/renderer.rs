@@ -223,9 +223,13 @@ impl Renderer {
     ///
     /// `&mut self` because the placeholder path populates the glyph atlas
     /// in `font_ctx`.
+    // One over clippy's limit since the placeholder text became a parameter
+    // (it switches to the fingerprint hint); a struct would just rename them.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_password_field(
         &mut self,
         password: &config::Password,
+        placeholder: &str,
         char_count: usize,
         auth_state: crate::AuthState,
         caps_lock: bool,
@@ -271,8 +275,8 @@ impl Renderer {
             // Nothing typed yet: show the placeholder hint centred in the
             // box (if configured). Once the user types, the dots below
             // replace it.
-            if !pw.placeholder_text.is_empty() {
-                self.draw_placeholder(pw, centre_x_px, centre_y_px, width, height);
+            if !placeholder.is_empty() {
+                self.draw_placeholder(pw, placeholder, centre_x_px, centre_y_px, width, height);
             }
             return;
         }
@@ -388,7 +392,8 @@ impl Renderer {
 
     /// Draw the placeholder hint centred on `(centre_x_px, centre_y_px)`
     /// (surface pixels) via `veiland-text`. Called only when nothing has
-    /// been typed and `placeholder_text` is non-empty.
+    /// been typed and `text` (the password placeholder, or the fingerprint
+    /// hint while the reader waits) is non-empty.
     ///
     /// WHY THIS RENDERS TO A TEXTURE AND COMPOSITES IT BACK
     /// ----------------------------------------------------
@@ -413,6 +418,7 @@ impl Renderer {
     fn draw_placeholder(
         &mut self,
         pw: &config::Password,
+        text: &str,
         centre_x_px: f32,
         centre_y_px: f32,
         width: i32,
@@ -427,7 +433,7 @@ impl Renderer {
             return;
         };
 
-        let mut label = Label::new(pw.placeholder_text.clone());
+        let mut label = Label::new(text.to_string());
         label.font_family = pw.placeholder_font_family.clone();
         label.font_size = pw.placeholder_font_size as f32;
         label.color = pw.placeholder_color.0;

@@ -123,25 +123,22 @@ The distro packages above bundle this file. On NixOS the flake module handles
 it; installing the package some other way needs:
 
 ```nix
-security.pam.services.veiland = {};
+security.pam.services.veiland.fprintAuth = false;
 ```
 
-For a source install on most distributions (Arch, Fedora, openSUSE), create
-`/etc/pam.d/veiland` with:
-
-```
-auth     include system-auth
-```
-
-Debian and Ubuntu use `common-auth` instead:
-
-```
-auth     include common-auth
-```
+For a source install, create `/etc/pam.d/veiland` with the system's password
+stack: `auth include system-auth` on Arch, `auth include password-auth` on
+Fedora/RHEL, `auth include common-auth` on Debian, Ubuntu and openSUSE.
 
 This inherits the system's password policy and stays correct as that policy
-changes. Any interactive lines the include pulls in (fingerprint, hardware
-tokens) are inert for veiland: it does password authentication only.
+changes. Keep `pam_fprintd` out of this stack: there it makes every password
+attempt wait for the reader's timeout.
+
+Fingerprint unlock is opt-in (`[fingerprint]` in the
+[configuration](@/docs/configuration.md)) and uses a second service,
+`veiland-fingerprint`, which the packages and the NixOS module install. For a
+source install, create `/etc/pam.d/veiland-fingerprint` containing only
+`auth required pam_fprintd.so`.
 
 ## Compatibility
 

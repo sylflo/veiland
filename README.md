@@ -483,8 +483,7 @@ weather, avatar, and freeform markup text), wallpaper blur, and polished
 roughly in order:
 
 - **A richer lock experience** — a more responsive password field
-  (caps-lock indicator, failure feedback, familiar editing keys) and
-  **fingerprint unlock** via fprintd.
+  (caps-lock indicator, failure feedback, familiar editing keys).
 - **Interactive widgets** — an opt-in, region-confined click forwarded to a
   plugin, so widgets like now-playing gain transport controls. Pointer only,
   never keyboard; a plugin still can't see the password or trigger an unlock.
@@ -512,48 +511,74 @@ something here matters to you, an issue saying so genuinely moves it up.
 - Hot-reloading plugins without restart.
 - A built-in plugin store.
 
-Veiland does password authentication only for now: it feeds the typed
-password to PAM (fingerprint and pointer-driven widgets are on the
-[roadmap](#roadmap)). There is no video playback.
+Veiland authenticates through PAM: the typed password, and optionally a
+fingerprint ([`[fingerprint]`](docs/config.md), opt-in). Pointer-driven
+widgets are on the [roadmap](#roadmap). There is no video playback.
 
 ## PAM setup
 
-Veiland authenticates against the PAM service named `veiland`, so
-`/etc/pam.d/veiland` must exist. Veiland only performs the `auth` phase
+Veiland authenticates against two PAM services:
+
+- `veiland`, the password check. `/etc/pam.d/veiland` must exist.
+- `veiland-fingerprint`, fingerprint unlock. Used only when config.toml
+  sets `[fingerprint] enabled = true`; it runs in parallel with the
+  password check.
+
+Veiland only performs the `auth` phase
 (verify the password); it does not open a session and does not run account
 management, so the config is minimal. Account admission ("may this account
 *start* a session?" — expiry, `pam_time`, `pam_nologin`) is a login
 manager's decision: a locker re-verifies a session the user already has, and
 enforcing admission there can lock someone out of their own live session.
 
-The **distro packages** (Arch/Debian/Fedora, above) bundle this file, so if
+The **distro packages** (Arch/Debian/Fedora, above) bundle both files, so if
 you installed one of them there is nothing to do here.
 
-On **NixOS**, the [flake module](#quick-start) handles this. If you install
-the package some other way, add:
+On **NixOS**, the [flake module](#quick-start) handles both
+(`veiland-fingerprint` appears when `services.fprintd.enable = true`). If you
+install the package some other way, add:
 
 ```nix
-security.pam.services.veiland = {};
+security.pam.services.veiland.fprintAuth = false;
+# Only for fingerprint unlock:
+security.pam.services.veiland-fingerprint.text = ''
+  auth required ${config.services.fprintd.package}/lib/security/pam_fprintd.so
+'';
 ```
 
 For a **source install on other distributions**, create `/etc/pam.d/veiland`
-referencing the system auth stack. Most distributions (Arch, Fedora,
-openSUSE):
+referencing the system's password stack:
 
-```
-auth     include system-auth
-```
-
-Debian/Ubuntu use `common-auth` instead:
-
-```
-auth     include common-auth
-```
+| Distribution  | `/etc/pam.d/veiland`          |
+|---------------|-------------------------------|
+| Arch          | `auth include system-auth`    |
+| Fedora/RHEL   | `auth include password-auth`  |
+| Debian/Ubuntu | `auth include common-auth`    |
+| openSUSE      | `auth include common-auth`    |
 
 This inherits the system's password policy and stays correct as that policy
-changes, the standard approach for a screen locker's PAM stack. Any
-interactive lines the include pulls in (fingerprint, hardware tokens) are
-inert for veiland: it does password authentication only.
+changes. Keep `pam_fprintd` out of this stack: there it makes every password
+attempt wait for the reader's timeout. (That's why Fedora uses
+`password-auth`: with authselect's fingerprint feature on, `system-auth` runs
+`pam_fprintd` too.)
+
+For **fingerprint unlock**, also create `/etc/pam.d/veiland-fingerprint`
+containing only:
+
+```
+auth required pam_fprintd.so
+```
+
+Don't include `fingerprint-auth` or `system-auth` there: Fedora's
+`fingerprint-auth` runs `pam_faillock` after a failed scan, and veiland
+restarts the scan after each 30 s timeout, so it would lock the account while
+the screen sits idle. Then enroll a finger (`fprintd-enroll`) and set
+`[fingerprint] enabled = true`.
+
+On Debian/Ubuntu with pam-auth-update's fingerprint profile on, `common-auth`
+also runs `pam_fprintd`. With `[fingerprint]` enabled it usually fails fast
+(veiland's own service holds the reader) and falls through to the password;
+with it off, a password attempt can wait up to 10 s.
 
 ## References
 

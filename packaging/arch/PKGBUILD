@@ -40,7 +40,7 @@ makedepends=('rust' 'cargo' 'pkgconf')
 
 # /etc/pam.d/veiland is config: never clobber a user's edited copy on
 # upgrade (Arch analog of a Debian conffile / rpm %config(noreplace)).
-backup=('etc/pam.d/veiland')
+backup=('etc/pam.d/veiland' 'etc/pam.d/veiland-fingerprint')
 
 # Built from the GitHub release tarball (this is what the AUR copy of
 # this file needs). CI still builds the checked-out tree: packages.yml
@@ -156,6 +156,8 @@ package() {
   # PAM service (Arch uses the system-auth variant).
   install -Dm644 "packaging/pam/veiland.system-auth" \
     "$pkgdir/etc/pam.d/veiland"
+  install -Dm644 "packaging/pam/veiland-fingerprint" \
+    "$pkgdir/etc/pam.d/veiland-fingerprint"
 
   # Example config the user copies into ~/.config/veiland/.
   install -Dm644 "packaging/veiland.example.toml" \
