@@ -530,12 +530,14 @@
   }
   .doc-preview canvas, .doc-preview img { width: 100%; aspect-ratio: 16 / 9; display: block; background: #0a0812; object-fit: cover; }
 
-  .slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .scene img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #0a0812; }
+  /* contain, not cover: scene captures put widgets at the very edges, so a
+     non-16:9 capture (a 16:10 laptop) gets dark bars instead of losing them. */
+  .slide img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .scene img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; display: block; background: #0a0812; }
   .doc-preview video { width: 100%; aspect-ratio: 16 / 9; display: block; background: #0a0812; object-fit: cover; }
 
   .scene-wide { grid-column: 1 / -1; }
-  .scene-wide img { aspect-ratio: 32 / 9; }
+  .scene-wide img { aspect-ratio: 32 / 9; object-fit: cover; }
   @media (max-width: 720px) { .scene-wide img { aspect-ratio: 16 / 9; object-position: left center; } }
   .scene-ghost {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
