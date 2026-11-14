@@ -26,6 +26,7 @@ use smithay_client_toolkit::{
 };
 
 use wayland_client::protocol::wl_output;
+use wayland_protocols::wp::viewporter::client::wp_viewport;
 
 use nix::unistd::{User, getuid};
 
@@ -68,14 +69,11 @@ pub(crate) struct LockSurface {
     /// matching `done` event came back. Prevents requesting a second
     /// callback per commit.
     pub(crate) frame_callback_pending: bool,
-    /// Surface size in physical pixels, as last reported by the
-    /// compositor's `configure` (`SessionLockHandler::configure`'s
-    /// `new_size`). `None` until the first `configure` fires — at
-    /// spawn time the size is genuinely not known yet, since the
-    /// compositor sends it asynchronously after the surface is
-    /// created. This is the size plugins should render at; later
-    /// commits feed it into the plugin `Configure` so a 4K monitor
-    /// gets a 4K buffer instead of an upscaled 1080p one.
+    /// Size from the compositor's `configure`, in logical (surface-local)
+    /// px. `None` until the first `configure` fires.
+    pub(crate) logical_size: Option<(u32, u32)>,
+    /// Buffer size in physical px: `logical_size` x `buffer_scale_120()`.
+    /// What the EGL window, GL viewport and plugin `Configure` use.
     pub(crate) surface_size: Option<(u32, u32)>,
     /// Output scale as 120ths. Initialised from `wl_output.scale * 120`;
     /// updated asynchronously by `wp_fractional_scale_v1.preferred_scale`
@@ -84,6 +82,21 @@ pub(crate) struct LockSurface {
     /// The `wp_fractional_scale_v1` object for this surface. `None` when
     /// `wp_fractional_scale_manager_v1` is not available.
     pub(crate) fractional_scale: Option<wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1>,
+    /// Maps the physical buffer back onto the logical surface. `None`
+    /// without wp_viewporter (the buffer then stays at logical size).
+    pub(crate) viewport: Option<wp_viewport::WpViewport>,
+}
+
+impl LockSurface {
+    /// Buffer px per logical px, in 120ths: the output scale when a
+    /// viewport can present a scaled buffer, 1x otherwise.
+    pub(crate) fn buffer_scale_120(&self) -> u32 {
+        if self.viewport.is_some() {
+            self.scale_120
+        } else {
+            120
+        }
+    }
 }
 
 impl AppData {
@@ -134,6 +147,10 @@ impl AppData {
             .fractional_scale_manager
             .as_ref()
             .map(|mgr| mgr.get_fractional_scale(&wl_surface, &self.qh, ()));
+        let viewport = self
+            .viewporter
+            .as_ref()
+            .map(|v| v.get_viewport(&wl_surface, &self.qh, ()));
 
         let lock_surface = LockSurface {
             registry_id,
@@ -143,9 +160,11 @@ impl AppData {
             egl_surface: None,
             needs_paint: true,
             frame_callback_pending: false,
+            logical_size: None,
             surface_size: None,
             scale_120: seed_scale_120,
             fractional_scale,
+            viewport,
         };
         // Reuse the first None slot if one exists (hotplug-out leaves
         // sentinels; reusing keeps lock_surfaces.len() bounded under
@@ -168,22 +187,16 @@ impl AppData {
     /// hotplug-in case where `create_lock_surface_for_output`
     /// returned a recycled `None` slot.
     pub(crate) fn spawn_plugins_for_output(&mut self, output_idx: usize, output_name: &str) {
-        // Read scale_120 directly from the LockSurface — it was seeded from
-        // wl_output.scale at surface creation and may already have been updated
-        // by a wp_fractional_scale_v1.preferred_scale event.
+        // The buffer scale: the output scale (seeded from wl_output.scale,
+        // maybe already updated by preferred_scale) when a viewport exists.
         let scale_120: u32 = self.lock_surfaces[output_idx]
             .as_ref()
-            .map(|s| s.scale_120)
+            .map(|s| s.buffer_scale_120())
             .unwrap_or(120);
 
-        // The surface size in physical pixels, if the compositor has
-        // reported it yet. On a fresh lock this is usually `None` here:
-        // spawn runs before the compositor's first `configure`, so the
-        // size only lands afterwards (commit 3 resends Configure when it
-        // does). `try_spawn_one` falls back to 1080p for the brief
-        // initial window. On hotplug-in of an output that already has a
-        // size cached it will be `Some`, so those plugins start at the
-        // right size immediately.
+        // The buffer size in physical px, if the compositor has configured
+        // the surface yet. Usually `None` on a fresh lock: `try_spawn_one`
+        // falls back to 1080p and the first `configure` resends the real size.
         let surface_size = self.lock_surfaces[output_idx]
             .as_ref()
             .and_then(|s| s.surface_size);
@@ -382,38 +395,44 @@ impl AppData {
         }
     }
 
-    /// Re-send `Configure` to every live plugin on a single output with
-    /// an updated render region. Called from `SessionLockHandler::
-    /// configure` when the compositor reports a surface size that
-    /// differs from what plugins were last told (the common cause: the
-    /// first `configure` after spawn, where plugins were started with
-    /// the 1080p fallback and now learn the true size — so a 4K monitor
-    /// gets a 4K buffer instead of an upscaled 1080p one).
-    ///
-    /// Mirrors `process_periodic_tick`'s clone-override-send-store
-    /// shape, but scoped to one output (a resize is per-output, unlike
-    /// the time tick which advances everywhere) and overriding the
-    /// region dims instead of time. The next periodic tick refreshes
-    /// the time field as usual.
-    ///
-    /// `surface_w/h` are the *new surface* size. What each plugin is told
-    /// is decided per-slot by `region::configure_dims`: a full-surface
-    /// plugin (`region = None`) gets the new surface dims at origin (0, 0)
-    /// — full-surface placement unchanged, only the size moves; a region
-    /// plugin gets its region's own absolute (x, y, w, h), which does not
-    /// depend on the surface and so is re-sent unchanged. Without the
-    /// per-slot decision a mode change would silently revert a region
-    /// plugin to full-surface (the pre-fix bug on the resend path).
-    ///
-    /// Plugin-input rule applies: a send failure logs and kills that
-    /// slot, it never panics. See `process_periodic_tick` for why the
-    /// slot must die here rather than wait for a read-side cleanup.
-    pub(crate) fn resend_configure_region_for_output(
-        &mut self,
-        output_idx: usize,
-        surface_w: u32,
-        surface_h: u32,
-    ) {
+    /// Point the viewport at the logical size and resize the EGL window
+    /// (if any) to the matching buffer size. Returns true when the buffer
+    /// size changed, i.e. plugins need a new Configure.
+    pub(crate) fn update_buffer_size(&mut self, output_idx: usize) -> bool {
+        let Some(entry) = self
+            .lock_surfaces
+            .get_mut(output_idx)
+            .and_then(|e| e.as_mut())
+        else {
+            return false;
+        };
+        let Some((lw, lh)) = entry.logical_size else {
+            return false;
+        };
+        let (pw, ph) = crate::scale::physical_size((lw, lh), entry.buffer_scale_120());
+        if let Some(vp) = entry.viewport.as_ref() {
+            vp.set_destination(lw as i32, lh as i32);
+        }
+        if let Some(win) = entry.egl_window.as_ref() {
+            win.resize(pw as i32, ph as i32, 0, 0);
+        }
+        let changed = entry.surface_size != Some((pw, ph));
+        entry.surface_size = Some((pw, ph));
+        changed
+    }
+
+    /// Re-send `Configure` to every live plugin on one output with its
+    /// current buffer size and scale (after a resize or scale change).
+    /// Region plugins get their own re-resolved dims, full-surface ones
+    /// the whole buffer. A send failure kills that slot, never panics.
+    pub(crate) fn resend_configure_for_output(&mut self, output_idx: usize) {
+        let Some(entry) = self.lock_surfaces.get(output_idx).and_then(|e| e.as_ref()) else {
+            return;
+        };
+        let Some((surface_w, surface_h)) = entry.surface_size else {
+            return;
+        };
+        let scale_120 = entry.buffer_scale_120();
         let Some(per_output) = self.plugins.get_mut(output_idx) else {
             return;
         };
@@ -424,14 +443,12 @@ impl AppData {
             let Some(prev) = slot.last_configure.clone() else {
                 continue;
             };
-            // Re-resolve the region against the new surface size: an
-            // anchored region must re-anchor to the resized surface (a
-            // mode change moves the corner), a pixel region resolves to
-            // itself. Cache the result for the composite path.
+            // Re-resolve against the new size (anchored regions re-anchor,
+            // pixel regions rescale); cached for the composite path.
             slot.resolved_region = slot
                 .region_spec
                 .as_ref()
-                .map(|spec| spec.resolve(surface_w, surface_h));
+                .map(|spec| spec.resolve(surface_w, surface_h, scale_120));
             let (region_x, region_y, region_w, region_h) =
                 region::configure_dims(slot.resolved_region.as_ref(), surface_w, surface_h);
             let next = Configure {
@@ -439,39 +456,12 @@ impl AppData {
                 region_y,
                 region_w,
                 region_h,
+                scale_120,
                 ..prev
             };
             if let Err(e) = slot.state.connection.send_configure(next.clone()) {
                 eprintln!(
-                    "veiland-core: resize resend: send_configure to plugin {:?} failed: {} \
-                     — treating as dead",
-                    slot.name, e
-                );
-                plugin::kill_slot(slot_opt);
-                continue;
-            }
-            slot.last_configure = Some(next);
-        }
-    }
-
-    /// Re-send `Configure` to every live plugin on one output with an
-    /// updated `scale_120`. Called when a `wp_fractional_scale_v1.
-    /// preferred_scale` event arrives for that output's surface.
-    pub(crate) fn resend_configure_scale_for_output(&mut self, output_idx: usize, scale_120: u32) {
-        let Some(per_output) = self.plugins.get_mut(output_idx) else {
-            return;
-        };
-        for slot_opt in per_output.iter_mut() {
-            let Some(slot) = slot_opt.as_mut() else {
-                continue;
-            };
-            let Some(prev) = slot.last_configure.clone() else {
-                continue;
-            };
-            let next = veiland_protocol::Configure { scale_120, ..prev };
-            if let Err(e) = slot.state.connection.send_configure(next.clone()) {
-                eprintln!(
-                    "veiland-core: scale resend: send_configure to plugin {:?} failed: {} \
+                    "veiland-core: resend: send_configure to plugin {:?} failed: {} \
                      — treating as dead",
                     slot.name, e
                 );
@@ -530,6 +520,7 @@ impl AppData {
             return;
         };
         let (w, h) = egl_window.get_size();
+        let scale_120 = entry.buffer_scale_120();
         // Clone the WlSurface so we can call `.frame()` later without
         // re-borrowing `self.lock_surfaces`. Wayland proxies are Arc-
         // backed; the clone is cheap.
@@ -594,8 +585,10 @@ impl AppData {
         } else {
             &self.config.password.placeholder_text
         };
+        // Config sizes are logical px; the buffer is physical.
+        let password = self.config.password.scaled(scale_120);
         self.renderer.draw_password_field(
-            &self.config.password,
+            &password,
             placeholder,
             self.auth.char_count(),
             self.auth_state,

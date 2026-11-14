@@ -256,29 +256,24 @@ fn connect_spawned(
         display,
     )?;
 
-    // Initial Configure. Use the real surface size if the compositor
-    // has reported it; otherwise fall back to 1080p. On a fresh lock
-    // the size is not known at spawn time (the compositor sends it
-    // asynchronously, after this), so the fallback covers the brief
-    // window before the host resends Configure with the true size.
-    // Picking 1080p for the fallback means a 4K plugin briefly renders
-    // at 1080p-upscaled for ~one frame, then snaps to native on the
-    // resend — visually the same as before this change until the
-    // resend lands.
+    // Initial Configure, at the physical buffer size if the surface is
+    // already configured, else a 1080p fallback that the first `configure`
+    // replaces with a resend (on a fresh lock, about one frame).
     //
     // What Configure carries is decided by `configure_dims`: full surface
     // when no region is declared (byte-identical to before this change),
     // the region's own (x, y, w, h) when one is — so a region plugin
     // allocates a region-sized buffer and the composite is the identity
     // transform instead of a stretch. An anchored region resolves to
-    // pixels against the surface first; a pixel region passes through.
+    // pixels against the surface first; a pixel region is scaled from
+    // logical px by `scale_120`.
     // Either way the resolved region is stored on the slot for the
     // composite path and for re-resolution on resize.
     let (surface_w, surface_h) = surface_size.unwrap_or((1920, 1080));
     let resolved_region = entry
         .region
         .as_ref()
-        .map(|spec| spec.resolve(surface_w, surface_h));
+        .map(|spec| spec.resolve(surface_w, surface_h, scale_120));
     let (region_x, region_y, region_w, region_h) =
         crate::region::configure_dims(resolved_region.as_ref(), surface_w, surface_h);
     let (time_unix_seconds, time_tz_offset_seconds) = current_time_for_configure();

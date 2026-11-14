@@ -165,6 +165,9 @@ impl OutputHandler for AppData {
                     surface_ref.name, e
                 );
             }
+            if let Some(vp) = surface_ref.viewport.take() {
+                vp.destroy();
+            }
             // WlEglSurface drops via the take() leaving None.
             surface_ref.egl_window = None;
         }

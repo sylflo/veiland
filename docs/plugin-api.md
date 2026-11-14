@@ -150,7 +150,9 @@ afterwards. Subsequent draws in the same frame composite on top.
 The host sends `Configure.scale_120: u32` carrying the output's scale
 as 120ths (120 = 1×, 180 = 1.5×, 240 = 2×), matching
 `wp_fractional_scale_v1`'s encoding. Convert to a float multiplier with
-`scale_120 as f32 / 120.0`. The surface itself always arrives in
+`scale_120 as f32 / 120.0`. Strictly it is buffer pixels per logical
+pixel: on a compositor without `wp_viewporter` the host renders at
+logical size and sends 120. The surface itself always arrives in
 *physical* pixels (`region_w`/`region_h` are device pixels), so how you
 use `scale_120` depends on how your plugin expresses sizes. Two
 conventions ship in the reference plugins, and both are correct:

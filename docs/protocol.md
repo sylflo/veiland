@@ -299,7 +299,9 @@ into physical pixels. The host sources it from
 `wp_fractional_scale_v1.preferred_scale` where the compositor advertises that
 protocol, and falls back to the integer `wl_output.scale` × 120 otherwise;
 both paths clamp on the host side so the encoder never produces an
-out-of-range Configure.
+out-of-range Configure. Precisely, `scale_120` is buffer pixels per logical
+pixel: a compositor without `wp_viewporter` gets a logical-size buffer, and
+the host then sends 120.
 
 A re-`Configure` may arrive at any time with a different `scale_120` (e.g. the
 user changes their monitor's scale factor in the compositor settings). The

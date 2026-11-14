@@ -51,6 +51,17 @@ impl Dispatch<wp_fractional_scale_v1::WpFractionalScaleV1, ()> for AppData {
         entry.scale_120 = new_scale_120;
         entry.needs_paint = true;
 
-        state.resend_configure_scale_for_output(output_idx, new_scale_120);
+        // New scale means a new buffer size: resize, tell plugins, repaint.
+        if state.update_buffer_size(output_idx)
+            && let Some(entry) = state.lock_surfaces[output_idx].as_ref()
+            && let Some((w, h)) = entry.surface_size
+        {
+            println!(
+                " -> [{}] resized EGL surface ({}x{} buffer) for the new scale",
+                entry.name, w, h
+            );
+        }
+        state.resend_configure_for_output(output_idx);
+        state.repaint_lock_surface(output_idx);
     }
 }

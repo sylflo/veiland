@@ -7,6 +7,7 @@ mod gl_debug;
 mod plugin;
 mod region;
 mod renderer;
+mod scale;
 
 use app::LockSurface;
 use renderer::Renderer;
@@ -34,6 +35,7 @@ use wayland_client::{
 };
 
 use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_manager_v1;
+use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 
 use veiland_protocol::{HOST_CAP_FENCE_FD, HostCapabilities};
 
@@ -144,6 +146,9 @@ pub(crate) struct AppData {
     /// `None` when the compositor does not advertise the protocol
     /// (older compositors); the core falls back to `wl_output.scale * 120`.
     fractional_scale_manager: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
+    /// `wp_viewporter` global. Lets a lock surface take a physical-size
+    /// buffer; `None` keeps buffers at logical size (soft when scaled).
+    viewporter: Option<wp_viewporter::WpViewporter>,
 }
 
 /// The version line for `--version`, e.g. `veiland 0.1.0` on a tagged build or
@@ -434,6 +439,15 @@ fn main() -> ExitCode {
             fractional scaling unavailable, falling back to wl_output.scale"
         );
     }
+    let viewporter = globals
+        .bind::<wp_viewporter::WpViewporter, _, _>(&qh, 1..=1, ())
+        .ok();
+    if viewporter.is_none() {
+        eprintln!(
+            "veiland-core: wp_viewporter not advertised — lock surfaces render at \
+            logical size and look soft on scaled outputs"
+        );
+    }
 
     let auth = match auth::Session::new() {
         Ok(s) => s,
@@ -511,6 +525,7 @@ fn main() -> ExitCode {
         pending_outputs_arrived: Vec::new(),
         last_time_tick: std::time::Instant::now(),
         fractional_scale_manager,
+        viewporter,
     };
 
     // xdg_output.name arrives async after registry bind; without a roundtrip
@@ -706,3 +721,5 @@ smithay_client_toolkit::delegate_registry!(AppData);
 smithay_client_toolkit::delegate_session_lock!(AppData);
 wayland_client::delegate_noop!(AppData: ignore wl_buffer::WlBuffer);
 wayland_client::delegate_noop!(AppData: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);
+wayland_client::delegate_noop!(AppData: ignore wp_viewporter::WpViewporter);
+wayland_client::delegate_noop!(AppData: ignore wp_viewport::WpViewport);

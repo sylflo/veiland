@@ -64,30 +64,28 @@ impl SessionLockHandler for AppData {
             );
             return;
         };
+        // The configure size is logical; the buffer is that times the scale.
+        // `size_changed` (first configure, or a mode switch) drives the
+        // plugin Configure resend at the end.
+        if let Some(entry) = self.lock_surfaces[output_idx].as_mut() {
+            entry.logical_size = Some((width, height));
+        }
+        let size_changed = self.update_buffer_size(output_idx);
         let entry = self.lock_surfaces[output_idx]
             .as_mut()
             .expect("just matched Some");
-        // Record the compositor-reported size in physical pixels and
-        // note whether it changed. `size_changed` is true on the first
-        // `configure` (None -> Some) and on any later resolution change
-        // (mode switch mid-lock). We compare against the *old* value
-        // before overwriting it, then — once the borrow on `entry` has
-        // ended — resend Configure to this output's plugins so they
-        // render at the true size instead of the 1080p spawn fallback.
-        // Guarding on change means the steady state (same size every
-        // frame callback) sends nothing.
-        let new_size = (width, height);
-        let size_changed = entry.surface_size != Some(new_size);
-        entry.surface_size = Some(new_size);
-        if let Some(egl_window) = entry.egl_window.as_ref() {
-            egl_window.resize(width as i32, height as i32, 0, 0);
+        let Some((buf_w, buf_h)) = entry.surface_size else {
+            return;
+        };
+        if entry.egl_window.is_some() {
+            // update_buffer_size already resized it.
             println!(
-                " -> [{}] resized EGL surface ({}x{})",
-                entry.name, width, height
+                " -> [{}] resized EGL surface ({}x{} buffer, {}x{} logical)",
+                entry.name, buf_w, buf_h, width, height
             );
         } else {
             let egl_window =
-                wayland_egl::WlEglSurface::new(target.id(), width as i32, height as i32)
+                wayland_egl::WlEglSurface::new(target.id(), buf_w as i32, buf_h as i32)
                     .expect("WlEglSurface::new");
 
             let egl_surface = unsafe {
@@ -102,8 +100,8 @@ impl SessionLockHandler for AppData {
             entry.egl_window = Some(egl_window);
             entry.egl_surface = Some(egl_surface);
             println!(
-                " -> [{}] created EGL surface ({}x{})",
-                entry.name, width, height
+                " -> [{}] created EGL surface ({}x{} buffer, {}x{} logical)",
+                entry.name, buf_w, buf_h, width, height
             );
         }
 
@@ -135,7 +133,7 @@ impl SessionLockHandler for AppData {
         // show and our `wl_surface.frame` request has something to
         // attach to.
         unsafe {
-            gl::Viewport(0, 0, width as i32, height as i32);
+            gl::Viewport(0, 0, buf_w as i32, buf_h as i32);
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
         }
@@ -182,15 +180,11 @@ impl SessionLockHandler for AppData {
             Err(e) => panic!("eglSwapBuffers: {e:?}"),
         }
 
-        // If the surface size is new or changed, tell this output's
-        // plugins to render at it. Done last, after every borrow on
-        // `self.lock_surfaces[output_idx]` above has ended, so the
-        // `&mut self` resend is free of borrow conflicts. On a cold 4K
-        // lock this is what upgrades plugins from the 1080p spawn
-        // fallback to native resolution; on an unchanged size it is
-        // skipped entirely.
+        // If the buffer size is new or changed, tell this output's plugins
+        // to render at it (upgrades them from the 1080p spawn fallback).
+        // Done last, once every borrow on the lock surface has ended.
         if size_changed {
-            self.resend_configure_region_for_output(output_idx, width, height);
+            self.resend_configure_for_output(output_idx);
         }
     }
 }
