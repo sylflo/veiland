@@ -38,6 +38,10 @@ depends=('pam' 'libglvnd' 'mesa' 'libdrm' 'wayland' 'libxkbcommon'
 # build scripts find the libraries above.
 makedepends=('rust' 'cargo' 'pkgconf')
 
+# Fingerprint unlock ([fingerprint] enabled = true) needs fprintd, which
+# also ships the pam_fprintd module /etc/pam.d/veiland-fingerprint loads.
+optdepends=('fprintd: fingerprint unlock')
+
 # /etc/pam.d/veiland is config: never clobber a user's edited copy on
 # upgrade (Arch analog of a Debian conffile / rpm %config(noreplace)).
 backup=('etc/pam.d/veiland' 'etc/pam.d/veiland-fingerprint')
