@@ -1,3 +1,19 @@
+veiland (0.4.0-1) unstable; urgency=medium
+
+  * Add opt-in fingerprint unlock ([fingerprint] enabled = true): a second
+    PAM service, veiland-fingerprint, runs pam_fprintd alongside the
+    password check, so a touch unlocks and the password keeps working.
+    The package ships /etc/pam.d/veiland-fingerprint. Needs fprintd with
+    an enrolled finger.
+  * Render lock surfaces at physical resolution on scaled outputs (via
+    wp_viewporter), so the lock screen is no longer blurry at fractional
+    or integer scales. Config pixel values stay logical, so existing
+    configs look the same, only sharp.
+  * Add a deepfield-corners example scene: a shader backdrop framed by the
+    clock, status chips, weather and now-playing widgets.
+
+ -- sylflo <veiland@sylvain-chateau.com>  Sat, 14 Nov 2026 12:00:00 +0000
+
 veiland (0.3.1-1) unstable; urgency=medium
 
   * Packaging-only release: nothing in veiland itself changed since 0.3.0 --

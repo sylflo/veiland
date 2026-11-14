@@ -7,7 +7,7 @@
 # The stress test plugin is not built or packaged.
 
 Name:           veiland
-Version:        0.3.1
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Wayland screen locker with process-isolated GPU plugins
 
@@ -226,6 +226,20 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_datadir}/veiland/examples/
 
 %changelog
+* Sat Nov 14 2026 sylflo <veiland@sylvain-chateau.com> - 0.4.0-1
+- Add opt-in fingerprint unlock ([fingerprint] enabled = true): a second
+  PAM service, veiland-fingerprint, runs pam_fprintd alongside the
+  password check, so a touch unlocks and the password keeps working.
+  The package ships /etc/pam.d/veiland-fingerprint, and /etc/pam.d/veiland
+  now includes password-auth instead of system-auth, so pam_fprintd stays
+  off the password check. Needs fprintd with an enrolled finger.
+- Render lock surfaces at physical resolution on scaled outputs (via
+  wp_viewporter), so the lock screen is no longer blurry at fractional
+  or integer scales. Config pixel values stay logical, so existing
+  configs look the same, only sharp.
+- Add a deepfield-corners example scene: a shader backdrop framed by the
+  clock, status chips, weather and now-playing widgets.
+
 * Sat Sep 26 2026 sylflo <veiland@sylvain-chateau.com> - 0.3.1-1
 - Packaging-only release: nothing in veiland itself changed since 0.3.0 --
   no core, protocol, SDK or plugin code was touched. The one fix was
