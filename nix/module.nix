@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # NixOS module for veiland. Enabling it installs the locker + reference
-# plugins and registers the `veiland` PAM service, so users don't hand-
+# plugins and registers the `veiland` PAM service (plus
+# `veiland-fingerprint` when fprintd is enabled), so users don't hand-
 # write /etc/pam.d/veiland. Config (the TOML) is still the user's job.
 #
 # `self` is closed over from flake.nix so `package` can default to this
@@ -31,6 +32,17 @@ in
     # Register the `veiland` PAM service. veiland only runs the auth phase,
     # so the default generated stack is more than enough (the account /
     # session / password lines it also generates are simply never used).
-    security.pam.services.veiland = { };
+    # No pam_fprintd here, even with fprintd enabled: it would make every
+    # password attempt wait for the reader.
+    security.pam.services.veiland.fprintAuth = false;
+
+    # Fingerprint unlock, used when config.toml sets `[fingerprint]
+    # enabled = true`. Only pam_fprintd, on purpose; see
+    # packaging/pam/veiland-fingerprint.
+    security.pam.services.veiland-fingerprint = lib.mkIf config.services.fprintd.enable {
+      text = ''
+        auth required ${config.services.fprintd.package}/lib/security/pam_fprintd.so
+      '';
+    };
   };
 }

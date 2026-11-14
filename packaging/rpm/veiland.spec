@@ -42,7 +42,7 @@ BuildRequires:  libxkbcommon-devel
 # explicit list proved wrong in practice: no binary package is named
 # "wayland" (the install check caught the unresolvable Requires). Only
 # pam stays explicit, because the bundled /etc/pam.d/veiland includes
-# the system-auth stack — a config dependency, not a library one. The
+# the password-auth stack — a config dependency, not a library one. The
 # GPU driver .so is the user's system's job, like on Nix.
 Requires:       pam
 # The Python widget tier (the veiland-* status/info widgets): the interpreter,
@@ -161,9 +161,12 @@ for pair in veiland-now-playing:now_playing.py veiland-weather:weather.py \
   chmod 0755 "%{buildroot}%{_bindir}/$name"
 done
 
-# PAM service (Fedora uses the system-auth variant).
-install -Dm0644 packaging/pam/veiland.system-auth \
+# PAM services. Fedora's password check includes password-auth, which
+# (unlike system-auth) never pulls in pam_fprintd.
+install -Dm0644 packaging/pam/veiland.password-auth \
   %{buildroot}%{_sysconfdir}/pam.d/veiland
+install -Dm0644 packaging/pam/veiland-fingerprint \
+  %{buildroot}%{_sysconfdir}/pam.d/veiland-fingerprint
 
 # Example config the user copies into ~/.config/veiland/.
 install -Dm0644 packaging/veiland.example.toml \
@@ -216,6 +219,7 @@ sed -i 's|docs/examples/assets/|%{_datadir}/veiland/|' \
 %{_bindir}/veiland-battery
 %{_libdir}/veiland/
 %config(noreplace) %{_sysconfdir}/pam.d/veiland
+%config(noreplace) %{_sysconfdir}/pam.d/veiland-fingerprint
 %dir %{_datadir}/veiland
 %{_datadir}/veiland/config.example.toml
 %{_datadir}/veiland/sakura-dusk.jpg

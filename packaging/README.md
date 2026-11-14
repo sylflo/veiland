@@ -10,8 +10,11 @@ everything else.
 - `debian/` — `.deb` (built on and for Debian 13 stable; also installs on
   Ubuntu 24.04+, see below)
 - `rpm/` — `.spec` (Fedora/RHEL)
-- `pam/` — the `/etc/pam.d/veiland` files each package installs
-  (`veiland.system-auth` for Arch/Fedora, `veiland.common` for Debian)
+- `pam/` — the `/etc/pam.d/veiland` password files each package installs
+  (`veiland.system-auth` for Arch, `veiland.password-auth` for Fedora,
+  `veiland.common` mirroring `debian/veiland.pam`), plus
+  `veiland-fingerprint`, installed as `/etc/pam.d/veiland-fingerprint`
+  everywhere (Debian's copy is `debian/veiland.veiland-fingerprint.pam`)
 - `veiland.example.toml` — installed to `/usr/share/veiland/`
   (as `config.example.toml`), alongside the ready-made scenes from
   `docs/examples/` under `/usr/share/veiland/examples/` (minus the
@@ -23,8 +26,8 @@ All packages build the **real set** from source
 embers, fireflies, gradient, parallax, blobs, raymarcher) and install
 the nine Python widgets as `veiland-*` commands (markup, weather,
 now-playing, avatar, wifi, ethernet, bluetooth, battery, shape)
-into `/usr/bin`, and bundle `/etc/pam.d/veiland` so PAM works on
-install. The stress test plugin is not packaged.
+into `/usr/bin`, and bundle `/etc/pam.d/veiland` (plus
+`veiland-fingerprint`) so PAM works on install. The stress test plugin is not packaged.
 
 Packages are built and validated in CI (`.github/workflows/packages.yml`)
 inside each distro's container, then install-checked in a pristine

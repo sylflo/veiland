@@ -167,6 +167,7 @@ jobs:
             fi
           done
           test -f /etc/pam.d/veiland
+          test -f /etc/pam.d/veiland-fingerprint
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
           test -f /usr/share/veiland/examples/sakura.toml
@@ -309,6 +310,7 @@ jobs:
             fi
           done
           test -f /etc/pam.d/veiland
+          test -f /etc/pam.d/veiland-fingerprint
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
           test -f /usr/share/veiland/examples/sakura.toml
@@ -380,6 +382,7 @@ jobs:
             fi
           done
           test -f /etc/pam.d/veiland
+          test -f /etc/pam.d/veiland-fingerprint
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
           test -f /usr/share/veiland/examples/sakura.toml
@@ -489,6 +492,7 @@ jobs:
             fi
           done
           test -f /etc/pam.d/veiland
+          test -f /etc/pam.d/veiland-fingerprint
           test -f /usr/share/veiland/config.example.toml
           test -f /usr/share/veiland/sakura-dusk.jpg
           test -f /usr/share/veiland/examples/sakura.toml

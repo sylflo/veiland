@@ -12,6 +12,7 @@ The locker works:
 - `ext-session-lock-v1`
 - surface
 - PAM authentication
+- fingerprint unlock (opt-in `[fingerprint]`; second PAM service `veiland-fingerprint` run in parallel; so far tested only with libfprint's virtual reader, see `docs/testing-fingerprint.md`)
 - keyboard input
 - password indicator
 - process-isolated GPU plugins over DMA-BUF,
@@ -67,7 +68,7 @@ When in doubt about where functionality goes: if it touches auth, it's in the co
 
 **What a plugin cannot do by construction** (holds even against a hostile plugin, because the mechanism is absent, not filtered):
 
-- **Trigger an unlock.** The unlock decision is `keyboard event → password buffer → PAM call → state change`. Plugins receive no keyboard events. No IPC message maps to "unlock." The API surface is absent, not just sandboxed.
+- **Trigger an unlock.** The unlock decision is `keyboard event → password buffer → PAM call → state change`, or with `[fingerprint]` enabled `fingerprint PAM conversation → state change`. Both PAM calls run in the core and both paths end in `AppData::commit_unlock`; plugins feed neither. Plugins receive no keyboard events. No IPC message maps to "unlock." The API surface is absent, not just sandboxed.
 - **Receive keystrokes / see the password in a message.** No protocol message carries keyboard input in any direction. The password never appears in any buffer or message a plugin is handed.
 - **Read another plugin's buffer.** Each plugin owns its dmabufs; the core composites but doesn't redistribute.
 - **Execute code in the core's address space.** The dmabuf path is `data → GPU sampler → pixel output`. Bytes inside a dmabuf become pixel values, never instructions.
@@ -76,6 +77,14 @@ When in doubt about where functionality goes: if it touches auth, it's in the co
 
 - The password buffer being `mlock`'d prevents *swapping*, not *reading*. With `ptrace_scope=0`, a same-UID plugin could `PTRACE_ATTACH` the core or read `/proc/<pid>/mem`. The core calls `prctl(PR_SET_DUMPABLE, 0)` at startup (see `main.rs` §0, opt out with `VEILAND_ALLOW_DUMP=1`) to deny that and suppress core dumps of the buffer — defense-in-depth, not an absolute wall. Root, a kernel bug, or a privileged debugger still wins. There is no seccomp/landlock sandbox yet.
 - So: **first-party plugins** (this repo) are code we review and vouch for. **Third-party plugins** are same-user code the user chose to install; we reduce risk, we don't guarantee zero. Do not write prose (README, docs, comments) that claims a plugin "cannot read the password" as an unqualified fact — qualify it as "cannot by protocol construction; a hostile same-UID plugin is a residual risk we harden against but do not eliminate."
+
+**Fingerprint unlock (opt-in) — what it adds.** A second unlock path, still decided by PAM in the core (`auth/fingerprint.rs`):
+
+- Enrolled prints become unlock credentials. Enrolling goes through fprintd's polkit `auth_self_keep`, so same-UID code holding a recent polkit authorization could add a print; a physical finger is still needed to use it.
+- pam_fprintd only accepts D-Bus signals from fprintd's bus name, so another process can't forge a match.
+- The core never answers a password prompt on `veiland-fingerprint`, and refuses a success the module reached without prompting for a finger, so a misconfigured stack (missing file falling back to `other`, `pam_permit`) can't unlock. Don't weaken either check.
+- The `veiland-fingerprint` file must contain only `pam_fprintd`: Fedora's `fingerprint-auth` runs `pam_faillock` per failed scan, and the core's restart-after-timeout loop would lock the account. The loop stops after 2 `MAXTRIES` rounds so it doesn't bypass the module's brute-force limit.
+- The `veiland` password stack must not run pam_fprintd (it would block every attempt). Fedora uses `password-auth`, NixOS sets `fprintAuth = false`. Debian's `common-auth` can still contain it: it fails fast while our service holds the reader, otherwise waits up to 10 s.
 
 **What a malicious plugin can try**, and how we defend:
 

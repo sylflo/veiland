@@ -20,6 +20,7 @@ use crate::{AppData, RunState};
 impl SessionLockHandler for AppData {
     fn locked(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _session_lock: SessionLock) {
         eprintln!("veiland-core: session locked");
+        self.start_fingerprint();
     }
 
     fn finished(

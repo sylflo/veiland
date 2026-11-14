@@ -74,3 +74,9 @@ outer_color = "rgba(150, 170, 200, 0.45)"
 dot_color = "rgba(235, 238, 245, 1.0)"
 dot_diameter = 10
 dot_spacing = 22
+
+# --- Fingerprint unlock (opt-in) ---------------------------------------
+# Needs fprintd with an enrolled finger. A touch unlocks; the password
+# keeps working alongside it. See docs/config.md.
+# [fingerprint]
+# enabled = true

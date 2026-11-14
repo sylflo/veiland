@@ -37,6 +37,7 @@ use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_man
 
 use veiland_protocol::{HOST_CAP_FENCE_FD, HostCapabilities};
 
+use auth::fingerprint::FpEvent;
 use plugin::{PluginSlot, teardown_one_plugin};
 
 /// Whether the locker is still running, unlocked cleanly, or was
@@ -99,6 +100,14 @@ pub(crate) struct AppData {
     /// (handle_key early-returns) so only one PAM attempt runs at a
     /// time and the buffer can't be mutated mid-flight.
     is_checking: bool,
+    /// Event sender for the fingerprint thread. `Some` only when
+    /// `[fingerprint] enabled`; `start_fingerprint` takes it on `locked`.
+    fingerprint_tx: Option<smithay_client_toolkit::reexports::calloop::channel::Sender<FpEvent>>,
+    /// The reader is waiting for a finger: show the fingerprint hint.
+    fingerprint_hint: bool,
+    /// Bumped on every failure flash, so an older flash's reset timer
+    /// can't end a newer one early.
+    fail_flash_gen: u64,
     modifiers: Modifiers,
     /// Calloop handle for registering new plugin sockets on hotplug.
     /// Cloned once at startup; the original handle stays with the
@@ -461,6 +470,16 @@ fn main() -> ExitCode {
         })
         .expect("spawn auth worker thread");
 
+    // Fingerprint events, only when enabled. The thread itself starts on
+    // `locked` (AppData::start_fingerprint), so the reader is never claimed
+    // if the compositor refuses the lock.
+    let (fingerprint_tx, fingerprint_rx) = if config.fingerprint.enabled {
+        let (tx, rx) = calloop_channel::channel::<FpEvent>();
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+
     // --- 5. AppData and lock surface ----------------------------------------
     let mut state = AppData {
         conn: conn.clone(),
@@ -480,6 +499,9 @@ fn main() -> ExitCode {
         auth,
         auth_tx,
         is_checking: false,
+        fingerprint_tx,
+        fingerprint_hint: false,
+        fail_flash_gen: 0,
         loop_handle: event_loop.handle(),
         next_plugin_source_serial: 0,
         qh: qh.clone(),
@@ -607,6 +629,17 @@ fn main() -> ExitCode {
             }
         })
         .expect("register auth verdict channel with calloop");
+
+    if let Some(rx) = fingerprint_rx {
+        event_loop
+            .handle()
+            .insert_source(rx, |event, _, state: &mut AppData| match event {
+                calloop_channel::Event::Msg(ev) => state.handle_fingerprint_event(ev),
+                // The thread ended (matched, gave up, or never started).
+                calloop_channel::Event::Closed => state.set_fingerprint_hint(false),
+            })
+            .expect("register fingerprint channel with calloop");
+    }
 
     // --- 7. Main loop --------------------------------------------------------
     while matches!(state.run, RunState::Running) {

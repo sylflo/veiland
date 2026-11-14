@@ -374,6 +374,37 @@ nothing to tint):
 
 The same `[password]` config applies to every monitor's lock surface.
 
+### `[fingerprint]` (table, optional)
+
+Unlock with a fingerprint as well as the password. Off by default.
+
+```toml
+[fingerprint]
+enabled = true                         # default false
+hint_text = "Password or fingerprint"  # default shown here
+```
+
+- **`enabled`** (bool, optional, default `false`). When true, the core
+  runs a second PAM conversation on the `veiland-fingerprint` service,
+  in parallel with the password check, as GDM and KDE do. A touch on the
+  reader unlocks; typing the password still works the whole time. Needs
+  fprintd with an enrolled finger (`fprintd-enroll`) and the
+  `veiland-fingerprint` PAM file, which the packages and the NixOS module
+  install (see the README's PAM section). If that file is missing, the
+  core logs it and the password stays the only way in.
+- **`hint_text`** (string, optional, default `"Password or fingerprint"`).
+  Replaces `placeholder_text` while the reader is waiting for a finger,
+  drawn with the same font and colour. `""` hides it.
+
+A rejected finger flashes `fail_color` like a wrong password. After 6
+rejected fingers (two rounds of pam_fprintd's 3 tries) fingerprint
+unlock stops for that lock and the hint disappears; the password still
+works. The core never answers a password prompt on the fingerprint
+service, and ignores a success unless the module asked for a finger
+first, so a misconfigured `veiland-fingerprint` stack cannot unlock.
+No reader to test with? See
+[testing-fingerprint.md](../docs/testing-fingerprint.md).
+
 ### `[plugin.config]` (table, optional)
 
 A pass-through table for plugin-specific settings. At spawn time

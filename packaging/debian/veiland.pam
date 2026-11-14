@@ -1,10 +1,9 @@
-# PAM configuration for veiland (Debian/Ubuntu).
-# veiland does password authentication only. It runs the auth phase and
-# feeds the typed password to PAM; it never opens a session, sets
-# credentials, or changes passwords, and it cannot drive interactive
-# modules like fingerprint (pam_fprintd) or hardware tokens.
-# No account phase on purpose: a locker re-verifies an existing session,
-# it does not admit a new one, so there is deliberately no account line.
-# On Debian the system stack is split into common-* fragments; any
-# non-password lines they pull in are inert for veiland.
+# PAM configuration for veiland's password check (Debian/Ubuntu).
+# Authenticate only: no account, session, or password phase. A locker
+# re-verifies an existing session; it does not admit a new one.
+# Fingerprint unlock is the separate veiland-fingerprint service, run in
+# parallel. If pam-auth-update's fingerprint profile is on, common-auth
+# also runs pam_fprintd: with veiland's [fingerprint] enabled it usually
+# fails fast (veiland's own service holds the reader) and falls through
+# to the password; with it off, an attempt can wait up to 10 s.
 auth     include  common-auth

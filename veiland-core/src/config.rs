@@ -25,6 +25,36 @@ pub struct Config {
     /// `validate_password` for clamping ranges).
     #[serde(default)]
     pub password: Password,
+
+    /// Fingerprint unlock. Off unless `[fingerprint] enabled = true`.
+    #[serde(default)]
+    pub fingerprint: Fingerprint,
+}
+
+/// `[fingerprint]`: unlock through the `veiland-fingerprint` PAM service,
+/// in parallel with the password. Opt-in; see docs/config.md.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Fingerprint {
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Replaces the password placeholder while the reader is waiting for a
+    /// finger. Drawn with the `[password]` placeholder font and colour.
+    #[serde(default = "default_fingerprint_hint_text")]
+    pub hint_text: String,
+}
+
+impl Default for Fingerprint {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            hint_text: default_fingerprint_hint_text(),
+        }
+    }
+}
+
+fn default_fingerprint_hint_text() -> String {
+    "Password or fingerprint".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1195,6 +1225,25 @@ mod tests {
         assert_eq!(p.placeholder_text, "Enter to remember...");
         assert_eq!(p.placeholder_font_family, "Sans");
         assert_eq!(p.placeholder_font_size, 18);
+    }
+
+    #[test]
+    fn fingerprint_absent_is_off() {
+        let config = parse("").expect("empty config parses");
+        assert!(!config.fingerprint.enabled);
+        assert_eq!(config.fingerprint.hint_text, "Password or fingerprint");
+    }
+
+    #[test]
+    fn fingerprint_table_parses() {
+        let text = r#"
+            [fingerprint]
+            enabled = true
+            hint_text = "Touch the sensor"
+        "#;
+        let config = parse(text).expect("fingerprint table parses");
+        assert!(config.fingerprint.enabled);
+        assert_eq!(config.fingerprint.hint_text, "Touch the sensor");
     }
 
     #[test]

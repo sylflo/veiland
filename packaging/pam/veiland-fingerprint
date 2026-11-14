@@ -1,0 +1,10 @@
+# PAM configuration for veiland's fingerprint unlock (all distros).
+# Used only when the user sets `[fingerprint] enabled = true`. veiland
+# runs it in parallel with the password check, never answers a password
+# prompt on it, and only accepts a success after the module has asked
+# for a finger.
+# Only pam_fprintd, on purpose. Don't include fingerprint-auth or
+# system-auth: Fedora's fingerprint-auth runs pam_faillock after a failed
+# scan, and veiland restarts the scan after each 30 s timeout, so it
+# would lock the account while the screen sits idle.
+auth     required  pam_fprintd.so

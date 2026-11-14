@@ -589,8 +589,14 @@ impl AppData {
 
         // The password field (box + dots) paints on top of any plugins —
         // see the matching note in SessionLockHandler::configure.
+        let placeholder = if self.fingerprint_hint {
+            &self.config.fingerprint.hint_text
+        } else {
+            &self.config.password.placeholder_text
+        };
         self.renderer.draw_password_field(
             &self.config.password,
+            placeholder,
             self.auth.char_count(),
             self.auth_state,
             self.modifiers.caps_lock,
@@ -752,37 +758,124 @@ impl AppData {
         // Verdict resolved: unlock the keyboard handler either way.
         self.is_checking = false;
 
-        if ok {
-            if let Some(lock) = self.session_lock.take() {
-                lock.unlock();
-                self.conn.roundtrip().expect("flush unlock");
-            }
-            self.run = RunState::UnlockedCleanly;
+        if ok && self.commit_unlock() {
             return;
         }
 
         // Failure: buffer was already cleared by take_password(). User
-        // retypes. Show the fail indicator, then reset to Idle after
-        // 1500ms (same timer as before).
+        // retypes.
+        self.show_auth_failure();
+    }
+
+    /// End the lock. The only place either auth path (password or
+    /// fingerprint) unlocks; callers have already got a PAM success.
+    /// Returns false, and changes nothing, if there is no confirmed lock
+    /// to end: SCTK's `unlock()` is a silent no-op before `locked`, and
+    /// dropping a lock the compositor did confirm would leave the screen
+    /// locked with a dead locker.
+    pub(crate) fn commit_unlock(&mut self) -> bool {
+        if !matches!(self.run, RunState::Running) {
+            return false;
+        }
+        let Some(lock) = self.session_lock.take_if(|l| l.is_locked()) else {
+            eprintln!("veiland-core: auth succeeded before the lock was confirmed; not unlocking");
+            return false;
+        };
+        // A fingerprint unlock can land with a half-typed password.
+        self.auth.clear();
+        lock.unlock();
+        self.conn.roundtrip().expect("flush unlock");
+        self.run = RunState::UnlockedCleanly;
+        true
+    }
+
+    /// Show the fail indicator, then reset to Idle after 1500 ms.
+    pub(crate) fn show_auth_failure(&mut self) {
         self.auth_state = crate::AuthState::Failed;
+        self.fail_flash_gen = self.fail_flash_gen.wrapping_add(1);
+        let flash = self.fail_flash_gen;
 
         use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
         let _ = self.loop_handle.insert_source(
             Timer::from_duration(std::time::Duration::from_millis(1500)),
-            |_, _, state: &mut crate::AppData| {
-                state.auth_state = crate::AuthState::Idle;
-                for entry in state.lock_surfaces.iter_mut().flatten() {
-                    entry.needs_paint = true;
+            move |_, _, state: &mut crate::AppData| {
+                // A newer failure restarted the flash; its own timer ends it.
+                if state.fail_flash_gen == flash && state.auth_state == crate::AuthState::Failed {
+                    state.auth_state = crate::AuthState::Idle;
+                    state.mark_all_dirty_and_repaint();
                 }
-                state.repaint_lock_surfaces();
                 TimeoutAction::Drop
             },
         );
 
+        self.mark_all_dirty_and_repaint();
+    }
+
+    fn mark_all_dirty_and_repaint(&mut self) {
         for entry in self.lock_surfaces.iter_mut().flatten() {
             entry.needs_paint = true;
         }
         self.repaint_lock_surfaces();
+    }
+
+    /// Spawn the fingerprint thread, once, when the compositor confirms
+    /// the lock. No-op unless `[fingerprint] enabled`. Every failure here
+    /// is logged and leaves the password as the only way in; dropping the
+    /// sender closes the channel, which hides the hint.
+    pub(crate) fn start_fingerprint(&mut self) {
+        use crate::auth::fingerprint;
+
+        let Some(tx) = self.fingerprint_tx.take() else {
+            return;
+        };
+        if !fingerprint::service_installed() {
+            eprintln!(
+                "veiland-core: fingerprint enabled but the {:?} PAM service is not \
+                 installed; see the README's PAM section",
+                fingerprint::SERVICE
+            );
+            return;
+        }
+        let user = match User::from_uid(getuid()) {
+            Ok(Some(u)) => u.name,
+            _ => {
+                eprintln!("veiland-core: fingerprint: cannot resolve current user");
+                return;
+            }
+        };
+        let spawned = std::thread::Builder::new()
+            .name("veiland-fingerprint".into())
+            .spawn(move || fingerprint::run(&user, |ev| tx.send(ev).is_ok()));
+        if let Err(e) = spawned {
+            eprintln!("veiland-core: fingerprint: cannot spawn thread: {e}");
+        }
+    }
+
+    /// One event from the fingerprint thread. Runs on the main thread.
+    pub(crate) fn handle_fingerprint_event(&mut self, ev: crate::auth::fingerprint::FpEvent) {
+        use crate::auth::fingerprint::FpEvent;
+
+        if !matches!(self.run, RunState::Running) {
+            return;
+        }
+        match ev {
+            FpEvent::Prompt => self.set_fingerprint_hint(true),
+            FpEvent::Waiting => self.set_fingerprint_hint(false),
+            // A password check in flight owns the indicator.
+            FpEvent::NoMatch if !self.is_checking => self.show_auth_failure(),
+            FpEvent::NoMatch => {}
+            FpEvent::Matched => {
+                eprintln!("veiland-core: fingerprint matched");
+                self.commit_unlock();
+            }
+        }
+    }
+
+    pub(crate) fn set_fingerprint_hint(&mut self, on: bool) {
+        if self.fingerprint_hint != on {
+            self.fingerprint_hint = on;
+            self.mark_all_dirty_and_repaint();
+        }
     }
 
     /// Handle one key event from the keyboard: the keystroke →
